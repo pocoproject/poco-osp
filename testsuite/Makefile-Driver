@@ -1,0 +1,20 @@
+#
+# Makefile
+#
+# Makefile for Poco OSP testsuite
+#
+
+include $(POCO_BASE)/build/rules/global
+
+objects = BundleDirectoryTest BundleTest OSPCoreTestSuite TestBundle \
+	BundleFileTest Driver OSPTestSuite VersionRangeTest \
+	BundleManifestTest OSPBundleTestSuite OSPUtilTestSuite VersionTest \
+	BundleRepositoryTest PropertiesTest QLParserTest ServiceTest \
+	ServiceRegistryTest ServiceListenerTest ServiceTestSuite \
+	BundleStreamFactoryTest WebEventServiceTest
+
+target         = testrunner
+target_version = 1
+target_libs    = PocoOSPWebEvent PocoOSP PocoUtil PocoXML PocoNet PocoFoundation CppUnit
+
+include $(POCO_BASE)/build/rules/exec

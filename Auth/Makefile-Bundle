@@ -1,0 +1,18 @@
+#
+# Makefile
+#
+# Makefile for Poco OSPAuth Bundle
+#
+
+include $(POCO_BASE)/build/rules/global
+include $(POCOPLUS_BASE)/OSP/BundleCreator/BundleCreator.make
+
+objects = AuthBundleActivator
+
+target         = com.appinf.osp.auth
+target_version = 1
+target_libs    = PocoOSPAuth PocoOSP PocoNet PocoUtil PocoXML PocoFoundation
+
+postbuild      = $(SET_LD_LIBRARY_PATH) $(BUNDLE_TOOL) -n$(OSNAME) -a$(OSARCH) -o../bundles AuthBundle.bndlspec
+
+include $(POCO_BASE)/build/rules/dylib

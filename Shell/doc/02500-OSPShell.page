@@ -1,0 +1,421 @@
+OSP Command Shell
+Open Service Platform
+
+!!! Introduction
+
+The <!OSP Command Shell!> is an extension to the Open Service Platform that provides
+a command-line administration interface to an OSP-based application. The
+OSP Shell consists of two parts. A bundle running within the OSP-based
+application implements a service that accepts commands over a socket
+connection, executes the commands, and sends back the result.
+A simple client application (<[ospsh]>) reads commands from the
+user, sends them to the server, and displays the response from
+the server.
+
+The OSP Shell is extensible -- it is possible to add new commands to the
+shell using a mechanism based on extension points.
+The standard commands provided by the OSP Shell provide the following
+features:
+
+  - list all bundles installed in an OSP application
+  - list all services registered with the Service Registry
+  - get detailed information (version, dependencies) for installed bundles
+  - manage the lifecycle of bundles (install, resolve, start, stop, uninstall, upgrade)
+
+
+!!! Accessing the OSP Shell
+
+To start the OSP Shell, the OSP Shell client application, named <[ospsh]>, must
+be started. For the client to work, the OSP Shell Service bundle must be running on the local
+machine.
+
+After starting <[ospsh]>, the user is prompted for a username and password used to
+authenticate against the OSP Shell server.
+The default user name and password is "admin", and "admin", respectively.
+The username and password can also be provided via command-line arguments, or via environment variables 
+(`OSPSH_USERNAME` and `OSPSH_PASSWORD`).
+
+    user@host> ospsh
+    Username: admin
+    Password:
+
+    OSP Command Shell Service ready.
+    Copyright (c) 2009-2023, Applied Informatics Software Engineering GmbH.
+    Enter "h" or "help" for a list of commands.
+
+    osp> _
+----
+
+After the connection to the OSP Shell Service has been established,
+a greeting message from the OSP Shell Service is displayed, followed
+by a command prompt. Entering the <[help]> command shows a list of
+all available commands.
+
+    osp> help
+    The following commands are available:
+      bundles (ls, ss)
+      help
+      info
+      install
+      login
+      quit (exit)
+      resolve
+      services (lss)
+      start
+      stop
+      uninstall (rm)
+      upgrade
+
+    Enter <command> --help for more information about a command.
+    osp> _
+----
+
+Some commands are available under an alternative name. In the help
+screen, the alternatives are shown in parenthesis following the
+primary name. For example, instead of entering the "bundles"
+command, the <[ls]> command can be entered with the same effect.
+
+All standard commands provide a <[--help]> (or <[-h]> in short) option.
+Starting a command
+with this option shows a small help screen, including the supported
+command options.
+
+    osp> bundles --help
+    usage: bundles [--help] [pattern ...]
+    List all installed bundles in the system. A pattern can be specified to list
+    only bundles matching the given pattern.
+
+    -h, --help  display help information on command line arguments
+    osp> _
+----
+
+To exit the shell, the <[quit]> (or <[exit]>) command is used.
+
+
+!!! Common Tasks
+
+!! Listing All Installed Bundles
+
+Enter the <[bundles]> command to show a list of all
+installed bundles. An optional wildcard pattern can be
+given as argument to only show bundles matching
+the pattern.
+
+    osp> bundles
+        ID  State         Bundle
+        12  active        com.appinf.osp.bundleadmin/1.1.0
+         1  active        com.appinf.osp.samples.auth/1.0.0
+         2  active        com.appinf.osp.samples.extensible/1.0.0
+         3  active        com.appinf.osp.samples.extension/1.0.0
+         4  active        com.appinf.osp.samples.greeter/1.0.0
+         5  active        com.appinf.osp.samples.greetingservice/1.0.0
+         6  active        com.appinf.osp.samples.preferences/1.0.0
+         7  active        com.appinf.osp.samples.servicelistener/1.0.0
+         8  active        com.appinf.osp.samples.webindex/1.0.0
+         9  active        com.appinf.osp.samples.webinfo/1.0.0
+        10  active        com.appinf.osp.samples.webpage/1.0.0
+        11  active        com.appinf.osp.samples.websession/1.0.0
+        13  active        com.appinf.osp.shell/1.0.0
+        14  active        osp.core/1.1.0
+        17  active        osp.web/1.0.2
+        16  active        osp.web.server/1.0.0
+        15  active        osp.web.server.secure/1.0.0
+        20  active        poco.data/1.3.4
+        18  active        poco.data.odbc/1.3.4
+        19  active        poco.data.sqlite/1.3.4
+        22  active        poco.net/1.3.4
+        21  active        poco.net.ssl/1.3.4
+    osp> _
+----
+
+The <[ls]> (list) and <[ss]> (system status) commands are alternative names
+for the <[bundles]> command.
+
+    osp> ls osp.*
+        ID  State         Bundle
+        14  active        osp.core/1.1.0
+        17  active        osp.web/1.0.2
+        16  active        osp.web.server/1.0.0
+        15  active        osp.web.server.secure/1.0.0
+    osp> _
+----
+
+
+!! Listing All Registered Services
+
+The <[services]> (or <[lss]>) command lists all currently registered services.
+
+    osp> services
+    com.appinf.osp.samples.GreetingService
+    osp.auth
+    osp.core.installer
+    osp.core.preferences
+    osp.core.xp
+    osp.web.dispatcher
+    osp.web.mediatype
+    osp.web.session
+    osp> _
+----
+
+Similar to the <[bundles]> command, a wildcard pattern can be
+given as argument, to list only matching services.
+
+The command can also be used to find services based on a query
+expression, as understood by the Poco::OSP::ServiceRegistry::find()
+function. To specify a query expression, the <[--query]> (or <[-q]>)
+option is used.
+
+    osp> services -qname==\"osp.auth\"
+    osp.auth
+    osp> _
+----
+
+
+!! Getting Information About a Bundle
+
+The <[info]> command displayes information about a bundle.
+
+    osp> info osp.core
+    ID:            14
+    Symbolic Name: osp.core
+    Name:          OSP Core
+    Version:       1.1.0
+    Vendor:        Applied Informatics
+    Copyright:     (c) 2007-2009, Applied Informatics Software Engineering GmbH
+    State:         active
+    Run Level:     000
+    Path:          /ws/poco-1.3/OSP/bundles/osp.core_1.1.0.bndl
+    osp> _
+----
+
+Instead of giving the symbolic name of the bundle as argument, the
+numeric ID of the bundle can be given as well.
+
+The bundle's dependencies (the list of bundles required by the given bundle) can be listed
+by specifying the <[--dependencies]> (or <[-d]>) option.
+
+    osp> info -d 15
+    osp.web [1.0.0,1.1.0)
+    poco.net.ssl [1.3.0,2.0.0)
+    osp> _
+----
+
+The <[--clients]> (or <[-c]>) lists all bundles that require the
+given bundle.
+
+    osp> info -c poco.net
+    com.appinf.osp.shell/1.0.0
+    osp.web/1.0.2
+    poco.net.ssl/1.3.4
+    osp> _
+----
+
+
+!!! Managing The Bundle Lifecycle
+
+A bundle in <*resolved*> state can be started with the
+<[start]> command. A currently active bundle can be
+stopped with the <[stop]> bundle. A stopped bundle
+(<*resolved*> or <*installed*> state) can be uninstalled with
+the <[uninstall]> (or <[rm]>) command.
+
+Note that all bundles that change the state of a bundle
+require the <*bundleAdmin*> permission for the current
+user.
+
+
+!! Stopping And Uninstalling Bundles
+
+Stopping a bundle can be a dangerous operation, as other bundles may require the bundle to do their work. Therefore,
+the <[stop]> command checks the dependencies of a bundle to be stopped and displays a warning message if there
+are other bundles depending on the bundle to be stopped. To nevertheless stop such a bundle, the
+<[--force]> option can be specified.
+
+    osp> stop 22
+    Cannot stop bundle poco.net as the following bundles depend on it:
+    com.appinf.osp.shell (13)
+    osp.web (17)
+    poco.net.ssl (21)
+    Use the --force option to override at your own risk.
+    osp> _
+----
+
+
+!! Upgrading a Bundle
+
+An installed bundle can be upgraded, which involves the following steps:
+
+  - stopping the bundle
+  - uninstalling the bundle
+  - downloading a new version of the bundle
+  - installing the new version of the bundle
+
+The ID of the bundle or its symbolic name, and a network location (URI) or
+filesystem path, where the bundle file containing the new version of the bundle
+can be found must be specified.
+
+    osp> upgrade 24 /data/bundles/com.appinf.osp.sample_1.1.0.bndl
+    Downloading and upgrading bundle com.appinf.osp.sample from /data/bundles/com.appinf.osp.sample_1.1.0.bndl
+    Bundle successfully upgraded: com.appinf.osp.sample/1.1.0 (New ID: 29)
+    osp> _
+----
+
+
+!! Installing a Bundle
+
+A new bundle can be installed using the <[install]> command. A network location
+(URI) or filesystem path, where the bundle file to be installed can be found must be specified.
+
+    osp> install http://my.server.com/bundles/com.appinf.osp.sample_1.1.0.bndl
+    Downloading and installing bundle from http://my.server.com/bundles/com.appinf.osp.sample_1.1.0.bndl
+    Bundle successfully installed: com.appinf.osp.sample/1.1.0 (ID: 24)
+    osp> _
+----
+
+After installing or upgrading a bundle, the bundle must be resolved
+using the <[resolve]> command before the bundle can be started.
+
+
+!!! Shell Command-Line Options
+
+The <[ospsh]> command accepts the following command-line options:
+  - <[/help]>, <[-h]>, <[--help]>: Display help information on command-line arguments.
+  - <[/username=<username>]>, <[-u<username>]>, <[--username=<username>]>: Specify the
+    user name for logging in to the shell service.
+  - <[/password=<password>]>, <[-p<password>]>, <[--password=<password>]>: Specify the
+    password for logging in to the shell service.
+  - <[/host=<host>]>, <[-h<host>]>, <[--host=<host>]>: Specify the hostname or IP address
+    of the host running the OSP shell service.
+  - <[/port=<port>]>, <[-p<port>]>, <[--port=<port>]>: Specify the port number of the
+    OSP shell service.
+  - <[/file=<path>]>, <[-f<path>]>, <[--file=<path>]>: Read commands from the file
+    specified by <[<path>]>.
+  - <[/noprompt]>, <[-n]>, <[--noprompt]>: Do not display a prompt. Also do not show
+    welcome message.
+  - <[/noauth]>, <[-N]>, <[--noauth]>: Do not authenticate against the server (no
+    <[login]> command is send after establishing the connection).
+
+
+!!! Adding Custom Commands to the OSP Command Shell Service
+
+It is possible to add new commands to the OSP Command Shell Service by making use
+of the <[com.appinf.osp.shell.command]> extension point to register a command
+with the service.
+
+!! The Poco::OSP::Shell::Command Interface
+
+To implement a command, a class must be created that implements the
+Poco::OSP::Shell::Command interface. It is sufficient to override the
+<[execute()]> member function.
+In addition to creating the command class, a factory class for the
+command also must be provided. The factory class must be a subclass
+of Poco::OSP::Shell::CommandFactory and must be exported in a
+class loader manifest named <[Shell]>.
+
+Commands supporting command-line options should be implemented based
+on the Poco::OSP::Shell::AbstractCommand class. This class does much
+of the heavylifting required to process command-line options and arguments,
+based on the Poco::Util::Option class and friends.
+
+Commands that deal with bundles might benefit from using the
+Poco::OSP::Shell::OSPCommand class.
+
+The following sample code implements an <[echo]> command that simply
+echoes back all command-line argument. References to an application configuration
+property in the form <[${property}]> are expanded.
+
+
+    #include "Poco/ClassLibrary.h"
+    #include "Poco/OSP/Shell/Command.h"
+    #include "Poco/OSP/Shell/CommandFactory.h"
+    #include "Poco/Util/Application.h"
+    #include "Poco/Util/AbstractConfiguration.h"
+
+
+    class EchoCommand: public Poco::OSP::Shell::Command
+    {
+    public:
+        int execute(Poco::OSP::Shell::Session& session, const std::vector<std::string>& args, std::ostream& ostr)
+        {
+            Poco::Util::Application& app = Poco::Util::Application::instance();
+
+            for (int i = 1; i < args.size(); ++i)
+            {
+                if (i > 1) ostr << ' ';
+                ostr << app.config().expand(args[i]);
+            }
+            ostr << std::endl;
+
+            return Command::STATUS_OK;
+        }
+    };
+
+
+    class EchoCommandFactory: public Poco::OSP::Shell::CommandFactory
+    {
+    public:
+        Poco::OSP::Shell::Command* createCommand()
+        {
+            return new EchoCommand;
+        }
+    };
+
+
+    POCO_BEGIN_NAMED_MANIFEST(Shell, Poco::OSP::Shell::CommandFactory)
+        POCO_EXPORT_CLASS(EchoCommandFactory)
+    POCO_END_MANIFEST
+----
+
+The complete source code and all necessary project and support files for the
+sample can be found in the OSP samples directory.
+
+
+!! The Command Extension Point
+
+To add the command to the shell, the <[com.appinf.osp.shell.command]>
+extension point must be used.
+
+Following is the <[extensions.xml]> file for installing the
+necessary extension point for the sample command.
+
+    <extensions>
+      <extension point="com.appinf.osp.shell.command" command="echo" class="EchoCommandFactory"/>
+    </extensions>
+----
+
+The extension point has a few more (optional) attributes. A complete list
+of attributes is given below:
+  - <[command]>: the name of the command (e.g., "bundles").
+  - <[aliases]>: a comma-separated list of alias names for the command (e.g., "ls").
+  - <[permission]>: the permission required to run this command.
+  - <[class]>: the class name of the command factory (see the Poco::OSP::Shell::CommandFactory class).
+  - <[library]>: the name of the shared library containing the command factory
+    (can be omitted if the name of the library matches the name of the bundle).
+
+
+
+!!! Customizing the OSP Command Shell Service
+
+The OSP Command Shell Service can be customized by editing the settings
+in the shell bundle's <[bundle.properties]> file and rebuilding the
+bundle.
+
+The following settings can be customized:
+
+  - <[interface]>: The network interface where the shell service listens
+    for incoming connections. For security reasons, the shell service
+    only listens at the localhost interface per default.
+  - <[port]>: The TCP port number of the shell service. Defaults
+    to 22023.
+  - <[maxConnections]>: The maximum number of simultaneous connections
+    to the shell service. Defaults to 1.
+  - <[authServiceName]>: The name of the authentication/authorization service
+    to use. Defaults to <[osp.auth]>.
+
+The settings stored in the bundle can be overridden by specifying the following settings
+in the OSP application's global configuration file:
+
+  - <[com.appinf.osp.shell.interface]>
+  - <[com.appinf.osp.shell.port]>
+  - <[com.appinf.osp.shell.maxConnections]>
+  - <[com.appinf.osp.shell.authServiceName]>

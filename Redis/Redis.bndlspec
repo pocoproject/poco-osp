@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<bundlespec>
+  <manifest>
+    <name>POCO Redis Library</name>
+    <symbolicName>poco.redis</symbolicName>
+    <version>1.11.8</version>
+    <vendor>Aleph ONE</vendor>
+    <copyright>(c) 2021-2025, Aleph ONE Software Engineering LLC</copyright>
+    <activator>
+      <class>RedisBundleActivator</class>
+      <library>poco.redis</library>
+    </activator>
+    <lazyStart>false</lazyStart>
+    <runLevel>000</runLevel>
+  </manifest>
+  <code>
+    ${bin}/*.dll,
+    ${bin}/*.pdb,
+    ../../${bin}/PocoRedis${64}.dll,
+    ../../${bin}/PocoRedis${64}d.dll,
+    ../../${bin}/PocoRedis${64}d.pdb,
+    bin/${osName}/${osArch}/*.so,
+    bin/${osName}/${osArch}/*.dylib,
+    ../../lib/${osName}/${osArch}/libPocoRedis.so.*,
+    ../../lib/${osName}/${osArch}/libPocoRedisd.so.*,
+    ../../lib/${osName}/${osArch}/libPocoRedis.*.dylib,
+    ../../lib/${osName}/${osArch}/libPocoRedisd.*.dylib
+  </code>
+</bundlespec>

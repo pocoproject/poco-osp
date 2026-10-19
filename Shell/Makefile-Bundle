@@ -1,0 +1,26 @@
+#
+# Makefile-Bundle
+#
+# Makefile for Poco OSP Shell Bundle
+#
+
+include $(POCO_BASE)/build/rules/global
+include $(POCOPLUS_BASE)/OSP/BundleCreator/BundleCreator.make
+
+ifdef MACCHINA_ENABLE_OSP_SSH
+CXXFLAGS += -DOSP_SHELL_ENABLE_SSH
+endif
+
+objects = CommandExtensionPoint ShellBundleActivator
+
+target         = com.appinf.osp.shell
+target_version = 1
+target_libs    = PocoOSPShell PocoOSP PocoNet PocoUtil PocoXML PocoFoundation
+
+ifdef MACCHINA_ENABLE_OSP_SSH
+target_libs += PocoSSH
+endif
+
+postbuild      = $(SET_LD_LIBRARY_PATH) $(BUNDLE_TOOL) -n$(OSNAME) -a$(OSARCH) -o../bundles Shell.bndlspec
+
+include $(POCO_BASE)/build/rules/dylib

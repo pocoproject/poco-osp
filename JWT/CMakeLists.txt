@@ -1,0 +1,39 @@
+set(TARGET "poco.jwt")
+set(BUNDLE_SPEC "${CMAKE_CURRENT_SOURCE_DIR}/JWT.bndlspec")
+
+set(BUNDLE_DIR ${CMAKE_BINARY_DIR}/${POCO_INSTALL_BUNDLEDIR})
+
+# Sources
+file(GLOB SRCS "src/*.cpp")
+
+file(GLOB_RECURSE HDRS_G "src/*.h")
+POCO_HEADERS_AUTO(SRCS ${HDRS_G})
+
+# Dynamic Library
+add_library(${TARGET} MODULE ${SRCS})
+set_target_properties(${TARGET}
+	PROPERTIES
+	PREFIX ""
+)
+
+# On macOS, use .dylib instead of .so
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
+	set_target_properties(${TARGET} PROPERTIES SUFFIX ".dylib")
+endif()
+
+target_link_libraries(${TARGET} Poco::OSPWeb Poco::OSP Poco::JWT Poco::Crypto Poco::Zip Poco::Net Poco::Util Poco::XML Poco::JSON Poco::Foundation)
+
+# Build Bundle
+poco_osp_bundle(${TARGET}-bundle
+	DEPENDS ${LIBNAME} ${TARGET}
+	SPEC ${BUNDLE_SPEC}
+	CODE $<TARGET_FILE:JWT> $<TARGET_FILE:${TARGET}>
+	DESTINATION ${BUNDLE_DIR}
+)
+
+install(
+	DIRECTORY	 ${BUNDLE_DIR}/
+	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
+	COMPONENT    Bundles
+	FILES_MATCHING PATTERN "${TARGET}*.bndl"
+)

@@ -1,0 +1,462 @@
+OSP Signed Bundles
+Open Service Platform
+
+!!! Introduction
+
+The Open Service Platform provides optional support for digitally signed
+bundles. Digitally signed bundles offer the following features:
+
+  - A signed bundle allows to confirm the author of the bundle, through the author's
+    digital (public key) certificate.
+  - A signed bundle guarantees that its contents have not been modified
+    since the bundle was signed.
+
+ The two main uses for signed bundles in an OSP based applications are:
+
+   - allowing only bundles from certain well-known and trusted sources being loaded
+     into the application, and
+   - preventing end users from tampering with the contents of bundles.
+
+It must be stated that a signed bundle is not an encrypted bundle. All files
+stored in a signed bundle are unencrypted (unless they have been encrypted by
+application-specific means), and thus readable for everyone.
+
+Signed bundles in OSP are in concept very similar to signed
+[[http://en.wikipedia.org/wiki/JAR_(file_format) JAR]] files used by Java.
+Some implementation details are different, though, and the formats are not
+compatible.
+
+Support for signed bundles in OSP is implemented in the <*OSPBundleSign*> library
+(namespace Poco::OSP::BundleSign).
+The <*signbundle*> tool is used to sign a bundle, or verify the signature of
+a bundle.
+
+The author of this text assumes the reader has a basic understanding of cryptography,
+especially public-key cryptography. If not, or to refresh that knowledge, the following
+[[http://wikipedia.org Wikipedia]] articles are recommended for reading:
+
+  * [[https://en.wikipedia.org/wiki/Public-key_cryptography Public-key cryptography]]
+  * [[https://en.wikipedia.org/wiki/Public_key_certificate Public key certificate]]
+  * [[https://en.wikipedia.org/wiki/Cryptographic_hash_function Cryptographic hash function]]
+  * [[https://en.wikipedia.org/wiki/SHA-1 SHA-1 hash function]]
+  * [[https://en.wikipedia.org/wiki/SHA-2 SHA-2 hash functions]]
+  * [[https://en.wikipedia.org/wiki/Digital_signature Digital signature]]
+  * [[https://en.wikipedia.org/wiki/RSA RSA]]
+  * [[https://en.wikipedia.org/wiki/X.509 X.509]]
+
+
+!!! A Note Regarding the SHA-1 Hash Function
+
+The SHA-1 has function, which has been used for signing OSP bundles, is no longer
+considered secure, due to possible collision attacks. New applications should use
+one of the SHA-2 hash functions (SHA256) for signing bundles. Furthermore, existing
+applications should be upgraded to use a stronger SHA-2 hash function as well.
+
+
+!!! Anatomy of a Signed Bundle
+
+A signed bundle at first looks like any ordinary bundle. It contains a number
+of files in different directories, among them the manifest file in the <*META-INF*> directory.
+In contrast to an unsigned bundle, a signed bundle contains two more files in the <*META-INF*>
+directory. The first of these two extra files is the signature file. The second one
+is called the signature block file.
+The signature file stores a cryptographic hash (SHA-1 or SHA-2) for every file stored in the bundle.
+The signature block file contains a digital signature (RSA-SHA) of the signature file,
+as well as optionally the certificate of the signer.
+
+!! The Signature File
+
+The signature file is a simple text file, containing multiple key-value pairs.
+Apart from some meta information (file format version and creator), the file
+contains the full path of every file in the bundle together with the SHA-1/SHA-2
+hash (or message digest) of that file's content.
+An example for a typical signature file is shown below.
+
+    Signature-Version: 1.0
+    Created-By: OSP BundleSigner
+
+    Name: META-INF/manifest.mf
+    SHA1-Digest: c81a1f73a6a2710eb954019c153b899459478f98
+
+    Name: bin/Darwin/i386/com.appinf.osp.bundleadmin.dylib
+    SHA1-Digest: fe769fec98a712d0e21e5c001f87150fd903572f
+
+    Name: bin/Darwin/i386/com.appinf.osp.bundleadmind.dylib
+    SHA1-Digest: ffb1a86170b30e973aeacfb297a83ca10a0cc9cd
+
+    Name: bundle.properties
+    SHA1-Digest: 23f1be5373d875316106033f52d3cf12177f844c
+
+    Name: css/styles.css
+    SHA1-Digest: 7d926a9403b067e8cb61cf1267c938be843bead3
+
+    Name: extensions.xml
+    SHA1-Digest: 106a920530fd490d7f422d6ce42e1a38532d70eb
+
+    Name: images/arrow-left.gif
+    SHA1-Digest: 7c493e28f32ba909ef2f63b80ed08c7c6d58337e
+
+    Name: images/arrow-right.gif
+    SHA1-Digest: 1270adfef816fc7eba739d9f5fbd2c11ac587d8f
+
+    Name: images/bullet.gif
+    SHA1-Digest: 9272111b7d32393ad8d323b12c76322f279735a3
+----
+
+The signature file has the file extension <[.sf]> and is
+always located in the <*META-INF*> directory of the bundle.
+
+!! The Signature Block File
+
+The signature block file, like the signature file, is a text file.
+It has a format very similar to the signature file. Apart from meta
+information, the signature block file contains the digital signature
+of the signature file (using the RSA-SHA algorithm), and optionally,
+the signer's certificate in PEM format. The certificate can later be used to
+verify the integrity of the signed bundle.
+An example for a signature block file is shown below.
+
+    Signature-Version: 1.0
+    Created-By: OSP BundleSigner
+
+    Name: META-INF/appinf.com.sf
+    RSA-SHA1-Signature: 0129b7172527d6510c87d64a33e52d33b28eba5568324cc3...
+
+    X509-Certificate: appinf.com
+    -----BEGIN CERTIFICATE-----
+    MIIESzCCAzOgAwIBAgIBATALBgkqhkiG9w0BAQUwgdMxEzARBgNVBAMMCmFwcGlu
+    Zi5jb20xNjA0BgNVBAoMLUFwcGxpZWQgSW5mb3JtYXRpY3MgU29mdHdhcmUgRW5n
+    aW5lZXJpbmcgR21iSDEUMBIGA1UECwwLRGV2ZWxvcG1lbnQxEjAQBgNVBAgMCUNh
+    cmludGhpYTELMAkGA1UEBhMCQVQxHjAcBgNVBAcMFVN0LiBKYWtvYiBpbSBSb3Nl
+    bnRhbDEtMCsGCSqGSIb3DQEJARYeZ3VlbnRlci5vYmlsdHNjaG5pZ0BhcHBpbmYu
+    Y29tMB4XDTA5MDUwNzE0NTY1NloXDTI5MDUwMjE0NTY1NlowgdMxEzARBgNVBAMM
+    CmFwcGluZi5jb20xNjA0BgNVBAoMLUFwcGxpZWQgSW5mb3JtYXRpY3MgU29mdHdh
+    cmUgRW5naW5lZXJpbmcgR21iSDEUMBIGA1UECwwLRGV2ZWxvcG1lbnQxEjAQBgNV
+    BAgMCUNhcmludGhpYTELMAkGA1UEBhMCQVQxHjAcBgNVBAcMFVN0LiBKYWtvYiBp
+    bSBSb3NlbnRhbDEtMCsGCSqGSIb3DQEJARYeZ3VlbnRlci5vYmlsdHNjaG5pZ0Bh
+    cHBpbmYuY29tMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA89GolWCR
+    KtLQclJ2M2QtpFqzNC54hUQdR6n8+DAeruH9WFwLSdWW2fEi+jrtd/WEWCdt4PxX
+    F2/eBYeURus7Hg2ZtJGDd3je0+Ygsv7+we4cMN/knaBY7rATqhmnZWk+yBpkf5F2
+    IHp9gBxUaJWmt/bq3XrvTtzrDXpCd4zg4zPXZ8IC8ket5o3K2vnkAOsIsgN+Ffqd
+    4GjF4dsblG6u6E3VarGRLwGtgB8BAZOA/33mV4FHSMkc4OXpAChaK3tM8YhrLw+m
+    XtsfqDiv1825S6OWFCKGj/iX8X2QAkrdB63vXCSpb3de/ByIUfp31PpMlMh6dKo1
+    vf7yj0nb2w0utQIDAQABoyowKDAOBgNVHQ8BAf8EBAMCB4AwFgYDVR0lAQH/BAww
+    CgYIKwYBBQUHAwMwDQYJKoZIhvcNAQEFBQADggEBAM0cpfb4BgiU/rkYe121P581
+    ftg5Ck1PYYda1Fy/FgzbgJh2AwVo/6sn6GF79/QkEcWEgtCMNNO3LMTTddUUApuP
+    jnEimyfmUhIThyud/vryzTMNa/eZMwaAqUQWqLf+AwgqjUsBSMenbSHavzJOpsvR
+    LI0PQ1VvqB+3UGz0JUnBJiKvHs83Fdm4ewPAf3M5fGcIa+Fl2nU5Plzwzskj84f6
+    73ZlEEi3aW9JieNy7RWsMM+1E8Sj2CGRZC4BM9V1Fgnsh4+VHX8Eu7eHucvfeIYx
+    3mmLMoK4sCayL/FGhrUDw5AkWb8tKNpRXY+W60Et281yxQSeWLPIbatVzIWI0/M=
+    -----END CERTIFICATE-----
+----
+
+The signature file has the file extension <[.rsa]> and is
+always located in the <*META-INF*> directory of the bundle.
+
+!! How Signing Works
+
+Apart from the complexities of public-key cryptography and
+X.509 signatures, the actual bundle signing mechanism is
+quite simple.
+
+! Signing a Bundle
+
+To sign a bundle, the following steps are performed.
+
+  1. For every file stored in the bundle, compute a message
+     digest (or cryptographic hash). OSP uses the SHA-1
+     or one of the SHA-2 algorithms for this purpose.
+  2. Create a file (the <*signature file*>) containing
+     the names of all files in the bundle, along with
+     their hashes.
+  3. Create a hash (SHA-1 or SHA-2) of the <*signature file*>, and
+     encrypt the hash with the signer's private key (using the
+     RSA algorithm).
+  4. Store the encrypted hash, along with the certificate
+     (optionally) in the bundle (the <*signature block file*>).
+
+After performing these four steps the bundle is digitally
+signed and can be later be verified.
+
+! Verifying The Integrity of a Signed Bundle
+
+To verify the integrity of a signed bundle, the following
+steps are performed.
+
+  1. Create a hash (SHA-1 or SHA-2) of the <*signature file*> in the
+     bundle.
+  2. Decrypt the encrypted hash stored in the <*signature block file*>
+     with the signer's public key (from the signer's certificate)
+     and compare it with the computed hash.
+     If both are equal, the signature file is okay. If not, the
+     signature file has been tampered with, and verification fails.
+  3. For every file stored in the bundle, compute a message
+     digest (or cryptographic hash).
+  4. Verify all computed hashes match the hashes stored in
+     the signature file. Also verify that every file in the bundle
+     has a corresponding entry in the signature file, and vice versa.
+
+This is all that is necessary to verify the integrity of a bundle.
+For example, if someone attempts to change the content of a file in the
+bundle, the file's new hash no longer matches the hash stored in the
+signature file. If the signature file is modified as well (with the
+file's updated hash value), the hash of the signature file no longer
+matches the (encrypted) hash value stored in the signature block file.
+To encrypt the new hash value, access to the signer's private key would
+be required. All an attacker could do is remove the existing
+signature, sign the entire bundle with his own private key, and include his
+own certificate.
+This can be detected as well, through examination of the certificate's
+subject, and through verifying the certificate chain.
+
+
+!! Signer Aliases And Multiple Signers
+
+It is possible for a bundle to contain signatures from multiple signers.
+Every signer uses an alias name to sign the bundle. The alias name is
+used to build the file name of the signature and signature block files.
+The alias name is usually the same as the bundle's common name, but
+it can be different as well. For example, if the signer's alias
+name is "signer", then the signature file would be
+<*META-INF/signer.sf*>, and the signature block file would be
+<*META-INF/signer.rsa*>, respectively.
+
+Note that in case of multiple signers, signature files (<*META-INF/*.sf*> and
+<*META-INF/*.rsa*> are excluded from signing.
+
+
+!!! Signing Bundles
+
+Bundles can be signed either using the Bundle Signer (<*signbundle*>) tool,
+or programmatically, using the Poco::OSP::BundleSign::BundleSigner class.
+
+!! Signing With The Bundle Signer Tool
+
+The Bundle Signer tool (the command to execute the tool is
+<*signbundle*>) is a small utility application that basically
+provides a command line interface to the Poco::OSP::BundleSign::BundleSigner
+class. To sign a bundle, the private key of the signer is required.
+The private key must be stored in a file in PEM format.
+If the certificate should be included in the signed bundle,
+the file containing the certificate in PEM format is required as well.
+Private key and certificate can be stored in the same file.
+
+The private key and certificate file must be passed to the
+<*signbundle*> tool with the <[/key]> (or <[--key]>) and
+<[/certificate]> (or <[--certificate]>) command line options.
+
+If the private key is protected by a passphrase, the passphrase
+must be passed to the tool with the <[/passphrase]> (or
+<[--passphrase]>) option.
+
+An alias name for the signer can be specified as well, using the
+<[/alias]> (or <[--alias]>) option. If no alias name is specified,
+the alias name is taken from the certificate's common name, or,
+if no certificate has been specified, from the private key file's
+name.
+
+The path of the bundle file (or directory) must be passed as command line argument
+as well.
+
+Example: The following command will sign the bundle using the private key contained
+in file <*appinf.com.pem*>, and store the certificate (contained in the same file) in
+the signed bundle. The command usage shown is for Windows.
+
+    C:\Sample> signbundle com.appinf.osp.bundleadmin_1.1.0.bndl /key:appinf.com.pem /certificate:appinf.com.pem
+----
+
+To do the same on a Unix or Linux platform, the command is:
+
+    $ signbundle com.appinf.osp.bundleadmin_1.1.0.bndl --key=appinf.com.pem --certificate=appinf.com.pem
+----
+
+!! Signing Bundles Programmatically
+
+Bundles can be signed programmatically, using the Poco::OSP::BundleSign::BundleSigner class.
+Signing a bundle is straightforward. First, a Poco::Crypto::RSAKey object must be
+created. The key object must contain the private key used for signing.
+Then a Poco::OSP::BundleSign::BundleSigner is created, by passing the
+path of the bundle file or directory, and the private key to the constructor.
+Then, the <[signBundle()]> member function is called. If the signer's certificate
+should be included in the bundle, a Poco::Crypto::X509Certificate object
+containing the certificate must be passed to the signBundle() member function.
+
+Example:
+    Poco::Crypto::RSAKey signerKey("", "appinf.com.pem", "");
+    Poco::OSP::BundleSign::BundleSigner bundleSigner("appinf.com", signerKey, "SHA256");
+    Poco::Crypto::X509Certificate cert("appinf.com.pem");
+    bundleSigner.signBundle("com.appinf.osp.bundleadmin_1.1.0.bndl", cert);
+----
+
+
+!!! Verifying Signed Bundles
+
+The signature of a signed bundle can be verified either using the
+Bundle Signer (<*signbundle*>) tool, or programmatically,
+using the Poco::OSP::BundleSign::BundleVerifier class.
+
+!! Verifying With The Bundle Signer Tool
+
+A signed bundle can be verified by passing the <[/verify]> (or
+<[--verify]>) option to the <*signbundle*> tool. If the
+bundle does not contain the signer's certificate, the
+certificate to be used for verifying the bundle's signature
+must be passed to the tool as well, using the
+<[/certificate]> (or <[--certificate]>) option.
+The certificate must be stored in a file in PEM format.
+
+In case of multiple signers, the signature to verify can
+be specified via the <[/alias]> (or <[--alias]>) command-line
+option.
+
+Example (Windows):
+    C:\Sample> signbundle com.appinf.osp.bundleadmin_1.1.0.bndl /verify /certificate:appinf.com.pem
+----
+
+Provided the bundle signature could be verified, the output of the above command would be:
+    Bundle verification successful for bundle com.appinf.osp.bundleadmin_1.1.0.bndl (signed
+    by /CN=appinf.com/O=Applied Informatics Software Engineering GmbH/OU=Development/ST=Car
+    inthia/C=AT/L=St. Jakob im Rosental/emailAddress=guenter.obiltschnig@appinf.com).
+----
+
+!! Verifying Bundles Programmatically
+
+The verification of a bundle's signature can of course be done programmatically, too.
+For this purpose, the Poco::OSP::BundleSign::BundleVerifier class is used.
+To verify the signature of a bundle, the following steps must be performed:
+
+  1. The signer of the bundle must be obtained. This is done by looking for
+     signature files in the bundle. Since a signature file's name includes
+     the signer's alias name, it's easy to get the alias name once a signature file
+     has been found in the bundle. The easiest way to do this is
+     to call Poco::OSP::BundleSign::BundleVerifier::firstSigner().
+  2. The signer's certificate (containing the signer's public key)
+     for verifying the bundle's signature must be obtained.
+     The certificate can be obtained directly
+     from the bundle (by calling Poco::OSP::BundleSign::BundleVerifier::extractCertificate()),
+     if it is store therein, or it can be obtained from another
+     location (e.g., a certificate store), by application specific means.
+  3. Once the signer's alias name is known and the signer's certificate is available,
+     the bundle's signature can be verified. This is done by calling
+     Poco::OSP::BundleSign::BundleVerifier::verify().
+
+Following code sample shows how to do these steps in C++.
+    using Poco::OSP::BundleSign::BundleVerifier;
+    BundleVerifier verifier("com.appinf.osp.bundleadmin_1.1.0.bndl");
+    std::string alias = verifier.firstSigner();
+    if (!alias.empty())
+    {
+        BundleVerifier::CertificatePtr pCert = verifier.extractCertificate(alias);
+        if (pCert)
+        {
+            std::vector<std::string> messages;
+            BundleVerifier::VerificationResult result = verifier.verify(alias, *pCert, messages);
+            switch (result)
+            {
+            case BundleVerifier::BUNDLE_VERIFICATION_OK:
+                // Everything is okay. However, the application might want to
+                // verify the certificate and its certificate chain as well.
+                break;
+            case BundleVerifier::BUNDLE_VERIFICATION_NO_SIGNATURE:
+                // The bundle does not contain a signature. Note that this
+                // cannot happen if we have obtained the certificate from
+                // the bundle, as in this example.
+                // Depending on the application's policy, this may be okay or not.
+                break;
+            case BundleVerifier::BUNDLE_VERIFICATION_INVALID_SIGNATURE:
+                // The signature is invalid because of a malformed signature file.
+                break;
+            case BundleVerifier::BUNDLE_VERIFICATION_FAILED:
+                // The signature cannot be verified and the bundle has
+                // very likely been tampered with.
+                // The exact reason for the failure can be found by looking
+                // at the error messages stored in the messages vector.
+                break;
+            }
+        }
+        else
+        {
+            // The bundle does not contain the signer's certificate.
+        }
+    }
+    else
+    {
+        // The bundle does not contain a signature.
+    }
+----
+
+!! Integrating Bundle Verification Into an Application
+
+OSP does not perform any bundle verification itself -- it merely provides
+a framework that an application can use to implement its specific
+verification scheme. One way to implement automatic verification
+of bundles is to add an event handler for the <[bundleResolving]>
+event. With this, whenever a bundle is about to be resolved,
+its signature is first verified. If verification fails, an
+exception is thrown, which prevents the bundle from being
+resolved.
+The simplest way to implement this is to subclass the
+Poco::OSP::OSPSubsystem class. Example code for doing this
+is shown in the following:
+
+    class VerifyingOSPSubsystem: public OSPSubsystem
+    {
+    public:
+        void startBundles(Poco::Util::Application& app)
+        {
+            bundleLoader().events().bundleResolving += Delegate<VerifyingOSPSubsystem, BundleEvent>(
+            	this, &VerifyingOSPSubsystem::onResolvingBundle);
+            OSPSubsystem::startBundles(app);
+        }
+
+        void onResolvingBundle(const void* pSender, BundleEvent& event)
+        {
+            verifyBundle(event.bundle());
+        }
+
+        void verifyBundle(Bundle::Ptr pBundle)
+        {
+            BundleVerifier verifier(pBundle->path());
+            std::string alias = verifier.firstSigner();
+            if (!alias.empty())
+            {
+                BundleVerifier::CertificatePtr pCert = verifier.extractCertificate(alias);
+                if (pCert)
+                {
+                    std::vector<std::string> messages;
+                    BundleVerifier::VerificationResult result = verifier.verify(alias, *pCert, messages);
+                    switch (result)
+                    {
+                    case BundleVerifier::BUNDLE_VERIFICATION_OK:
+                        // Everything is okay. However, the application might want to
+                        // verify the certificate and its certificate chain as well.
+                        break;
+                    case BundleVerifier::BUNDLE_VERIFICATION_NO_SIGNATURE:
+                        // The bundle does not contain a signature. Note that this
+                        // cannot happen if we have obtained the certificate from
+                        // the bundle, as in this example.
+                        // Depending on the application's policy, this may be okay or not.
+                        break;
+                    case BundleVerifier::BUNDLE_VERIFICATION_INVALID_SIGNATURE:
+                        // The signature is invalid because of a malformed signature file.
+                        throw Poco::OSP::BundleResolveException("Bundle signature is malformed");
+                    case BundleVerifier::BUNDLE_VERIFICATION_FAILED:
+                        // The signature cannot be verified and the bundle has
+                        // very likely been tampered with.
+                        // The exact reason for the failure can be found by looking
+                        // at the error messages stored in the messages vector.
+                        throw Poco::OSP::BundleResolveException("Bundle verification failed");
+                    }
+                }
+                else
+                {
+                    // The bundle does not contain the signer's certificate.
+                }
+            }
+            else
+            {
+                // The bundle does not contain a signature.
+            }
+        }
+    };
+----

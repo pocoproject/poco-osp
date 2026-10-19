@@ -1,0 +1,154 @@
+OSP Mail Delivery Service
+Open Service Platform
+
+!!! Introduction
+
+With the Poco::OSP::Mail::MailDeliveryService, the Open Service Platform provides
+a standard way of sending email messages from an OSP-based application.
+While it's possible for any OSP-based application to use Poco::Net::SMTPClientSession
+directly to send email messages, using the MailDeliveryService has a few advantages:
+
+  - Centralized configuration: the MailDeliveryService is configured using the global
+    application configuration. Thus there is no need to configure individual
+    SMTPClientSession instances with parameters like SMTP host and port, authentication,
+    etc.
+  - Queued delivery: The MailDeliveryService internally uses a queue to serialize
+    delivery of mail messages to the outgoing SMTP server. This reduces server load by
+    preventing multiple SMTP connections from the same application if multiple
+    threads (e.g. HTTP request handlers) are sending out messages. Furthermore,
+    there is no need to wait for the delivery of the message, as the queue is
+    processed in the background.
+
+
+!!! Using the MailDeliveryService
+
+The MailDeliveryService is provided by the <*com.appinf.osp.mail*> bundle and
+registered under the service name "com.appinf.osp.mail".
+
+To send a mail message, obtain an instance of the service, create a
+Poco::Net::MailMessage object, and call the <[sendMessage()]> member function.
+This will return an instance of Poco::OSP::Mail::MailDeliveryHandle which can
+be used to track the progress of the message on its way to the outgoing
+SMTP server, if required. For that purpose, the MailDeliveryHandle class provides
+various events, as well as waiting functions. If not information about the
+delivery of the message is needed, the object can also be discarded.
+
+Following is an example for sending an email message:
+
+    // obtain MailDeliveryService instance
+    Poco::OSP::Mail::MailDeliveryService::Ptr pMailDeliveryService =
+        Poco::OSP::ServiceFinder::find<Poco::OSP::Mail::MailDeliveryService>(c());
+
+    if (pMailDeliveryService)
+    {
+        // compose mail message and send it
+        Poco::OSP::Mail::MailMessagePtr pMsg = new Poco::Net::MailMessage;
+        pMsg->setContentType("text/plain; charset=UTF-8");
+        pMsg->addRecipient(Poco::Net::MailRecipient(Poco::Net::MailRecipient::PRIMARY_RECIPIENT, "mail@company.com"));
+        pMsg->setSubject("Hello from OSP!");
+        pMsg->setContent("This message was sent using the OSP MailDeliveryService.\n");
+        pMailDeliveryService->sendMessage(pMsg); // ignore returned MailDeliveryHandle
+    }
+    else
+    {
+        // service not available
+    }
+----
+
+Mail messages can also contain attachments, etc. For details please refer to the
+Poco::Net::MailMessage class. When sending attachments, make sure that the
+resource containing the attachment (e.g., a temporary file) remains available
+until the mail message has been delivered to the outgoing SMTP server.
+Remember that mail messages are delivered asynchronously, and very probably have
+not been sent when the Poco::OSP::Mail::MailDeliveryService::sendMessage() member
+function returns.
+You can use the returned Poco::OSP::Mail::MailDeliveryHandle object to
+track progress.
+
+Note that the mail message queue is kept in main memory, so any messages
+remaining in the queue when the application terminates will not be delivered.
+
+The size of the queue can be limited by a configuration setting. The default
+limit is 100 messages. The Poco::OSP::Mail::MailDeliveryService::sendMessage()
+function will throw a Poco::RuntimeException if this limit is exceeded.
+
+
+!!! Configuring the MailDeliveryService
+
+The MailDeliveryService is configured using the global application configuration file.
+The following configuration properties are available:
+
+
+!! osp.mail.enable
+
+Enable or disable the MailDeliveryService. Set to true to enable the service.
+Default is disabled.
+
+
+!! osp.mail.host
+
+This setting contains the host name or IP address of the outgoing SMTP server.
+Default is "localhost".
+
+
+!! osp.mail.port
+
+The port number of the outgoing SMTP server. Default is 25.
+
+
+!! osp.mail.sender
+
+The sender's email address. Must be specified.
+
+
+!! osp.mail.login.method
+
+The method for authenticating against the outgoing SMTP server.
+Must be one of the following (case sensitive):
+
+  - cram-md5
+  - cram-sha1
+  - login
+  - plain
+  - xoauth2
+  - ntlm
+  - none (default)
+
+If any method other than "none" is specified, a username and
+password must be configured.
+
+
+!! osp.mail.login.username
+
+The username for logging in to the outgoing SMTP server.
+
+
+!! osp.mail.login.password
+
+The password for logging in to the outgoing SMTP server.
+In case of the xoauth2 login method, this must be the bearer
+token.
+
+
+!! osp.mail.socketTimeout
+
+The timeout for the TCP connection to the outgoing SMTP server in seconds.
+Default is 60 seconds.
+
+
+!! osp.mail.sessionTimeout
+
+The timeout waiting for responses from the outgoing SMTP server in seconds.
+Defaults is 30 seconds. Must be smaller than the specified socket timeout.
+
+
+!! osp.mail.limits.maxQueued
+
+The maximum number of queued mail messages. Defaults to 100.
+
+
+!! osp.mail.limits.maxFailedLogins
+
+The maximum number of failed logins to the outgoing SMTP server. If this
+limit is exceeded, queued messages will be discarded. After each failed
+login, the service will wait some time before trying again.

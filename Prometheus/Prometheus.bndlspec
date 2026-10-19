@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<bundlespec>
+  <manifest>
+    <name>POCO Prometheus Library</name>
+    <symbolicName>poco.prometheus</symbolicName>
+    <version>1.11.8</version>
+    <vendor>Applied Informatics</vendor>
+    <copyright>(c) 2024, Applied Informatics Software Engineering GmbH</copyright>
+    <activator>
+      <class>Poco::OSP::Prometheus::BundleActivator</class>
+      <library>poco.prometheus</library>
+    </activator>
+    <lazyStart>false</lazyStart>
+    <runLevel>000</runLevel>
+    <dependency>
+      <symbolicName>poco.net</symbolicName>
+      <version>1.11.8</version>
+    </dependency>
+    <dependency>
+      <symbolicName>osp.web</symbolicName>
+      <version>[1.7.0, 2.0.0)</version>
+    </dependency>
+  </manifest>
+  <code>
+    ${bin}/*.dll,
+    ${bin}/*.pdb,
+    ../../${bin}/PocoPrometheus${64}.dll,
+    ../../${bin}/PocoPrometheus${64}d.dll,
+    ../../${bin}/PocoPrometheus${64}d.pdb,
+    bin/${osName}/${osArch}/*.so,
+    bin/${osName}/${osArch}/*.dylib,
+    ../../lib/${osName}/${osArch}/libPocoPrometheus.so.*,
+    ../../lib/${osName}/${osArch}/libPocoPrometheusd.so.*,
+    ../../lib/${osName}/${osArch}/libPocoPrometheus.*.dylib,
+    ../../lib/${osName}/${osArch}/libPocoPrometheusd.*.dylib
+  </code>
+</bundlespec>

@@ -1,0 +1,130 @@
+# Copyright (c) 2021, Applied Informatics Software Engineering GmbH.
+# and Contributors.
+#
+# Helper functions for OSP CMake consumers
+
+# Captured at include time: inside a function CMAKE_CURRENT_LIST_DIR is the
+# caller's directory, but the fingerprint helper script lives next to this
+# file.
+set(_POCO_OSP_BUNDLE_CMAKE_DIR ${CMAKE_CURRENT_LIST_DIR})
+
+# Create Poco OSP Bundle
+#
+# poco_osp_bundle(<target_name>
+#                 SPEC <bundle_spec>
+#                 DESTINATION <bundle_dir>
+#                 [DEPENDS <dependencies>...]
+#                )
+#
+# <target_name>: The name of the generated target (e.g. MyLibBundle)
+# SPEC: Path to the bundle spec file (e.g. ${CMAKE_CURRENT_SOURCE_DIR}/MyLibBundle.bndlspec)
+# DESTINATION: Target directory where the bundle is created (e.g. ${CMAKE_CURRENT_BINARY_DIR}/bundles)
+# DEPENDS: A list of targets that need to be build before the bundle can be created. Usually these are libraries created by add_library.
+function(poco_osp_bundle BUNDLE_TARGET)
+	set(prefix "BUNDLE")
+	set(options "SYMLINKS")
+	set(oneValueArgs SPEC DESTINATION WORKING_DIRECTORY)
+	set(multiValueArgs CODE DEPENDS)
+	cmake_parse_arguments("${prefix}" "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+	if(NOT DEFINED OSP_OSNAME)
+		if (WIN32)
+			set(OSP_OSNAME "Windows_NT")
+		else()
+			set(OSP_OSNAME ${CMAKE_SYSTEM_NAME})
+		endif()
+	endif()
+	if(NOT DEFINED OSP_OSARCH)
+		set(OSP_OSARCH ${CMAKE_SYSTEM_PROCESSOR})
+	endif()
+
+	if (NOT BUNDLE_SPEC)
+		message(FATAL_ERROR "OSP bundle: Missing argument SPEC")
+	endif()
+
+	if (NOT EXISTS ${BUNDLE_SPEC})
+		message(FATAL_ERROR "OSP bundle: SPEC file does not exist: ${BUNDLE_SPEC}")
+	endif()
+
+	if (NOT BUNDLE_DESTINATION)
+		message(FATAL_ERROR "OSP bundle: Missing argument DESTINATION")
+	endif()
+
+	if (NOT BUNDLE_WORKING_DIRECTORY)
+		cmake_path(ABSOLUTE_PATH BUNDLE_SPEC NORMALIZE OUTPUT_VARIABLE _spec_absolute)
+		cmake_path(GET _spec_absolute PARENT_PATH _spec_dir)
+		set(BUNDLE_WORKING_DIRECTORY ${_spec_dir})
+	endif()
+
+	file(MAKE_DIRECTORY ${BUNDLE_DESTINATION})
+
+	message(STATUS "OSP bundle: ${BUNDLE_TARGET}, ${OSP_OSNAME}/${OSP_OSARCH}, code: ${BUNDLE_CODE}, depends: ${BUNDLE_DEPENDS}")
+
+	if(${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
+		set(OPT_OUTPUT "/output")
+		set(OPT_OSNAME "/osname")
+		set(OPT_OSARCH "/osarch")
+		set(OPT_CODE   "/code")
+	else()
+		set(OPT_OUTPUT "--output")
+		set(OPT_OSNAME "--osname")
+		set(OPT_OSARCH "--osarch")
+		set(OPT_CODE   "--code")
+	endif()
+
+	set(BUNDLE_CREATED_FILE ${CMAKE_CURRENT_BINARY_DIR}/${BUNDLE_TARGET}.created)
+
+	set(OPT_SYMLINKS "")
+	if(BUNDLE_SYMLINKS)
+		set(OPT_SYMLINKS "--symlinks")
+	endif()
+
+	# The bundle content (extensions.xml, bundle.properties, web resources, ...)
+	# lives in the spec's bundle/ directory; without these dependencies, edits
+	# there never re-trigger bundle creation and stale .bndl files get shipped.
+	# (Files ADDED after configure still need a reconfigure to be picked up.)
+	file(GLOB_RECURSE BUNDLE_CONTENT_FILES ${BUNDLE_WORKING_DIRECTORY}/bundle/*)
+
+	# OCI container bundles additionally pack the spec's oci/ directory
+	# (rootfs, config.json); track it too, or changes to the rootfs ship
+	# stale .bndl files. The rootfs trees are large (>10k files) and
+	# file(GLOB_RECURSE) has been observed to return incomplete,
+	# cache-dependent results on them on some file systems, so instead of
+	# file-level deps an always-run fingerprint step hashes the tree listing
+	# at BUILD time and rewrites a stamp file only when the content actually
+	# changed; the bundle command depends on that stamp. POSIX-only, like
+	# the OCI container pipeline itself (the fingerprint uses GNU find).
+	set(_OCI_FINGERPRINT_TARGET "")
+	if(EXISTS ${BUNDLE_WORKING_DIRECTORY}/oci AND NOT WIN32)
+		set(_OCI_STAMP ${CMAKE_CURRENT_BINARY_DIR}/${BUNDLE_TARGET}-oci.stamp)
+		set(_OCI_FINGERPRINT_TARGET ${BUNDLE_TARGET}-oci-fingerprint)
+		add_custom_target(${_OCI_FINGERPRINT_TARGET}
+			COMMAND ${CMAKE_COMMAND}
+				-DOCI_DIR=${BUNDLE_WORKING_DIRECTORY}/oci
+				-DSTAMP_FILE=${_OCI_STAMP}
+				-P ${_POCO_OSP_BUNDLE_CMAKE_DIR}/PocoOspBundleFingerprint.cmake
+			BYPRODUCTS ${_OCI_STAMP}
+			COMMENT " - Fingerprint OCI content for ${BUNDLE_TARGET}"
+			VERBATIM
+		)
+		list(APPEND BUNDLE_CONTENT_FILES ${_OCI_STAMP})
+	endif()
+
+	add_custom_command(
+		COMMENT " - Build OSP bundle in ${BUNDLE_DESTINATION} from ${BUNDLE_SPEC}"
+		WORKING_DIRECTORY ${BUNDLE_WORKING_DIRECTORY}
+
+		OUTPUT ${BUNDLE_CREATED_FILE}
+		DEPENDS ${BUNDLE_DEPENDS} ${BUNDLE_SPEC} ${BUNDLE_CONTENT_FILES}
+
+		COMMAND Poco::OSP::BundleCreator ${OPT_SYMLINKS} ${OPT_OUTPUT} ${BUNDLE_DESTINATION} ${OPT_OSNAME} ${OSP_OSNAME} ${OPT_OSARCH} ${OSP_OSARCH} ${OPT_CODE} "${BUNDLE_CODE}" ${BUNDLE_SPEC}
+		COMMAND ${CMAKE_COMMAND} -E touch ${BUNDLE_CREATED_FILE}
+		VERBATIM
+	)
+
+	add_custom_target(${BUNDLE_TARGET} ALL DEPENDS ${BUNDLE_CREATED_FILE} BundleCreator)
+	if(_OCI_FINGERPRINT_TARGET)
+		add_dependencies(${BUNDLE_TARGET} ${_OCI_FINGERPRINT_TARGET})
+	endif()
+
+endfunction()

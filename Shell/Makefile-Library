@@ -1,0 +1,40 @@
+#
+# Makefile-Library
+#
+# Makefile for Poco OSP Shell Library
+#
+
+include $(POCO_BASE)/build/rules/global
+
+ifdef MACCHINA_ENABLE_OSP_SSH
+CXXFLAGS += -DOSP_SHELL_ENABLE_SSH
+endif
+
+# Only announce the configuration on an actual build, not on clean/distclean,
+# where the Makefile is parsed (and $(info ...) fires) without building.
+ifeq (,$(filter clean distclean,$(MAKECMDGOALS)))
+ifdef MACCHINA_ENABLE_OSP_SSH
+$(info Building OSP Shell with SSH support)
+else
+$(info Building OSP Shell without SSH support)
+endif
+endif
+
+objects = AbstractCommand Command CommandFactory CommandProcessor \
+	HelpCommand HelpCommandFactory LoginCommand LoginCommandFactory \
+	OSPCommand QuitCommand QuitCommandFactory ResponseStream \
+	Session ShellConnection ShellConnectionFactory
+
+ifdef MACCHINA_ENABLE_OSP_SSH
+objects += SSHShellConnection
+endif
+
+target         = PocoOSPShell
+target_version = 2
+target_libs    = PocoOSP PocoUtil PocoNet PocoXML PocoFoundation
+
+ifdef MACCHINA_ENABLE_OSP_SSH
+target_libs += PocoSSH
+endif
+
+include $(POCO_BASE)/build/rules/lib
