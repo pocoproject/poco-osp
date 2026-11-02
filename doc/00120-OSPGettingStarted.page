@@ -1,0 +1,309 @@
+Getting Started With POCO OSP
+Open Service Platform
+
+!!!Building POCO OSP
+
+POCO OSP is built with CMake. The configure pulls the POCO C++ Libraries, and
+the build compiles the POCO libraries that the enabled OSP parts need together
+with POCO OSP.
+
+!!Prerequisites
+
+  - CMake 3.26 or newer. Ubuntu 22.04 ships 3.22 and Debian 12 ships 3.25; a
+    newer one is in [[https://apt.kitware.com Kitware's APT repository]]
+    (Ubuntu) or in bookworm-backports (Debian 12), or can be installed with
+    <[pipx install cmake]>.
+  - A C++20 compiler; the configure stops without one.
+  - git, with which the configure pulls POCO.
+  - OpenSSL 1.1.1 or newer, which the Crypto and NetSSL libraries of POCO need.
+    The parts that use them are enabled by default.
+
+Optional libraries, each needed by one option (see below):
+
+  - libssh: <[ENABLE_OSP_SHELL_SSH]>.
+  - OpenLDAP: <[ENABLE_OSP_AUTH_LDAP]>. On Windows, the system LDAP library
+    is used; macOS is not supported.
+  - unixODBC: <[ENABLE_OSP_DATA_ODBC]>.
+  - The MySQL or MariaDB client library: <[ENABLE_OSP_DATA_MYSQL]>.
+  - The PostgreSQL client library: <[ENABLE_OSP_DATA_POSTGRESQL]>.
+  - libedit, for line editing in the shell client: <[ENABLE_OSP_SHELL_CLIENT]>.
+    Without it, the shell client reads plain lines.
+
+On Debian and Ubuntu, the required packages are installed with
+
+    $ sudo apt-get install cmake git g++ libssl-dev
+----
+
+On macOS, with Homebrew:
+
+    $ brew install cmake openssl@3
+----
+
+Homebrew does not install OpenSSL where CMake looks for it, so the configure
+on macOS gets <[-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)]>.
+
+!!Configuring and Building
+
+In the source directory of POCO OSP:
+
+    $ cmake -S . -B cmake-build -DCMAKE_BUILD_TYPE=Release
+    $ cmake --build cmake-build --parallel
+----
+
+The libraries and tools are written to <[cmake-build/lib]> and
+<[cmake-build/bin]>, and the bundles to <[cmake-build/bundles]>.
+At the end of the configure, a summary names the POCO that is built, the
+enabled options, and the options that are off, with the reason where the
+configure has switched one off.
+
+!!Selecting POCO
+
+Two cache variables select the POCO that the configure pulls:
+
+  - <[POCO_OSP_POCO_REPOSITORY]>: a git URL, or a local directory, relative
+    to the source directory of POCO OSP. The default is
+    <[https://github.com/pocoproject/poco.git]>. A local git repository is
+    cloned like a remote one, so it works offline. A directory that is a POCO
+    source tree without <[.git]> is used as it is, and <[POCO_OSP_POCO_VERSION]>
+    does not apply.
+  - <[POCO_OSP_POCO_VERSION]>: <[release]> (the default) is the newest POCO
+    2.x release, or POCO <[main]> while no such release exists;
+    <[latest]> is POCO <[main]>; any other value is a tag, a branch or a commit
+    of the repository.
+
+The configure resolves <[release]> and <[latest]> to a tag or a commit once, and
+a reconfigure builds the same POCO. To resolve them again:
+
+    $ cmake -U POCO_OSP_POCO_RESOLVED_REF cmake-build
+----
+
+A POCO source tree can also be given with <[FETCHCONTENT_SOURCE_DIR_POCO]>, as
+an absolute path; it is used as it is.
+
+POCO OSP needs POCO 2.0 or newer. A POCO without the RemotingNG library, which
+POCO has from version 2.0 on, stops the configure.
+
+A project that adds the POCO sources itself (with <[add_subdirectory()]> or
+<[FetchContent]>) and then adds POCO OSP with <[add_subdirectory()]> builds
+POCO OSP with that POCO, and nothing is pulled. The project then enables the
+POCO components that the OSP options need; a missing one stops the configure
+with a message that names the POCO option. An installed POCO cannot be used.
+
+The project also owns the install RPATH of the POCO libraries. When the
+project does not set <[CMAKE_INSTALL_RPATH]>, POCO OSP sets it in its own
+directory only, for its own targets; the POCO libraries that the project adds
+get none. If the installed tools must run from a prefix outside the search path
+of the dynamic loader, the project sets <[CMAKE_INSTALL_RPATH]> before it adds
+POCO, on Linux for example:
+
+    include(GNUInstallDirs)
+    set(CMAKE_INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+    add_subdirectory(poco)
+----
+
+!!Options
+
+The options select the parts of POCO OSP. A part whose POCO component the
+pulled POCO does not build, for example SSH without libssh, is switched off
+with a warning. An option that is ON while an option that it needs is OFF
+stops the configure.
+
+  - <[ENABLE_OSP]>: the OSP core library. Default ON.
+  - <[ENABLE_OSP_BUNDLE_CREATOR]>: the bundle creator tool <[bundle]>. Default ON.
+  - <[ENABLE_OSP_BUNDLES]>: creating bundles; needed by every bundle below.
+  - <[ENABLE_OSP_BUNDLESIGN]>: the bundle signing library and the tool <[signbundle]>.
+  - <[ENABLE_OSP_STRIPBUNDLE]>: the tool <[stripbundle]>.
+  - <[ENABLE_OSP_CODECACHE]>: the code cache utility <[ccutil]>.
+  - <[ENABLE_OSP_CORE]>: the Core bundle.
+  - <[ENABLE_OSP_NET]>: the Net bundle.
+  - <[ENABLE_OSP_NETSSL]>: the NetSSL_OpenSSL, SecureWebServer and SecureMail bundles.
+  - <[ENABLE_OSP_CRYPTO]>: the Crypto bundle.
+  - <[ENABLE_OSP_DATA]>, <[ENABLE_OSP_DATA_SQLITE]>: the Data and Data SQLite bundles.
+  - <[ENABLE_OSP_DATA_ODBC]>, <[ENABLE_OSP_DATA_MYSQL]>, <[ENABLE_OSP_DATA_POSTGRESQL]>:
+    the Data ODBC, MySQL and PostgreSQL bundles. Default OFF.
+  - <[ENABLE_OSP_ACTIVERECORD]>: the ActiveRecord bundle. Default OFF.
+  - <[ENABLE_OSP_REDIS]>: the Redis bundle.
+  - <[ENABLE_OSP_JWT]>: the JWT bundle.
+  - <[ENABLE_OSP_MAIL]>: the Mail bundle.
+  - <[ENABLE_OSP_PROMETHEUS]>: the Prometheus bundle.
+  - <[ENABLE_OSP_WEB]>: the Web, WebServer and WebEvent bundles.
+  - <[ENABLE_OSP_BUNDLEADMIN]>: the BundleAdmin bundle.
+  - <[ENABLE_OSP_AUTH]>: the Auth bundles.
+  - <[ENABLE_OSP_AUTH_LDAP]>: LDAP support in the Auth bundles. Default OFF.
+  - <[ENABLE_OSP_SIMPLEAUTH]>: the SimpleAuth bundle.
+  - <[ENABLE_OSP_SHELL]>: the Shell bundles.
+  - <[ENABLE_OSP_SHELL_SSH]>: the SSH server of the Shell. Default OFF.
+  - <[ENABLE_OSP_SHELL_CLIENT]>: the shell client <[ospsh]>. Default OFF.
+  - <[ENABLE_OSP_REMOTING]>: the RemotingNG TCP and REST bundles and the Auth Remoting library.
+  - <[ENABLE_OSP_UNIT]>: the OSP Unit test runner bundle. Default OFF.
+  - <[POCO_OSP_MINIMAL_BUILD]>: builds only the core library, the bundle
+    creator and the parts enabled explicitly. Default OFF.
+  - <[POCO_OSP_ENABLE_TESTS]>: the test suites. Default OFF; in a project that
+    adds the POCO sources itself, the value of POCO's <[ENABLE_TESTS]>.
+  - <[POCO_OSP_ENABLE_SAMPLES]>: the samples. Default OFF; in a project that
+    adds the POCO sources itself, the value of POCO's <[ENABLE_SAMPLES]>.
+
+The options without a default above are ON, unless <[POCO_OSP_MINIMAL_BUILD]>
+is ON. With <[BUILD_SHARED_LIBS=OFF]>, the configure switches off
+<[ENABLE_OSP_BUNDLES]>, the parts that need it, and the tests, because
+bundles are shared libraries.
+
+!!Running the Tests
+
+    $ cmake -S . -B cmake-build -DPOCO_OSP_ENABLE_TESTS=ON
+    $ cmake --build cmake-build --parallel
+    $ ctest --test-dir cmake-build --output-on-failure
+----
+
+The test suites of POCO itself are not built.
+
+
+!!!Installing
+
+    $ cmake --install cmake-build --prefix /opt/poco
+----
+
+This installs POCO and POCO OSP into the same prefix: the libraries, the
+headers, the tools, the CMake package files in <[<libdir>/cmake/Poco]>, where
+<[<libdir>]> is <[lib]> or <[lib64]> (in <[cmake]> on Windows), and the
+bundles in <[bundles]>.
+
+A CMake project finds the OSP libraries as components of the POCO package:
+
+    find_package(Poco REQUIRED COMPONENTS OSP OSPWeb)
+    target_link_libraries(MyApp PRIVATE Poco::OSP Poco::OSPWeb)
+----
+
+On Windows x86 and x64, an application that loads bundles using POCO Crypto or
+NetSSL also links <[OpenSSL::applink]> from <[find_package(OpenSSL)]>: OpenSSL
+ends a process whose executable does not provide <[OPENSSL_Applink]> when such
+a bundle passes it a file opened by the C runtime.
+
+The component <[OSPBundleCreator]> provides the bundle creator as the imported
+target <[Poco::OSP::BundleCreator]>, and the CMake functions
+<[poco_osp_bundle()]>, <[poco_osp_bundle_module()]> and <[poco_remote_gen()]>.
+The CMake prefix path of the project names the installation:
+
+    $ cmake -S . -B build -DCMAKE_PREFIX_PATH=/opt/poco
+----
+
+
+!!!A First Bundle
+
+A bundle consists of a bundle specification, which the bundle creator
+turns into the bundle manifest, and a shared library with the bundle
+activator. The following project builds a bundle that logs a message when
+it starts and when it stops.
+
+<[Hello.bndlspec]>:
+
+    <?xml version="1.0"?>
+    <bundlespec>
+      <manifest>
+        <name>Hello Bundle</name>
+        <symbolicName>com.example.hello</symbolicName>
+        <version>1.0.0</version>
+        <vendor>Example</vendor>
+        <copyright>(c) 2026, Example</copyright>
+        <activator>
+          <class>HelloBundleActivator</class>
+          <library>com.example.hello</library>
+        </activator>
+        <lazyStart>false</lazyStart>
+        <runLevel>500</runLevel>
+      </manifest>
+    </bundlespec>
+----
+
+<[src/HelloBundleActivator.cpp]>:
+
+    #include "Poco/OSP/BundleActivator.h"
+    #include "Poco/OSP/BundleContext.h"
+    #include "Poco/OSP/Bundle.h"
+    #include "Poco/ClassLibrary.h"
+
+
+    namespace
+    {
+        class HelloBundleActivator: public Poco::OSP::BundleActivator
+        {
+        public:
+            void start(Poco::OSP::BundleContext::Ptr pContext) override
+            {
+                pContext->logger().information("Hello from " + pContext->thisBundle()->name() + ".");
+            }
+
+            void stop(Poco::OSP::BundleContext::Ptr pContext) override
+            {
+                pContext->logger().information("Goodbye from " + pContext->thisBundle()->name() + ".");
+            }
+        };
+    }
+
+
+    POCO_BEGIN_MANIFEST(Poco::OSP::BundleActivator)
+        POCO_EXPORT_CLASS(HelloBundleActivator)
+    POCO_END_MANIFEST
+----
+
+<[CMakeLists.txt]>:
+
+    cmake_minimum_required(VERSION 3.26)
+    project(Hello LANGUAGES CXX)
+
+    find_package(Poco REQUIRED COMPONENTS OSP OSPBundleCreator)
+
+    poco_osp_bundle_module(com.example.hello src/HelloBundleActivator.cpp)
+    target_link_libraries(com.example.hello PRIVATE Poco::OSP)
+
+    poco_osp_bundle(HelloBundle
+        DEPENDS com.example.hello
+        SPEC ${CMAKE_CURRENT_SOURCE_DIR}/Hello.bndlspec
+        CODE $<TARGET_FILE:com.example.hello>
+        DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/bundles
+    )
+----
+
+<[poco_osp_bundle_module()]> adds the library with the file name that POCO OSP
+loads, and <[poco_osp_bundle()]> runs the bundle creator, which writes
+<[bundles/com.example.hello_1.0.0.bndl]>:
+
+    $ cmake -S . -B build -DCMAKE_PREFIX_PATH=/opt/poco -DCMAKE_BUILD_TYPE=Release
+    $ cmake --build build
+----
+
+For a Debug build of the bundle, see [[00210-OSPBundleCreator.html The Bundle Creator Tool]].
+
+The <*BundleContainer*> sample starts the bundles of its bundle repository,
+stops them again and exits. It is not installed. In the source directory of
+POCO OSP, it is built into <[cmake-build/bin]> with
+
+    $ cmake -S . -B cmake-build -DPOCO_OSP_ENABLE_SAMPLES=ON
+    $ cmake --build cmake-build --parallel
+----
+
+A configuration file, given with <[-f]>, makes the bundle directory of the
+project the bundle repository. Its paths are relative to the current
+directory:
+
+<[hello.properties]>:
+
+    osp.bundleRepository = build/bundles
+    osp.codeCache        = build/codeCache
+    osp.data             = build/data
+----
+
+In the directory of the project, with <[POCO_OSP]> set to the source directory
+of POCO OSP:
+
+    $ $POCO_OSP/cmake-build/bin/BundleContainer -f hello.properties
+----
+
+The log shows the messages of the bundle:
+
+    osp.bundle.com.example.hello: [Information] Hello from Hello Bundle.
+    osp.bundle.com.example.hello: [Information] Goodbye from Hello Bundle.
+----
+
+The [[00150-OSPTutorial.html OSP Tutorial]] continues with services and the
+service registry.

@@ -1,0 +1,124 @@
+<AppConfig>
+	<PocoDoc>
+		<files>
+			<include>
+				${PocoOSPBase}/include/Poco/OSP/*.h
+				${PocoOSPBase}/include/Poco/OSP/*/*.h
+				${PocoOSPBase}/*/include/Poco/OSP/*/*.h
+				${PocoOSPBase}/*/*/include/Poco/OSP/*/*/*.h
+			</include>
+		</files>
+		<pages>
+			${PocoOSPBase}/doc/*.page
+			${PocoOSPBase}/*/doc/*.page
+			${PocoOSPBase}/*/*/doc/*.page
+		</pages>
+		<resources>
+			${PocoBase}/PocoDoc/resources/css
+			${PocoBase}/PocoDoc/resources/js
+			${PocoBase}/PocoDoc/resources/images
+			${PocoOSPBase}/PocoDoc/resources/index.thtml
+			${PocoOSPBase}/doc/images
+			${PocoOSPBase}/*/doc/images
+		</resources>
+		<compiler>
+			<exec>${CXX}</exec>
+			<options>
+				${Includes}
+				-I${PocoOSPBase}/include
+				-I${PocoOSPBase}/Auth/include
+				-I${PocoOSPBase}/Auth/Data/include
+				-I${PocoOSPBase}/Auth/Remoting/include
+				-I${PocoOSPBase}/Auth/TwoFactor/include
+				-I${PocoOSPBase}/BundleSign/include
+				-I${PocoOSPBase}/Mail/include
+				-I${PocoOSPBase}/Shell/include
+				-I${PocoOSPBase}/Unit/include
+				-I${PocoOSPBase}/Web/include
+				-I${PocoOSPBase}/WebEvent/include
+				-I${PocoBase}/Foundation/include
+				-I${PocoBase}/XML/include
+				-I${PocoBase}/JSON/include
+				-I${PocoBase}/Util/include
+				-I${PocoBase}/Net/include
+				-I${PocoBase}/Crypto/include
+				-I${PocoBase}/NetSSL_OpenSSL/include
+				-I${PocoBase}/Zip/include
+				-I${PocoBase}/Data/include
+				-I${PocoBase}/RemotingNG/include
+				-I${PocoBase}/CppUnit/include
+				-I${PocoBase}/dependencies/tessil/include
+				-std=c++20
+				-D_DEBUG
+				-E
+				-C
+				-DPOCO_NO_GCC_API_ATTRIBUTE
+				-DPOCO_DOC
+				-DPOCO_SILENCE_DEPRECATED
+				-DPOCO_OSP_AUTH_ENABLE_LDAP
+				-xc++
+			</options>
+			<path></path>
+			<usePipe>true</usePipe>
+		</compiler>
+		<language>EN</language>
+		<charset>utf-8</charset>
+		<software>POCO OSP</software>
+		<company>Applied Informatics Software Engineering GmbH and Contributors</company>
+		<companyURI>https://pocoproject.org/</companyURI>
+	</PocoDoc>
+	<Translations>
+		<EN>
+			<All_Base_Classes>All Base Classes</All_Base_Classes>
+			<All_Symbols>All Symbols</All_Symbols>
+			<Anonymous>Anonymous</Anonymous>
+			<Constructors>Constructors</Constructors>
+			<Class>Class</Class>
+			<Deprecated>Deprecated</Deprecated>
+			<Description>Description</Description>
+			<Destructor>Destructor</Destructor>
+			<Direct_Base_Classes>Direct Base Classes</Direct_Base_Classes>
+			<Enumerations>Enumerations</Enumerations>
+			<Functions>Functions</Functions>
+			<Header>Header</Header>
+			<iff>if and only if</iff>
+			<Inheritance>Inheritance</Inheritance>
+			<Inherited_Functions>Inherited Functions</Inherited_Functions>
+			<is_deprecated>is deprecated and should no longer be used</is_deprecated>
+			<Known_Derived_Classes>Known Derived Classes</Known_Derived_Classes>
+			<Library>Library</Library>
+			<Member_Functions>Member Functions</Member_Functions>
+			<Member_Summary>Member Summary</Member_Summary>
+			<more>more...</more>
+			<Namespaces>Namespaces</Namespaces>
+			<Namespace>Namespace</Namespace>
+			<Nested_Classes>Nested Classes</Nested_Classes>
+			<Package>Package</Package>
+			<Packages>Packages</Packages>
+			<Package_Index>Package Index</Package_Index>
+			<See_also>See also</See_also>
+			<Struct>Struct</Struct>
+			<Symbol_Index>Symbol Index</Symbol_Index>
+			<This>This</This>
+			<Types>Types</Types>
+			<Variables>Variables</Variables>
+			<TOC>Contents</TOC>
+			<Guides>User Guides and Tutorials</Guides>
+		</EN>
+	</Translations>
+
+	<logging>
+		<loggers>
+			<root>
+				<channel>c1</channel>
+				<level>information</level>
+			</root>
+		</loggers>
+		<channels>
+			<c1>
+				<class>ConsoleChannel</class>
+				<pattern>%s: [%p] %t</pattern>
+			</c1>
+		</channels>
+	</logging>
+</AppConfig>
