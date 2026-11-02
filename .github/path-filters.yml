@@ -1,0 +1,59 @@
+# Shared path filters for dorny/paths-filter, referenced from .github/workflows/ci.yml.
+#
+# Single source of truth for "does this PR touch <component>?" questions.
+# The workflow's top-level `changes` job uses it to gate the narrow jobs.
+
+ci_core:
+  - 'CMakeLists.txt'
+  - 'cmake/**'
+  - '.github/workflows/ci.yml'
+  - '.github/actions/**'
+
+# The OSP core library and its tests.
+osp_core:
+  - 'include/**'
+  - 'src/**'
+  - 'testsuite/**'
+
+tools:
+  - 'BundleCreator/**'
+  - 'BundleSign/**'
+  - 'StripBundle/**'
+  - 'CodeCacheUtility/**'
+  - 'Unit/**'
+
+data:
+  - 'Data/**'
+  - 'ActiveRecord/**'
+
+# Every directory with C++ sources.
+sources:
+  - 'include/**'
+  - 'src/**'
+  - 'testsuite/**'
+  - 'samples/**'
+  - 'ActiveRecord/**'
+  - 'Auth/**'
+  - 'BundleAdmin/**'
+  - 'BundleCreator/**'
+  - 'BundleSign/**'
+  - 'CodeCacheUtility/**'
+  - 'Core/**'
+  - 'Crypto/**'
+  - 'Data/**'
+  - 'JWT/**'
+  - 'Mail/**'
+  - 'Net/**'
+  - 'NetSSL_OpenSSL/**'
+  - 'Prometheus/**'
+  - 'Redis/**'
+  - 'RemotingNG/**'
+  - 'SecureMail/**'
+  - 'SecureWebServer/**'
+  - 'Shell/**'
+  - 'SimpleAuth/**'
+  - 'StripBundle/**'
+  - 'Unit/**'
+  - 'Web/**'
+  - 'WebEvent/**'
+  - 'WebServer/**'
