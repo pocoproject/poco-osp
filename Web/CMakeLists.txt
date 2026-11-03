@@ -3,12 +3,10 @@ set(BUNDLE_SPEC "${CMAKE_CURRENT_SOURCE_DIR}/WebBundle.bndlspec")
 
 set(LIBNAME "OSPWeb")
 set(POCO_LIBNAME "Poco${LIBNAME}")
-set(LIBVERSION 3)
-
-set(BUNDLE_DIR ${CMAKE_BINARY_DIR}/${POCO_INSTALL_BUNDLEDIR})
+set(LIBVERSION ${SHARED_LIBRARY_VERSION})
 
 # Sources
-set(LIB_SRCS
+POCO_SOURCES_AUTO(LIB_SRCS
 	src/MediaTypeMapper.cpp
 	src/TokenValidator.cpp
 	src/WebFilter.cpp
@@ -25,13 +23,17 @@ set(LIB_SRCS
 	src/WebSessionStore.cpp
 )
 
+# Headers
+file(GLOB_RECURSE HDRS_G "include/*.h")
+POCO_HEADERS_AUTO(LIB_SRCS ${HDRS_G})
+
 # Version Resource
 if(MSVC AND BUILD_SHARED_LIBS)
-	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
-	list(APPEND LIB_SRCS ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
+	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
+	list(APPEND LIB_SRCS ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
 endif()
 
-set(BUNDLE_SRCS
+POCO_SOURCES_AUTO(BUNDLE_SRCS
 	src/WebBundleActivator.cpp
 )
 
@@ -45,7 +47,7 @@ set_target_properties(${LIBNAME}
 	DEFINE_SYMBOL OSPWeb_EXPORTS
 )
 
-target_link_libraries(${LIBNAME} PUBLIC Poco::OSP Poco::Zip Poco::Net Poco::Util Poco::XML Poco::JSON Poco::Foundation)
+target_link_libraries(${LIBNAME} PUBLIC Poco::OSP Poco::Net Poco::Foundation PRIVATE Poco::Zip Poco::Util Poco::XML Poco::JSON)
 target_include_directories(${LIBNAME}
 	PUBLIC
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -65,7 +67,7 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
 	set_target_properties(${TARGET} PROPERTIES SUFFIX ".dylib")
 endif()
 
-target_link_libraries(${TARGET} OSPWeb Poco::OSP Poco::Zip Poco::Net Poco::Util Poco::XML Poco::JSON Poco::Foundation)
+target_link_libraries(${TARGET} PRIVATE Poco::OSPWeb Poco::OSP Poco::Zip Poco::Net Poco::Util Poco::XML Poco::JSON Poco::Foundation)
 
 # Copy Bundle Resources to build directory
 add_custom_command(TARGET ${TARGET}
@@ -78,11 +80,11 @@ poco_osp_bundle(${TARGET}-bundle
 	DEPENDS ${LIBNAME} ${TARGET}
 	SPEC ${BUNDLE_SPEC}
 	CODE $<TARGET_FILE:${LIBNAME}> $<TARGET_FILE:${TARGET}>
-	DESTINATION ${BUNDLE_DIR}
+	DESTINATION ${POCO_OSP_BUNDLE_DIR}
 )
 
 install(
-	DIRECTORY	 ${BUNDLE_DIR}/
+	DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
 	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
 	COMPONENT    Bundles
 	FILES_MATCHING PATTERN "${TARGET}*.bndl"
@@ -91,6 +93,6 @@ install(
 POCO_INSTALL(${LIBNAME})
 POCO_GENERATE_PACKAGE(${LIBNAME})
 
-if(ENABLE_TESTS)
+if(POCO_OSP_ENABLE_TESTS)
 	add_subdirectory(testsuite)
 endif()

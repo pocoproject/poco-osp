@@ -12,22 +12,14 @@ POCO_SOURCES_AUTO_PLAT(TEST_SRCS OFF
 )
 
 add_executable(OSP-testrunner ${TEST_SRCS})
-if(ANDROID)
-	add_test(
-		NAME OSP
-		WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
-		COMMAND ${CMAKE_COMMAND} -DANDROID_NDK=${ANDROID_NDK} -DLIBRARY_DIR=${CMAKE_BINARY_DIR}/lib -DUNITTEST=${CMAKE_BINARY_DIR}/bin/OSP-testrunner -DTEST_PARAMETER=-all -P ${PROJECT_SOURCE_DIR}/cmake/ExecuteOnAndroid.cmake
-	)
-else()
-	add_test(
-		NAME OSP
-		WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-		COMMAND OSP-testrunner -ignore ${PROJECT_SOURCE_DIR}/cppignore.lnx -all
-	)
-	set_tests_properties(OSP PROPERTIES ENVIRONMENT POCO_BASE=${PROJECT_SOURCE_DIR})
-endif()
+add_test(
+	NAME OSP
+	WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+	COMMAND OSP-testrunner -ignore ${POCO_OSP_CPPIGNORE_FILE} -all
+)
+set_tests_properties(OSP PROPERTIES ENVIRONMENT POCO_BASE=${PROJECT_SOURCE_DIR})
 
-target_link_libraries(OSP-testrunner Poco::OSPWebEvent Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::Net Poco::JSON Poco::Foundation CppUnit)
+target_link_libraries(OSP-testrunner PRIVATE Poco::OSPWebEvent Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::Net Poco::JSON Poco::Foundation Poco::CppUnit)
 target_include_directories(OSP-testrunner
 	PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
@@ -42,7 +34,7 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
 	set_target_properties(TestBundle PROPERTIES SUFFIX ".dylib")
 endif()
 
-target_link_libraries(TestBundle Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation)
+target_link_libraries(TestBundle PRIVATE Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation)
 
 add_custom_command(TARGET TestBundle
 	POST_BUILD
@@ -61,5 +53,7 @@ poco_osp_bundle(TestBundle2
 
 add_custom_command(TARGET TestBundle2
 	POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E rename ${CMAKE_CURRENT_BINARY_DIR}/com.appinf.osp.bundle2_1.0.0.bndl ${CMAKE_CURRENT_BINARY_DIR}/bundles/com.appinf.osp.bundle2_1.0.0.bndl
+	COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		${CMAKE_CURRENT_BINARY_DIR}/com.appinf.osp.bundle2_1.0.0.bndl
+		${CMAKE_CURRENT_BINARY_DIR}/bundles/com.appinf.osp.bundle2_1.0.0.bndl
 )

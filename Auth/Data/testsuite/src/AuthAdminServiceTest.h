@@ -50,7 +50,9 @@ public:
 	void testLockOut();
 	void testLockOutAfterLoginFailures();
 	void testReset();
+#if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 	void testExternalRole();
+#endif
 	void testRoleMappings();
 
 	void setUp();

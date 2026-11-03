@@ -1,10 +1,15 @@
 # Sources
-file(GLOB SRCS "src/*.cpp")
+file(GLOB SRCS_G "src/*.cpp")
+POCO_SOURCES_AUTO(SRCS ${SRCS_G})
+
+# Headers
+file(GLOB_RECURSE HDRS_G "src/*.h")
+POCO_HEADERS_AUTO(SRCS ${HDRS_G})
 
 # Version Resource
 if(MSVC)
-	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
-	list(APPEND SRCS ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
+	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
+	list(APPEND SRCS ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
 endif()
 
 add_executable(BundleCreator ${SRCS})
@@ -13,7 +18,7 @@ set_target_properties(BundleCreator
     OUTPUT_NAME bundle
     )
 
-target_link_libraries(BundleCreator Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation)
+target_link_libraries(BundleCreator PRIVATE Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation)
 
 if(WIN32)
 	set(PocoConfigPackageLocation "cmake")
@@ -31,7 +36,8 @@ install(
 
 install(
   FILES
-    ${PROJECT_SOURCE_DIR}/OSP/cmake/PocoOspBundle.cmake
+    ${PROJECT_SOURCE_DIR}/cmake/PocoOspBundle.cmake
+    ${PROJECT_SOURCE_DIR}/cmake/PocoOspBundleFingerprint.cmake
   DESTINATION
 	"${PocoConfigPackageLocation}"
   COMPONENT Devel

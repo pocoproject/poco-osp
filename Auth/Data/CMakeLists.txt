@@ -3,23 +3,25 @@ set(BUNDLE_SPEC "${CMAKE_CURRENT_SOURCE_DIR}/DataBundle.bndlspec")
 
 set(LIBNAME "OSPAuthData")
 set(POCO_LIBNAME "Poco${LIBNAME}")
-set(LIBVERSION 1)
-
-set(BUNDLE_DIR ${CMAKE_BINARY_DIR}/${POCO_INSTALL_BUNDLEDIR})
+set(LIBVERSION ${SHARED_LIBRARY_VERSION})
 
 # Sources
-set(LIB_SRCS
+POCO_SOURCES_AUTO(LIB_SRCS
 	src/AuthAdminServiceImpl.cpp
 	src/StatementPlaceholderProvider.cpp
 )
 
+# Headers
+file(GLOB_RECURSE HDRS_G "include/*.h")
+POCO_HEADERS_AUTO(LIB_SRCS ${HDRS_G})
+
 # Version Resource
 if(MSVC AND BUILD_SHARED_LIBS)
-	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
-	list(APPEND LIB_SRCS ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
+	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
+	list(APPEND LIB_SRCS ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
 endif()
 
-set(BUNDLE_SRCS
+POCO_SOURCES_AUTO(BUNDLE_SRCS
 	src/AuthBundleActivator.cpp
 )
 
@@ -34,17 +36,9 @@ set_target_properties(${LIBNAME}
 )
 
 # LDAP
-if(WIN32)
-	if(ENABLE_OSP_AUTH_LDAP)
-		target_compile_definitions(${LIBNAME} PUBLIC POCO_OSP_AUTH_ENABLE_LDAP)
-		message(STATUS "Building ${LIBNAME} with LDAP support")
-	endif()
-else()
-	# Note: LDAP headers are severely broken on macOS
-	if(OPENLDAP_FOUND AND NOT APPLE)
-		target_compile_definitions(${LIBNAME} PUBLIC POCO_OSP_AUTH_ENABLE_LDAP)
-		message(STATUS "Building ${LIBNAME} with OpenLDAP support")
-	endif()
+if(ENABLE_OSP_AUTH_LDAP)
+	target_compile_definitions(${LIBNAME} PUBLIC POCO_OSP_AUTH_ENABLE_LDAP)
+	message(STATUS "Building ${LIBNAME} with LDAP support")
 endif()
 
 target_link_libraries(${LIBNAME}
@@ -72,6 +66,7 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
 endif()
 
 target_link_libraries(${TARGET}
+	PRIVATE
 	Poco::OSPAuthData Poco::OSPAuth Poco::OSP Poco::Data Poco::Util Poco::Foundation
 )
 
@@ -86,11 +81,11 @@ poco_osp_bundle(${TARGET}-bundle
 	DEPENDS ${LIBNAME} ${TARGET}
 	SPEC ${BUNDLE_SPEC}
 	CODE $<TARGET_FILE:${LIBNAME}> $<TARGET_FILE:${TARGET}>
-	DESTINATION ${BUNDLE_DIR}
+	DESTINATION ${POCO_OSP_BUNDLE_DIR}
 )
 
 install(
-	DIRECTORY	 ${BUNDLE_DIR}/
+	DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
 	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
 	COMPONENT    Bundles
 	FILES_MATCHING PATTERN "${TARGET}*.bndl"
@@ -99,6 +94,6 @@ install(
 POCO_INSTALL(${LIBNAME})
 POCO_GENERATE_PACKAGE(${LIBNAME})
 
-if(ENABLE_TESTS)
+if(POCO_OSP_ENABLE_TESTS)
 	add_subdirectory(testsuite)
 endif()

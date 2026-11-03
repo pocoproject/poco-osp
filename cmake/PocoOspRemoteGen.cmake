@@ -27,10 +27,20 @@ function(poco_remote_gen REMOTEGEN_XML)
 		message(FATAL_ERROR "Missing parameter GEN_DIR_NAME")
 	endif()
 
-	if (WIN32)
-		set(REMOTEGEN_DEFINES /compiler=msvc)
+	# RemoteGenNG preprocesses the headers with the compiler of this id in its global configuration.
+	if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+		set(_remotegen_compiler msvc)
+	elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+		set(_remotegen_compiler gcc)
+	elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+		set(_remotegen_compiler clang)
 	else()
-		set(REMOTEGEN_DEFINES --compiler=clang)
+		message(FATAL_ERROR "poco_remote_gen: RemoteGenNG has no compiler definition for ${CMAKE_CXX_COMPILER_ID}")
+	endif()
+	if (WIN32)
+		set(REMOTEGEN_DEFINES /compiler=${_remotegen_compiler})
+	else()
+		set(REMOTEGEN_DEFINES --compiler=${_remotegen_compiler})
 	endif()
 
 	foreach (DEF ${arg_DEFINES})
@@ -41,18 +51,16 @@ function(poco_remote_gen REMOTEGEN_XML)
 		endif()
 	endforeach()
 
-	# Macchina-only RemoteGen.xml include paths use ${POCOPLUS_BASE} so that the
-	# make build can keep vanilla POCO under POCO_BASE (the poco submodule). The make
-	# build passes POCOPLUS_BASE via RemoteGen.sh; define it here for the CMake
-	# codegen as well, pointing at the macchina platform source tree. Superprojects
-	# with a different layout (standalone component builds) set POCOPLUS_BASE.
-	if(NOT DEFINED POCOPLUS_BASE)
-		set(POCOPLUS_BASE ${CMAKE_SOURCE_DIR}/macchina.io/platform)
+	# RemoteGen.xml include paths into OSP use ${POCO_OSP_BASE}, so that they do not
+	# depend on where POCO is (POCO_BASE). It defaults to the root of this repository;
+	# superprojects with a different layout set POCO_OSP_BASE.
+	if(NOT DEFINED POCO_OSP_BASE)
+		get_filename_component(POCO_OSP_BASE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.." ABSOLUTE)
 	endif()
 	if (WIN32)
-		list(APPEND REMOTEGEN_DEFINES /D POCOPLUS_BASE=${POCOPLUS_BASE})
+		list(APPEND REMOTEGEN_DEFINES /D POCO_OSP_BASE=${POCO_OSP_BASE})
 	else()
-		list(APPEND REMOTEGEN_DEFINES -DPOCOPLUS_BASE=${POCOPLUS_BASE})
+		list(APPEND REMOTEGEN_DEFINES -DPOCO_OSP_BASE=${POCO_OSP_BASE})
 	endif()
 
 	set(REMOTEGEN_TIMESTAMP ${CMAKE_CURRENT_BINARY_DIR}/remotegen.timestamp)

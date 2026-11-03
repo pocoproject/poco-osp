@@ -3,10 +3,26 @@
 #
 # Helper functions for OSP CMake consumers
 
-# Captured at include time: inside a function CMAKE_CURRENT_LIST_DIR is the
-# caller's directory, but the fingerprint helper script lives next to this
-# file.
-set(_POCO_OSP_BUNDLE_CMAKE_DIR ${CMAKE_CURRENT_LIST_DIR})
+include_guard(GLOBAL)
+
+# Sets each of the two variables that is not defined to the platform of the
+# build: the OS name and the processor architecture of the bundles.
+function(_poco_osp_bundle_platform _osname_var _osarch_var)
+	if(NOT DEFINED ${_osname_var})
+		if (WIN32)
+			set(${_osname_var} "Windows_NT" PARENT_SCOPE)
+		else()
+			set(${_osname_var} ${CMAKE_SYSTEM_NAME} PARENT_SCOPE)
+		endif()
+	endif()
+	if(NOT DEFINED ${_osarch_var})
+		set(${_osarch_var} ${CMAKE_SYSTEM_PROCESSOR} PARENT_SCOPE)
+	endif()
+endfunction()
+
+# Set at include time and at directory scope, so that code outside poco_osp_bundle(), such as the
+# core testsuite, uses the values the bundles are created with.
+_poco_osp_bundle_platform(OSP_OSNAME OSP_OSARCH)
 
 # Create Poco OSP Bundle
 #
@@ -27,16 +43,8 @@ function(poco_osp_bundle BUNDLE_TARGET)
 	set(multiValueArgs CODE DEPENDS)
 	cmake_parse_arguments("${prefix}" "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
-	if(NOT DEFINED OSP_OSNAME)
-		if (WIN32)
-			set(OSP_OSNAME "Windows_NT")
-		else()
-			set(OSP_OSNAME ${CMAKE_SYSTEM_NAME})
-		endif()
-	endif()
-	if(NOT DEFINED OSP_OSARCH)
-		set(OSP_OSARCH ${CMAKE_SYSTEM_PROCESSOR})
-	endif()
+	# A caller in a directory that does not see the include-time values gets local ones.
+	_poco_osp_bundle_platform(OSP_OSNAME OSP_OSARCH)
 
 	if (NOT BUNDLE_SPEC)
 		message(FATAL_ERROR "OSP bundle: Missing argument SPEC")
@@ -93,7 +101,7 @@ function(poco_osp_bundle BUNDLE_TARGET)
 	# file-level deps an always-run fingerprint step hashes the tree listing
 	# at BUILD time and rewrites a stamp file only when the content actually
 	# changed; the bundle command depends on that stamp. POSIX-only, like
-	# the OCI container pipeline itself (the fingerprint uses GNU find).
+	# the OCI container pipeline itself (the fingerprint uses find).
 	set(_OCI_FINGERPRINT_TARGET "")
 	if(EXISTS ${BUNDLE_WORKING_DIRECTORY}/oci AND NOT WIN32)
 		set(_OCI_STAMP ${CMAKE_CURRENT_BINARY_DIR}/${BUNDLE_TARGET}-oci.stamp)
@@ -102,7 +110,7 @@ function(poco_osp_bundle BUNDLE_TARGET)
 			COMMAND ${CMAKE_COMMAND}
 				-DOCI_DIR=${BUNDLE_WORKING_DIRECTORY}/oci
 				-DSTAMP_FILE=${_OCI_STAMP}
-				-P ${_POCO_OSP_BUNDLE_CMAKE_DIR}/PocoOspBundleFingerprint.cmake
+				-P ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/PocoOspBundleFingerprint.cmake
 			BYPRODUCTS ${_OCI_STAMP}
 			COMMENT " - Fingerprint OCI content for ${BUNDLE_TARGET}"
 			VERBATIM
@@ -122,7 +130,11 @@ function(poco_osp_bundle BUNDLE_TARGET)
 		VERBATIM
 	)
 
-	add_custom_target(${BUNDLE_TARGET} ALL DEPENDS ${BUNDLE_CREATED_FILE} BundleCreator)
+	add_custom_target(${BUNDLE_TARGET} ALL DEPENDS ${BUNDLE_CREATED_FILE})
+	# A consumer of an installed package has the imported Poco::OSP::BundleCreator but no BundleCreator build target.
+	if(TARGET BundleCreator)
+		add_dependencies(${BUNDLE_TARGET} BundleCreator)
+	endif()
 	if(_OCI_FINGERPRINT_TARGET)
 		add_dependencies(${BUNDLE_TARGET} ${_OCI_FINGERPRINT_TARGET})
 	endif()

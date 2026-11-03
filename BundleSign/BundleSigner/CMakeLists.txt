@@ -1,10 +1,11 @@
 # Sources
-file(GLOB SRCS "src/*.cpp")
+file(GLOB SRCS_G "src/*.cpp")
+POCO_SOURCES_AUTO(SRCS ${SRCS_G})
 
 # Version Resource
 if(MSVC)
-	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
-	list(APPEND SRCS ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
+	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
+	list(APPEND SRCS ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
 endif()
 
 add_executable(BundleSigner ${SRCS})
@@ -13,7 +14,7 @@ set_target_properties(BundleSigner
     OUTPUT_NAME signbundle
 )
 
-target_link_libraries(BundleSigner Poco::OSPBundleSign Poco::OSP Poco::Crypto Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation)
+target_link_libraries(BundleSigner PRIVATE Poco::OSPBundleSign Poco::OSP Poco::Crypto Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation)
 
 install(
     TARGETS BundleSigner EXPORT BundleSignerTargets

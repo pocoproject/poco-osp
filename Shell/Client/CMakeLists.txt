@@ -4,11 +4,9 @@ POCO_SOURCES_AUTO(SRCS ${SRCS_G})
 
 # Version Resource
 if(MSVC)
-	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
-	list(APPEND SRCS ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
+	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
+	list(APPEND SRCS ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
 endif()
-
-find_package(Libedit)
 
 add_executable(OSPShellClient ${SRCS})
 set_target_properties(OSPShellClient
@@ -16,16 +14,29 @@ set_target_properties(OSPShellClient
 	OUTPUT_NAME ospsh
 )
 
-if(LIBEDIT_FOUND)
-	target_compile_definitions(OSPShellClient PUBLIC OSPSH_HAVE_EDITLINE)
-	target_link_libraries(OSPShellClient PUBLIC Poco::OSPShell Poco::OSP Poco::Net Poco::Util ${LIBEDIT_LIBRARIES})
-	target_include_directories(OSPShellClient
-		PRIVATE ${LIBEDIT_INCLUDE_DIR}
-	)
+target_link_libraries(OSPShellClient PRIVATE Poco::OSPShell Poco::OSP Poco::Net Poco::Util)
+
+# Line editing and history are optional: without libedit, ospsh reads plain lines.
+# On macOS, libedit is a system library of the SDK.
+if(APPLE)
+	set(_poco_osp_libedit edit)
+else()
+	find_package(PkgConfig)
+	if(PKG_CONFIG_FOUND)
+		pkg_check_modules(LIBEDIT IMPORTED_TARGET libedit)
+	endif()
+	if(LIBEDIT_FOUND)
+		set(_poco_osp_libedit PkgConfig::LIBEDIT)
+	endif()
+endif()
+if(DEFINED _poco_osp_libedit)
+	target_compile_definitions(OSPShellClient PRIVATE OSPSH_HAVE_EDITLINE)
+	target_link_libraries(OSPShellClient PRIVATE ${_poco_osp_libedit})
 	message(STATUS "Building ospsh with libedit")
 else()
-	target_link_libraries(OSPShellClient PUBLIC Poco::OSPShell Poco::OSP Poco::Net Poco::Util)
+	message(STATUS "Building ospsh without libedit")
 endif()
+unset(_poco_osp_libedit)
 
 install(
 	TARGETS OSPShellClient EXPORT OSPShellClientTargets

@@ -1,8 +1,6 @@
 set(TARGET "com.appinf.osp.samples.servicelistener")
 set(BUNDLE_SPEC "${CMAKE_CURRENT_SOURCE_DIR}/ServiceListener.bndlspec")
 
-set(BUNDLE_DIR ${CMAKE_BINARY_DIR}/${POCO_INSTALL_BUNDLEDIR})
-
 # Sources
 file(GLOB TARGET_SRCS "src/*.cpp")
 
@@ -18,18 +16,18 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
 	set_target_properties(${TARGET} PROPERTIES SUFFIX ".dylib")
 endif()
 
-target_link_libraries(${TARGET} Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation)
+target_link_libraries(${TARGET} PRIVATE Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation)
 
 # Build Bundle
 poco_osp_bundle(${TARGET}-bundle
-	DEPENDS ${LIBNAME} ${TARGET}
+	DEPENDS ${TARGET}
 	SPEC ${BUNDLE_SPEC}
 	CODE $<TARGET_FILE:${TARGET}>
-	DESTINATION ${BUNDLE_DIR}
+	DESTINATION ${POCO_OSP_BUNDLE_DIR}
 )
 
 install(
-	DIRECTORY	 ${BUNDLE_DIR}/
+	DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
 	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
 	COMPONENT    Bundles
 	FILES_MATCHING PATTERN "${TARGET}*.bndl"

@@ -1,119 +1,89 @@
-if (NOT DEFINED POCO_INSTALL_BUNDLEDIR)
-	set(POCO_INSTALL_BUNDLEDIR "lib${LIB_SUFFIX}")
-endif()
+cmake_minimum_required(VERSION 3.26)
 
-# Append our module directory to CMake
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" POCO_OSP_VERSION LIMIT_COUNT 1)
+
+# C because the pulled POCO builds its bundled C libraries in the same build.
+project(PocoOSP VERSION ${POCO_OSP_VERSION} LANGUAGES C CXX)
+
+# The OSP code uses POCO 2.0 APIs, such as Net::ProxyConfig and RemotingNG.
+set(POCO_OSP_POCO_MIN_VERSION 2.0.0)
+# release resolution only picks POCO releases with these major versions, so a future major cannot change what a
+# fresh configure builds.
+set(POCO_OSP_POCO_SUPPORTED_MAJORS 2)
+
+if(cxx_std_20 IN_LIST CMAKE_CXX_COMPILE_FEATURES)
+	set(CMAKE_CXX_STANDARD 20)
+else()
+	set(CMAKE_CXX_STANDARD 17)
+endif()
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-if(ENABLE_OSP_BUNDLE_CREATOR)
-	add_subdirectory(BundleCreator)
+include(PocoOSPOptions)
+
+# POCO's default build type, set here so that it applies to the OSP sources too: POCO sets it in its own
+# directory scope, which a superproject's other directories do not see.
+if(NOT CMAKE_BUILD_TYPE)
+	set(CMAKE_BUILD_TYPE "RelWithDebInfo")
 endif()
 
-if (ENABLE_OSP_BUNDLES)
-	include(PocoOspBundle)
-
-	if (ENABLE_OSP_AUTH)
-		add_subdirectory(Auth)
-		add_subdirectory(Auth/Data)
-		add_subdirectory(Auth/TwoFactor)
-		if (ENABLE_REMOTING)
-			add_subdirectory(Auth/Remoting)
-		endif()
-	endif()
-	add_subdirectory(Core)
-
-	if (ENABLE_CRYPTO)
-		add_subdirectory(Crypto)
-	endif()
-	if (ENABLE_DATA)
-		add_subdirectory(Data)
-	endif()
-	if (ENABLE_DATA_SQLITE)
-		add_subdirectory(Data/SQLite)
-	endif()
-	if (ENABLE_DATA_ODBC)
-		add_subdirectory(Data/ODBC)
-	endif()
-	if (ENABLE_REDIS)
-		add_subdirectory(Redis)
-	endif()
-	if (ENABLE_JWT)
-		add_subdirectory(JWT)
-	endif()
-	if (ENABLE_NET)
-		add_subdirectory(Mail)
-	endif()
-	if (ENABLE_NET)
-		add_subdirectory(Net)
-	endif()
-	if (ENABLE_NETSSL)
-		add_subdirectory(NetSSL_OpenSSL)
-	endif()
-	if (ENABLE_PROMETHEUS)
-		add_subdirectory(Prometheus)
-	endif()
-	if (ENABLE_REMOTING)
-		add_subdirectory(RemotingNG/TCP)
-		add_subdirectory(RemotingNG/REST)
-	endif()
-	if (ENABLE_NETSSL)
-		add_subdirectory(SecureMail)
-		add_subdirectory(SecureWebServer)
-	endif()
-	if (ENABLE_NET AND ENABLE_ZIP)
-		add_subdirectory(Shell)
-		add_subdirectory(Shell/Commands)
-		add_subdirectory(Shell/LogLevelCommand)
-	endif()
-	add_subdirectory(SimpleAuth)
-	if (ENABLE_NET)
-		add_subdirectory(Web)
-		add_subdirectory(WebEvent)
-		add_subdirectory(WebServer)
-	endif()
-	if (ENABLE_JS)
-		add_subdirectory(JS)
-	endif()
+# A superproject that added POCO already provides it.
+if(TARGET Poco::Foundation)
+	set(POCO_OSP_SUPERBUILD ON)
+else()
+	set(POCO_OSP_SUPERBUILD OFF)
+	include(PocoOSPFetchPoco)
 endif()
 
-# Sources
-file(GLOB SRCS_G "src/*.cpp")
-POCO_SOURCES_AUTO(SRCS ${SRCS_G})
-
-# Headers
-file(GLOB_RECURSE HDRS_G "include/*.h")
-POCO_HEADERS_AUTO(SRCS ${HDRS_G})
-
-# Version Resource
-if(MSVC AND BUILD_SHARED_LIBS)
-	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
-	list(APPEND SRCS ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
+# POCO applies its sanitizer flags, trace definition and maintainer warnings in its own directory scope, which
+# does not reach the OSP targets; the sanitizer flags are applied as in POCO's cmake/DefinePlatformSpecific.cmake.
+if(DEFINED POCO_SANITIZEFLAGS AND NOT "${POCO_SANITIZEFLAGS}" STREQUAL "")
+	separate_arguments(_poco_osp_san_flags UNIX_COMMAND "${POCO_SANITIZEFLAGS}")
+	add_compile_options(${_poco_osp_san_flags})
+	add_link_options(${_poco_osp_san_flags})
+	unset(_poco_osp_san_flags)
+endif()
+if(ENABLE_TRACE)
+	add_compile_definitions(POCO_ENABLE_TRACE)
+endif()
+if(ENABLE_COMPILER_WARNINGS AND COMMAND poco_enable_detailed_compiler_warnings)
+	poco_enable_detailed_compiler_warnings()
 endif()
 
-add_library(OSP ${SRCS})
-add_library(Poco::OSP ALIAS OSP)
-set_target_properties(OSP
-	PROPERTIES
-	VERSION ${SHARED_LIBRARY_VERSION} SOVERSION ${SHARED_LIBRARY_VERSION}
-	OUTPUT_NAME PocoOSP
-	DEFINE_SYMBOL OSP_EXPORTS
-)
-
-target_link_libraries(OSP PUBLIC Poco::Foundation Poco::XML Poco::Util Poco::Zip)
-target_include_directories(OSP
-	PUBLIC
-		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-		$<INSTALL_INTERFACE:include>
-	PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-
-POCO_INSTALL(OSP)
-POCO_GENERATE_PACKAGE(OSP)
-
-if(ENABLE_TESTS)
-	add_subdirectory(testsuite)
+if(POCO_OSP_ENABLE_TESTS)
+	enable_testing()
 endif()
-	
-if (ENABLE_SAMPLES)
-	add_subdirectory(samples)
+
+include(PocoOSPSetup)
+
+message(STATUS "POCO OSP ${PROJECT_VERSION}")
+if(POCO_OSP_SUPERBUILD)
+	message(STATUS "  POCO: superbuild, provided by the superproject")
+else()
+	message(STATUS "  POCO source: ${POCO_OSP_POCO_SOURCE}")
+	if(POCO_OSP_POCO_REF)
+		message(STATUS "  POCO version: ${POCO_OSP_POCO_VERSION}, ref ${POCO_OSP_POCO_REF}")
+	else()
+		message(STATUS "  POCO version: plain source tree, POCO_OSP_POCO_VERSION does not apply")
+	endif()
 endif()
+set(_poco_osp_enabled "")
+set(_poco_osp_disabled "")
+foreach(_poco_osp_option IN LISTS POCO_OSP_PARTS)
+	if(${_poco_osp_option})
+		list(APPEND _poco_osp_enabled ${_poco_osp_option})
+	elseif(DEFINED POCO_OSP_OFF_REASON_${_poco_osp_option})
+		list(APPEND _poco_osp_disabled "${_poco_osp_option}: switched off, ${POCO_OSP_OFF_REASON_${_poco_osp_option}}")
+	else()
+		list(APPEND _poco_osp_disabled ${_poco_osp_option})
+	endif()
+endforeach()
+list(JOIN _poco_osp_enabled " " _poco_osp_enabled)
+message(STATUS "  Enabled: ${_poco_osp_enabled}")
+message(STATUS "  Disabled:")
+foreach(_poco_osp_line IN LISTS _poco_osp_disabled)
+	message(STATUS "    ${_poco_osp_line}")
+endforeach()
+unset(_poco_osp_enabled)
+unset(_poco_osp_disabled)

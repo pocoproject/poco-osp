@@ -1,10 +1,9 @@
 set(TARGET "osp.core")
 set(BUNDLE_SPEC "${CMAKE_CURRENT_SOURCE_DIR}/Core.bndlspec")
 
-set(BUNDLE_DIR ${CMAKE_BINARY_DIR}/${POCO_INSTALL_BUNDLEDIR})
-
 # Sources
-file(GLOB SRCS "src/*.cpp")
+file(GLOB SRCS_G "src/*.cpp")
+POCO_SOURCES_AUTO(SRCS ${SRCS_G})
 
 # Dynamic Library
 add_library(${TARGET} MODULE ${SRCS})
@@ -18,17 +17,17 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
 	set_target_properties(${TARGET} PROPERTIES SUFFIX ".dylib")
 endif()
 
-target_link_libraries(${TARGET} Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation)
+target_link_libraries(${TARGET} PRIVATE Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation)
 
 # Build Bundle
 poco_osp_bundle(${TARGET}-bundle
-	DEPENDS ${LIBNAME} ${TARGET}
+	DEPENDS ${TARGET}
 	SPEC ${BUNDLE_SPEC}
-	DESTINATION ${BUNDLE_DIR}
+	DESTINATION ${POCO_OSP_BUNDLE_DIR}
 )
 
 install(
-	DIRECTORY	 ${BUNDLE_DIR}/
+	DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
 	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
 	COMPONENT    Bundles
 	FILES_MATCHING PATTERN "${TARGET}*.bndl"

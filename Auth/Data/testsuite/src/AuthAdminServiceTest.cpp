@@ -774,6 +774,7 @@ void AuthAdminServiceTest::testReset()
 }
 
 
+#if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 void AuthAdminServiceTest::testExternalRole()
 {
 	_pAAS->addRole("extRole");
@@ -787,6 +788,7 @@ void AuthAdminServiceTest::testExternalRole()
 	assert(!_pAAS->isExternalRole("localRole"));
 	assert(!_pAAS->isExternalRole("undefRole"));
 }
+#endif
 
 
 void AuthAdminServiceTest::testRoleMappings()
@@ -1084,7 +1086,9 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLockOut);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLockOutAfterLoginFailures);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testReset);
+#if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testExternalRole);
+#endif
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRoleMappings);
 
 	return pSuite;
@@ -1120,7 +1124,9 @@ CppUnit::Test* InlineAttributesAuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testLockOut);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testLockOutAfterLoginFailures);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testReset);
+#if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testExternalRole);
+#endif
 
 	return pSuite;
 }

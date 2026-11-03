@@ -8,8 +8,8 @@ POCO_HEADERS_AUTO(SRCS ${HDRS_G})
 
 # Version Resource
 if(MSVC AND BUILD_SHARED_LIBS)
-	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
-	list(APPEND SRCS ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
+	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
+	list(APPEND SRCS ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
 endif()
 
 add_library(OSPBundleSign ${SRCS})
@@ -21,7 +21,7 @@ set_target_properties(OSPBundleSign
 	DEFINE_SYMBOL OSPBundleSign_EXPORTS
 )
 
-target_link_libraries(OSPBundleSign PUBLIC Poco::OSP Poco::Crypto Poco::Foundation Poco::XML Poco::Util Poco::Zip)
+target_link_libraries(OSPBundleSign PUBLIC Poco::OSP Poco::Crypto Poco::Foundation PRIVATE Poco::XML Poco::Util Poco::Zip)
 target_include_directories(OSPBundleSign
 	PUBLIC
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -32,6 +32,6 @@ target_include_directories(OSPBundleSign
 POCO_INSTALL(OSPBundleSign)
 POCO_GENERATE_PACKAGE(OSPBundleSign)
 
-if(ENABLE_TESTS)
+if(POCO_OSP_ENABLE_TESTS)
 	add_subdirectory(testsuite)
 endif()

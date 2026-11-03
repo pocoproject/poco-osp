@@ -8,8 +8,8 @@ POCO_HEADERS_AUTO(SRCS ${HDRS_G})
 
 # Version Resource
 if(MSVC AND BUILD_SHARED_LIBS)
-	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
-	list(APPEND SRCS ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
+	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
+	list(APPEND SRCS ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
 endif()
 
 add_library(OSPAuthRemoting ${SRCS})
@@ -23,7 +23,9 @@ set_target_properties(OSPAuthRemoting
 
 target_link_libraries(OSPAuthRemoting
 	PUBLIC
-	Poco::OSPAuth Poco::OSP Poco::RemotingNG Poco::Net Poco::Foundation
+	Poco::OSP Poco::RemotingNG Poco::Foundation
+	PRIVATE
+	Poco::OSPAuth Poco::Net
 )
 target_include_directories(OSPAuthRemoting
 	PUBLIC

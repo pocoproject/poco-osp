@@ -3,30 +3,33 @@ set(BUNDLE_SPEC "${CMAKE_CURRENT_SOURCE_DIR}/AuthBundle.bndlspec")
 
 set(LIBNAME "OSPAuth")
 set(POCO_LIBNAME "Poco${LIBNAME}")
-set(LIBVERSION 1)
-
-set(BUNDLE_DIR ${CMAKE_BINARY_DIR}/${POCO_INSTALL_BUNDLEDIR})
+set(LIBVERSION ${SHARED_LIBRARY_VERSION})
 
 # Sources
-set(LIB_SRCS
+POCO_SOURCES_AUTO(LIB_SRCS
 	src/AuthAdminService.cpp
 	src/AbstractLDAPAuthAdminService.cpp
 	src/PooledAuthAdminService.cpp
 	src/AuthNotification.cpp
 )
 
+# Headers
+file(GLOB_RECURSE HDRS_G "include/*.h")
+POCO_HEADERS_AUTO(LIB_SRCS ${HDRS_G})
+
 # Version Resource
 if(MSVC AND BUILD_SHARED_LIBS)
-	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
-	list(APPEND LIB_SRCS ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
+	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
+	list(APPEND LIB_SRCS ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
 endif()
 
-set(BUNDLE_SRCS
+POCO_SOURCES_AUTO(BUNDLE_SRCS
 	src/AuthBundleActivator.cpp
 )
 
 # Shared Library
 add_library(${LIBNAME} ${LIB_SRCS})
+add_library(Poco::OSPAuth ALIAS ${LIBNAME})
 
 # LDAP
 if(WIN32)
@@ -42,7 +45,8 @@ if(WIN32)
 		target_link_libraries(${LIBNAME}
 			PUBLIC
 			Poco::OSP Poco::Foundation
-			wldap32.lib
+			PRIVATE
+			wldap32
 		)
 	else()
 	  target_link_libraries(${LIBNAME}
@@ -58,26 +62,25 @@ if(WIN32)
 			${CMAKE_CURRENT_SOURCE_DIR}/src
 	)
 else()
-	find_package(PkgConfig REQUIRED)
-	if(ENABLE_OSP_AUTH_LDAP)
-		pkg_check_modules(OPENLDAP REQUIRED ldap)
-	else()
-		pkg_check_modules(OPENLDAP ldap)
+	if(ENABLE_OSP_AUTH_LDAP AND APPLE)
+		message(FATAL_ERROR "ENABLE_OSP_AUTH_LDAP is not supported on macOS: the LDAP headers are broken there.")
 	endif()
-	# Note: LDAP headers are severely broken on macOS
-	if(OPENLDAP_FOUND AND NOT APPLE)
+	if(ENABLE_OSP_AUTH_LDAP)
+		find_package(PkgConfig REQUIRED)
+		pkg_check_modules(OPENLDAP REQUIRED IMPORTED_TARGET ldap)
 		target_sources(${LIBNAME} PRIVATE src/LDAPClient.cpp)
 		target_sources(${LIBNAME} PRIVATE include/Poco/OSP/Auth/LDAPClient.h)
 
 		# NOTE: Newer versions of LDAP library mark some functions as obsolete
 		# We enable obsolete functions for now anyway.
-		target_compile_definitions(${LIBNAME} PUBLIC LDAP_DEPRECATED)
+		target_compile_definitions(${LIBNAME} PRIVATE LDAP_DEPRECATED)
 
 		target_compile_definitions(${LIBNAME} PUBLIC POCO_OSP_AUTH_ENABLE_LDAP)
 		target_link_libraries(${LIBNAME}
 			PUBLIC
 			Poco::OSP Poco::Foundation
-			${OPENLDAP_LIBRARIES}
+			PRIVATE
+			PkgConfig::OPENLDAP
 		)
 		target_include_directories(${LIBNAME}
 			PUBLIC
@@ -85,7 +88,6 @@ else()
 				$<INSTALL_INTERFACE:include>
 			PRIVATE
 				${CMAKE_CURRENT_SOURCE_DIR}/src
-				${OPENLDAP_INCLUDE_DIR}
 		)
 		message(STATUS "Building ${LIBNAME} with OpenLDAP support")
 	else()
@@ -104,7 +106,6 @@ else()
 	endif()
 endif()
 
-add_library(Poco::OSPAuth ALIAS ${LIBNAME})
 set_target_properties(${LIBNAME}
 	PROPERTIES
 	VERSION ${LIBVERSION} SOVERSION ${LIBVERSION}
@@ -125,7 +126,8 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
 endif()
 
 target_link_libraries(${TARGET}
-	OSPAuth Poco::OSP Poco::Foundation
+	PRIVATE
+	Poco::OSPAuth Poco::OSP Poco::Foundation
 )
 
 # Build Bundle
@@ -133,11 +135,11 @@ poco_osp_bundle(${TARGET}-bundle
 	DEPENDS ${LIBNAME} ${TARGET}
 	SPEC ${BUNDLE_SPEC}
 	CODE $<TARGET_FILE:${LIBNAME}> $<TARGET_FILE:${TARGET}>
-	DESTINATION ${BUNDLE_DIR}
+	DESTINATION ${POCO_OSP_BUNDLE_DIR}
 )
 
 install(
-	DIRECTORY	 ${BUNDLE_DIR}/
+	DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
 	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
 	COMPONENT    Bundles
 	FILES_MATCHING PATTERN "${TARGET}*.bndl"
@@ -146,6 +148,6 @@ install(
 POCO_INSTALL(${LIBNAME})
 POCO_GENERATE_PACKAGE(${LIBNAME})
 
-if(ENABLE_TESTS)
+if(POCO_OSP_ENABLE_TESTS)
 	add_subdirectory(testsuite)
 endif()

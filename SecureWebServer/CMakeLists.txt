@@ -1,10 +1,9 @@
 set(TARGET "osp.web.server.secure")
 set(BUNDLE_SPEC "${CMAKE_CURRENT_SOURCE_DIR}/SecureWebServer.bndlspec")
 
-set(BUNDLE_DIR ${CMAKE_BINARY_DIR}/${POCO_INSTALL_BUNDLEDIR})
-
 # Sources
-file(GLOB SRCS "src/*.cpp")
+file(GLOB SRCS_G "src/*.cpp")
+POCO_SOURCES_AUTO(SRCS ${SRCS_G})
 
 # Dynamic Library
 add_library(${TARGET} MODULE ${SRCS})
@@ -18,7 +17,7 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
 	set_target_properties(${TARGET} PROPERTIES SUFFIX ".dylib")
 endif()
 
-target_link_libraries(${TARGET} Poco::OSPWeb Poco::OSP Poco::Zip Poco::NetSSL Poco::Net Poco::Util Poco::XML Poco::JSON Poco::Foundation)
+target_link_libraries(${TARGET} PRIVATE Poco::OSPWeb Poco::OSP Poco::Zip Poco::NetSSL Poco::Net Poco::Util Poco::XML Poco::JSON Poco::Foundation)
 
 # Copy Bundle Resources to build directory
 add_custom_command(TARGET ${TARGET}
@@ -28,14 +27,14 @@ add_custom_command(TARGET ${TARGET}
 
 # Build Bundle
 poco_osp_bundle(${TARGET}-bundle
-	DEPENDS ${LIBNAME} ${TARGET}
+	DEPENDS ${TARGET}
 	SPEC ${BUNDLE_SPEC}
 	CODE $<TARGET_FILE:${TARGET}>
-	DESTINATION ${BUNDLE_DIR}
+	DESTINATION ${POCO_OSP_BUNDLE_DIR}
 )
 
 install(
-	DIRECTORY	 ${BUNDLE_DIR}/
+	DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
 	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
 	COMPONENT    Bundles
 	FILES_MATCHING PATTERN "${TARGET}*.bndl"

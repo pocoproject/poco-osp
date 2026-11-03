@@ -19,6 +19,7 @@
 #include "Poco/OSP/ServiceRegistry.h"
 #include "Poco/SharedLibrary.h"
 #include "Poco/ErrorHandler.h"
+#include "Poco/ThreadPool.h"
 #include <iostream>
 
 

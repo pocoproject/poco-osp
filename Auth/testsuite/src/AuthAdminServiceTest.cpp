@@ -11,7 +11,9 @@
 
 
 #include "Poco/OSP/Auth/AbstractLDAPAuthAdminService.h"
+#if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 #include "Poco/OSP/Auth/LDAPClient.h"
+#endif
 #include "AuthAdminServiceTest.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
@@ -38,6 +40,7 @@ void AuthAdminServiceTest::testEscapeLDAP()
 }
 
 
+#if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 void AuthAdminServiceTest::testEscapeLDAPFilterValue()
 {
 	assert (LDAPClient::escapeFilterValue("admin") == "admin");
@@ -46,6 +49,7 @@ void AuthAdminServiceTest::testEscapeLDAPFilterValue()
 	assert (LDAPClient::escapeFilterValue("ad\\min") == "ad\\5Cmin");
 	assert (LDAPClient::escapeFilterValue(std::string("ad\0min", 6)) == std::string("ad\\00min"));
 }
+#endif
 
 
 void AuthAdminServiceTest::setUp()
@@ -63,7 +67,9 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("AuthAdminServiceTest");
 
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testEscapeLDAP);
+#if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testEscapeLDAPFilterValue);
+#endif
 
 	return pSuite;
 }

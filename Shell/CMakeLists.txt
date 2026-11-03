@@ -3,12 +3,10 @@ set(BUNDLE_SPEC "${CMAKE_CURRENT_SOURCE_DIR}/Shell.bndlspec")
 
 set(LIBNAME "OSPShell")
 set(POCO_LIBNAME "Poco${LIBNAME}")
-set(LIBVERSION 2)
-
-set(BUNDLE_DIR ${CMAKE_BINARY_DIR}/${POCO_INSTALL_BUNDLEDIR})
+set(LIBVERSION ${SHARED_LIBRARY_VERSION})
 
 # Sources
-set(LIB_SRCS
+POCO_SOURCES_AUTO(LIB_SRCS
 	src/AbstractCommand.cpp
 	src/Command.cpp
 	src/CommandFactory.cpp
@@ -26,6 +24,10 @@ set(LIB_SRCS
 	src/ShellConnectionFactory.cpp
 )
 
+# Headers
+file(GLOB_RECURSE HDRS_G "include/*.h")
+POCO_HEADERS_AUTO(LIB_SRCS ${HDRS_G})
+
 # Optional SSH support via Poco::SSH library
 if(ENABLE_OSP_SHELL_SSH)
 	message(STATUS "OSP Shell: SSH server support enabled (using Poco::SSH)")
@@ -35,17 +37,17 @@ endif()
 
 # Version Resource
 if(MSVC AND BUILD_SHARED_LIBS)
-	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
-	list(APPEND LIB_SRCS ${PROJECT_SOURCE_DIR}/ProDLLVersion.rc)
+	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
+	list(APPEND LIB_SRCS ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
 endif()
 
-set(BUNDLE_SRCS
+POCO_SOURCES_AUTO(BUNDLE_SRCS
 	src/ShellBundleActivator.cpp
 	src/CommandExtensionPoint.cpp
 )
 
 if(ENABLE_OSP_SHELL_SSH)
-	list(APPEND BUNDLE_SRCS src/SSHShellConnection.cpp)
+	POCO_SOURCES_AUTO(BUNDLE_SRCS src/SSHShellConnection.cpp)
 endif()
 
 # Shared Library
@@ -58,16 +60,8 @@ set_target_properties(${LIBNAME}
 	DEFINE_SYMBOL OSPShell_EXPORTS
 )
 
-target_link_libraries(${LIBNAME} PUBLIC Poco::OSP Poco::Zip Poco::Net Poco::Util Poco::XML Poco::JSON Poco::Foundation)
+target_link_libraries(${LIBNAME} PUBLIC Poco::OSP Poco::Net Poco::Util Poco::Foundation PRIVATE Poco::Zip Poco::XML Poco::JSON)
 
-if(ENABLE_OSP_SHELL_SSH)
-	# Poco::SSH treats libssh as PRIVATE; SSHShellConnection.cpp calls ssh_*
-	# directly, so OSP/Shell must depend on libssh on its own.
-	find_package(libssh CONFIG REQUIRED)
-	target_compile_definitions(${LIBNAME} PRIVATE OSP_SHELL_ENABLE_SSH=1)
-	target_link_libraries(${LIBNAME} PUBLIC Poco::SSH)
-	target_link_libraries(${LIBNAME} PRIVATE ssh)
-endif()
 target_include_directories(${LIBNAME}
 	PUBLIC
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -87,15 +81,15 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
 	set_target_properties(${TARGET} PROPERTIES SUFFIX ".dylib")
 endif()
 
-target_link_libraries(${TARGET} OSPShell Poco::OSP Poco::Zip Poco::Net Poco::Util Poco::XML Poco::JSON Poco::Foundation)
+target_link_libraries(${TARGET} PRIVATE Poco::OSPShell Poco::OSP Poco::Zip Poco::Net Poco::Util Poco::XML Poco::JSON Poco::Foundation)
 
 if(ENABLE_OSP_SHELL_SSH)
-	# After poco#5339 Poco::SSH links libssh PRIVATE, so SSHShellConnection.cpp
+	# Poco::SSH links libssh PRIVATE, so SSHShellConnection.cpp
 	# (which calls ssh_channel_is_eof / ssh_channel_is_closed directly) needs
 	# its own libssh dependency for both include path and linkage.
 	find_package(libssh CONFIG REQUIRED)
 	target_compile_definitions(${TARGET} PRIVATE OSP_SHELL_ENABLE_SSH=1)
-	target_link_libraries(${TARGET} Poco::SSH ssh)
+	target_link_libraries(${TARGET} PRIVATE Poco::SSH ssh)
 endif()
 
 # Copy Bundle Resources to build directory
@@ -109,11 +103,11 @@ poco_osp_bundle(${TARGET}-bundle
 	DEPENDS ${LIBNAME} ${TARGET}
 	SPEC ${BUNDLE_SPEC}
 	CODE $<TARGET_FILE:${LIBNAME}> $<TARGET_FILE:${TARGET}>
-	DESTINATION ${BUNDLE_DIR}
+	DESTINATION ${POCO_OSP_BUNDLE_DIR}
 )
 
 install(
-	DIRECTORY	 ${BUNDLE_DIR}/
+	DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
 	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
 	COMPONENT    Bundles
 	FILES_MATCHING PATTERN "${TARGET}*.bndl"

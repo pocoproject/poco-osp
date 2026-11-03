@@ -27,7 +27,9 @@ public:
 	~AuthAdminServiceTest();
 	
 	void testEscapeLDAP();
+#if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 	void testEscapeLDAPFilterValue();
+#endif
 
 	void setUp();
 	void tearDown();
