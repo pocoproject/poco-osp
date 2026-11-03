@@ -41,24 +41,17 @@
 #endif
 
 
-namespace Poco {
-namespace OSP {
-namespace RemotingNG {
-namespace TCP {
+namespace Poco::OSP::RemotingNG::TCP {
 
 
 class BundleActivator: public Poco::OSP::BundleActivator
 {
 public:
-	BundleActivator()
-	{
-	}
+	BundleActivator() = default;
 
-	~BundleActivator()
-	{
-	}
+	~BundleActivator() override = default;
 
-	void start(Poco::OSP::BundleContext::Ptr pContext)
+	void start(Poco::OSP::BundleContext::Ptr pContext) override
 	{
 		{
 			// The event handlers read it under the lock.
@@ -108,9 +101,9 @@ public:
 		Poco::RemotingNG::TCP::TransportFactory::registerFactory();
 	}
 
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr pContext) override
 	{
-		_pPrefs = 0;
+		_pPrefs = nullptr;
 
 		if (!_listener.empty())
 		{
@@ -132,7 +125,7 @@ public:
 		_pContext = nullptr;
 	}
 
-	void handleServiceRegistered(const void* sender, ServiceEvent& event)
+	void handleServiceRegistered(const void* /*sender*/, ServiceEvent& event)
 	{
 		Poco::OSP::BundleContext::Ptr pContext;
 		{
@@ -144,7 +137,7 @@ public:
 		registerServiceWithORB(event.service());
 	}
 
-	void handleServiceUnregistered(const void* sender, ServiceEvent& event)
+	void handleServiceUnregistered(const void* /*sender*/, ServiceEvent& event)
 	{
 		Poco::OSP::BundleContext::Ptr pContext;
 		std::string uri;
@@ -360,7 +353,7 @@ private:
 };
 
 
-} } } } // namespace Poco::OSP::RemotingNG::TCP
+} // namespace Poco::OSP::RemotingNG::TCP
 
 
 POCO_BEGIN_MANIFEST(Poco::OSP::BundleActivator)

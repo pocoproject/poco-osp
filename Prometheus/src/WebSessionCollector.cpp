@@ -16,9 +16,7 @@
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
-namespace Prometheus {
+namespace Poco::OSP::Prometheus {
 
 
 WebSessionCollector::WebSessionCollector(Poco::AutoPtr<Poco::OSP::Web::WebSessionManager> pWebSessionManager):
@@ -50,4 +48,4 @@ void WebSessionCollector::buildMetrics()
 }
 
 
-} } } // namespace Poco::OSP::Prometheus
+} // namespace Poco::OSP::Prometheus

@@ -336,7 +336,7 @@ namespace
 		ScriptedLDAPServer& operator = (const ScriptedLDAPServer&) = delete;
 		ScriptedLDAPServer& operator = (ScriptedLDAPServer&&) = delete;
 
-		std::string uri() const
+		[[nodiscard]] std::string uri() const
 		{
 			return ldapURI(_server.port());
 		}

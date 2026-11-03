@@ -21,8 +21,7 @@
 #include "Poco/Mutex.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 ServiceListener::~ServiceListener()
@@ -127,4 +126,4 @@ void ServiceListener::onServiceRefUnregistered(const ServiceRef::Ptr& pServiceRe
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

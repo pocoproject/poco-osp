@@ -15,8 +15,7 @@
 #include "Poco/OSP/PreferencesService.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 const std::string PreferencesService::SERVICE_NAME("osp.core.preferences");
@@ -31,9 +30,7 @@ PreferencesService::PreferencesService(const Poco::Path& persistencyDir, Poco::U
 }
 
 
-PreferencesService::~PreferencesService()
-{
-}
+PreferencesService::~PreferencesService() = default;
 
 
 Preferences::Ptr PreferencesService::preferences(const std::string& bundleOrServiceID)
@@ -73,4 +70,4 @@ bool PreferencesService::isA(const std::type_info& otherType) const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

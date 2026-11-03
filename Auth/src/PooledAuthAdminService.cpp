@@ -21,9 +21,7 @@
 #include <cstddef>
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
 PooledAuthAdminService::PooledAuthAdminService(const std::vector<AuthAdminService::Ptr>& backends):
@@ -467,4 +465,4 @@ void PooledAuthAdminService::onValidateUser(ValidateUserEvent& event)
 }
 
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth

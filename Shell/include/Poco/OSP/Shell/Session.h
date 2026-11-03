@@ -25,9 +25,7 @@
 #include "Poco/OSP/Auth/AuthService.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class OSPShell_API Session
@@ -49,7 +47,11 @@ public:
 	~Session();
 		/// Destroys the Session.
 
-	bool login(const std::string& userName, const std::string& credentials);
+	Session() = delete;
+	Session(const Session&) = delete;
+	Session& operator = (const Session&) = delete;
+
+	[[nodiscard]] bool login(const std::string& userName, const std::string& credentials);
 		/// Attempts to authenticate the user by checking the
 		/// given userName and credentials with the authentication service.
 		///
@@ -69,7 +71,7 @@ public:
 		/// A rejected login leaves the session without a user, also if a user
 		/// was logged in before.
 	
-	bool authorize(const std::string& permission) const;
+	[[nodiscard]] bool authorize(const std::string& permission) const;
 		/// Returns true if the user is authenticated and has the
 		/// given permission, false otherwise.
 		///
@@ -86,10 +88,10 @@ public:
 		/// Used for SSH public key authentication where key possession
 		/// has already been verified.
 
-	bool authenticated() const;
+	[[nodiscard]] bool authenticated() const;
 		/// Returns true if the user is authenticated.
 	
-	const std::string& user() const;
+	[[nodiscard]] const std::string& user() const;
 		/// Returns the name of the current user, or an empty string
 		/// if no user is logged in.
 
@@ -97,21 +99,17 @@ public:
 		/// Returns the number of logins rejected in this session.
 
 protected:
-	Poco::OSP::Auth::AuthService::Ptr authService() const;
+	[[nodiscard]] Poco::OSP::Auth::AuthService::Ptr authService() const;
 		/// Returns the authentication service, or a null pointer if the service
 		/// name is empty or no service with this name is registered. The service
 		/// is looked up for each call, so that a service that has been
 		/// unregistered is no longer used.
 
 private:
-	Session();
-	Session(const Session&);
-	Session& operator = (const Session&);
-	
 	Poco::OSP::BundleContext::Ptr _pContext;
 	std::string _authServiceName;
 	std::string _userName;
-	bool _authenticated;
+	bool _authenticated = false;
 	int _failedLogins = 0;
 };
 
@@ -137,7 +135,7 @@ inline int Session::failedLogins() const
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_Session_INCLUDED

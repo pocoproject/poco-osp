@@ -17,9 +17,7 @@
 #include "Poco/Logger.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace JWT {
+namespace Poco::OSP::JWT {
 
 
 class JWTValidator: public Poco::OSP::Web::TokenValidator
@@ -44,11 +42,11 @@ public:
 		///
 		/// Logs a warning for every algorithm for which the configuration has no key.
 
-	~JWTValidator();
+	~JWTValidator() override;
 		/// Destroys the JWTValidator.
 
 	// TokenValidator
-	bool validateToken(const std::string& token, std::string& username, std::string& scope);
+	[[nodiscard]] bool validateToken(const std::string& token, std::string& username, std::string& scope) override;
 		/// Accepts a token that is signed with one of the configured algorithms and
 		/// keys, has not expired, is valid already, names a subject, and names the
 		/// configured issuer and audience, if they are configured.
@@ -69,7 +67,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::JWT
+} // namespace Poco::OSP::JWT
 
 
 #endif // OSP_JWT_JWTValidator_INCLUDED

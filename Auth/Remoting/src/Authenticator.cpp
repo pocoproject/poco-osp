@@ -19,10 +19,7 @@
 #include "Poco/Net/HTTPServerRequest.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace Remoting {
+namespace Poco::OSP::Auth::Remoting {
 
 
 using namespace std::string_literals;
@@ -44,14 +41,14 @@ Poco::RemotingNG::AuthenticateResult Authenticator::authenticate(
 	// It removes this header from every request a client sends and sets it only
 	// after successful authentication, so a client cannot supply it.
 	auto pContext = Poco::RemotingNG::Context::get();
-	if (!pContext || !pContext->has("httpRequest"s))
+	if (pContext == nullptr || !pContext->has("httpRequest"s))
 	{
 		return Poco::RemotingNG::AuthenticateResult(
 			Poco::RemotingNG::AuthenticateResult::AUTH_FAILED);
 	}
 
 	auto* pRequest = pContext->getValue<Poco::Net::HTTPServerRequest*>("httpRequest"s);
-	if (!pRequest)
+	if (pRequest == nullptr)
 	{
 		return Poco::RemotingNG::AuthenticateResult(
 			Poco::RemotingNG::AuthenticateResult::AUTH_FAILED);
@@ -71,4 +68,4 @@ Poco::RemotingNG::AuthenticateResult Authenticator::authenticate(
 }
 
 
-} } } } // namespace Poco::OSP::Auth::Remoting
+} // namespace Poco::OSP::Auth::Remoting

@@ -34,8 +34,7 @@ using Poco::Logger;
 using Poco::FastMutex;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 const std::string ExtensionPointService::SERVICE_NAME("osp.core.xp");
@@ -97,13 +96,13 @@ void ExtensionPointService::unregisterExtensionPoint(const std::string& id)
 }
 
 
-void ExtensionPointService::onBundleStarted(const void* pSender, BundleEvent& event)
+void ExtensionPointService::onBundleStarted(const void* /*pSender*/, BundleEvent& event)
 {
 	handleExtensions(event.bundle(), &ExtensionPointService::handleExtension, DIR_FORWARD);
 }
 
 
-void ExtensionPointService::onBundleStopped(const void* pSender, BundleEvent& event)
+void ExtensionPointService::onBundleStopped(const void* /*pSender*/, BundleEvent& event)
 {
 	handleExtensions(event.bundle(), &ExtensionPointService::removeExtension, DIR_REVERSE);
 
@@ -128,7 +127,7 @@ void ExtensionPointService::onBundleStopped(const void* pSender, BundleEvent& ev
 void ExtensionPointService::handleExtensions(Bundle::ConstPtr pBundle, GenericHandler handler, Direction dir)
 {
 	std::unique_ptr<std::istream> pStream(pBundle->getResource(EXTENSIONS_XML));
-	if (pStream.get())
+	if (pStream != nullptr)
 	{
 		try
 		{
@@ -153,14 +152,14 @@ void ExtensionPointService::handleExtensions(Bundle::ConstPtr pBundle, std::istr
 	Poco::XML::InputSource source(istr);
 	AutoPtr<Document> pDoc(parser.parse(&source));
 	Node* pRoot = pDoc->firstChild();
-	while (pRoot && pRoot->nodeName() != EXTENSIONS_ELEM)
+	while (pRoot != nullptr && pRoot->nodeName() != EXTENSIONS_ELEM)
 	{
 		pRoot = pRoot->nextSibling();
 	}
-	if (pRoot)
+	if (pRoot != nullptr)
 	{
 		Node* pNode = (dir == DIR_FORWARD ? pRoot->firstChild() : pRoot->lastChild());
-		while (pNode)
+		while (pNode != nullptr)
 		{
 			if (pNode->nodeType() == Node::ELEMENT_NODE)
 			{
@@ -252,4 +251,4 @@ bool ExtensionPointService::isA(const std::type_info& otherType) const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

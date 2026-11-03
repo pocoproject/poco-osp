@@ -25,9 +25,7 @@
 #include <ostream>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class OSPShell_API ResponseStreamBuf: public Poco::UnbufferedStreamBuf
@@ -57,30 +55,30 @@ public:
 		/// Creates the ResponseStreamBuf and connects it
 		/// to the given output stream.
 
-	~ResponseStreamBuf();
+	~ResponseStreamBuf() override;
 		/// Destroys the ResponseStreamBuf.
+
+	ResponseStreamBuf() = delete;
 		
-	int sync();
+	int sync() override;
 		/// Flushes the currently buffered line and ends the
 		/// response block.	
 		
 	void setStatus(int status);
 		/// Sets the status code that is prepended to response lines.
 	
-	int getStatus() const;
+	[[nodiscard]] int getStatus() const;
 		/// Returns the status code that is prepended to response lines.
 	
 protected:
-	int writeToDevice(char c);
+	int writeToDevice(char c) override;
 	void flushLine(bool more);
 	
 private:
-	ResponseStreamBuf();
-	
 	std::ostream& _ostr;
 	int _status;
 	std::string _line;
-	bool _lineComplete;
+	bool _lineComplete = false;
 };
 
 
@@ -91,23 +89,22 @@ public:
 	ResponseIOS(std::ostream& ostr, int status);
 		/// Creates the ResponseIOS using the given output stream and status.
 		
-	~ResponseIOS();
+	~ResponseIOS() override;
 		/// Destroys the ResponseIOS.
+
+	ResponseIOS() = delete;
 		
-	ResponseStreamBuf* rdbuf();
+	[[nodiscard]] ResponseStreamBuf* rdbuf();
 		/// Returns a pointer to the underlying streambuf.
 		
 	void setStatus(int status);
 		/// Sets the response status code.
 		
-	int getStatus() const;
+	[[nodiscard]] int getStatus() const;
 		/// Returns the response status code.
 		
 protected:
 	ResponseStreamBuf _buf;
-
-private:
-	ResponseIOS();
 };
 
 
@@ -119,7 +116,7 @@ public:
 		/// Creates the ResponseStream, using the given output
 		/// stream and status.
 		
-	~ResponseStream();
+	~ResponseStream() override;
 		/// Destroys the ResponseStream.
 };
 
@@ -145,7 +142,7 @@ inline int ResponseIOS::getStatus() const
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_ResponseStream_INCLUDED

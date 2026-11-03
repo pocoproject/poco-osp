@@ -35,12 +35,13 @@ StringExporterTest::~StringExporterTest() = default;
 
 void StringExporterTest::testSamplesAreSeparatedBySpaces()
 {
-	Poco::Prometheus::CallbackIntGauge connections("connections"s, nullptr, []() { return Poco::Int64(3); });
-	Poco::Prometheus::CallbackIntGauge threads("threads"s, nullptr, []() { return Poco::Int64(2); });
+	Poco::Prometheus::CallbackIntGauge connections("connections"s, nullptr,
+		[]() { return static_cast<Poco::Int64>(3); });
+	Poco::Prometheus::CallbackIntGauge threads("threads"s, nullptr, []() { return static_cast<Poco::Int64>(2); });
 	StringExporter exporter;
 
 	connections.exportTo(exporter);
-	exporter.writeSample(threads, {"pool"s, "kind"s}, {"default"s, "a\"b"s}, Poco::Int64(2));
+	exporter.writeSample(threads, {"pool"s, "kind"s}, {"default"s, "a\"b"s}, static_cast<Poco::Int64>(2));
 
 	assertEqual ("connections=3 threads{pool=\"default\",kind=\"a\\\"b\"}=2 "s, exporter.toString());
 }

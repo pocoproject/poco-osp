@@ -22,8 +22,7 @@
 #include "Poco/OSP/Version.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API VersionRange
@@ -54,28 +53,28 @@ public:
 	VersionRange& operator = (const Version& ver);
 		/// Assigns a single Version.
 
-	void swap(VersionRange& range);
+	void swap(VersionRange& range) noexcept;
 		/// Swaps the VersionRange with another one.
 
-	const Version& lowerBound() const;
+	[[nodiscard]] const Version& lowerBound() const;
 		/// Returns the lower bound of the interval.
 
-	const Version& upperBound() const;
+	[[nodiscard]] const Version& upperBound() const;
 		/// Returns the upper bound of the interval.
 
-	bool includeLower() const;
+	[[nodiscard]] bool includeLower() const;
 		/// Returns true iff the lower bound lies within the interval.
 
-	bool includeUpper() const;
+	[[nodiscard]] bool includeUpper() const;
 		/// Returns true iff the upper bound lies within the interval.
 
-	bool isInRange(const Version& version) const;
+	[[nodiscard]] bool isInRange(const Version& version) const;
 		/// Returns true iff the version lies within the range.
 
-	bool isEmpty() const;
+	[[nodiscard]] bool isEmpty() const;
 		/// Returns true iff the version range is empty.
 
-	std::string toString() const;
+	[[nodiscard]] std::string toString() const;
 		/// Returns a string representation of the version range.
 
 private:
@@ -113,13 +112,13 @@ inline bool VersionRange::includeUpper() const
 }
 
 
-inline void swap(VersionRange& vr1, VersionRange& vr2)
+inline void swap(VersionRange& vr1, VersionRange& vr2) noexcept
 {
 	vr1.swap(vr2);
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_VersionRange_INCLUDED

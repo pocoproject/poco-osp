@@ -24,8 +24,7 @@
 #include <memory>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API BundleEvent
@@ -66,22 +65,23 @@ public:
 
 	~BundleEvent();
 		/// Destroys the BundleEvent.
+
+	BundleEvent() = delete;
 		
 	BundleEvent& operator = (const BundleEvent& event);
 		/// Assigns a BundleEvent.
 		
-	Bundle::ConstPtr bundle() const;
+	[[nodiscard]] Bundle::ConstPtr bundle() const;
 		/// Returns the bundle that caused the event.
 		
-	EventKind what() const;
+	[[nodiscard]] EventKind what() const;
 		/// Returns the reason of the event.
 		
-	Poco::Exception* exception() const;
+	[[nodiscard]] Poco::Exception* exception() const;
 		/// Returns the exception if starting the bundle failed,
 		/// or null if no exception is available.
 
 private:
-	BundleEvent();
 	
 	Bundle::Ptr      _pBundle;
 	EventKind        _what;
@@ -110,7 +110,7 @@ inline Poco::Exception* BundleEvent::exception() const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleEvent_INCLUDED

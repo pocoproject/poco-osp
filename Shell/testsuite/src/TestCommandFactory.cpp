@@ -41,7 +41,7 @@ namespace
 		FunctionCommand& operator = (const FunctionCommand&) = delete;
 		FunctionCommand& operator = (FunctionCommand&&) = delete;
 
-		int execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr) override
+		[[nodiscard]] int execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr) override
 		{
 			return _function(session, args, ostr);
 		}

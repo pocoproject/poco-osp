@@ -19,9 +19,7 @@
 #include "Poco/Format.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 BundlesCommand::BundlesCommand(Poco::OSP::BundleContext::Ptr pContext):
@@ -30,12 +28,10 @@ BundlesCommand::BundlesCommand(Poco::OSP::BundleContext::Ptr pContext):
 }
 
 
-BundlesCommand::~BundlesCommand()
-{
-}
+BundlesCommand::~BundlesCommand() = default;
 
 
-int BundlesCommand::executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr)
+int BundlesCommand::executeImpl(Session& /*session*/, const std::vector<std::string>& args, std::ostream& ostr)
 {
 	std::vector<Poco::OSP::Bundle::Ptr> bundles;
 	ostr << "    ID  State         Bundle\n";
@@ -54,4 +50,4 @@ int BundlesCommand::executeImpl(Session& session, const std::vector<std::string>
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

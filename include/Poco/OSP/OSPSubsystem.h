@@ -25,8 +25,7 @@
 #include <memory>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class CodeCache;
@@ -75,13 +74,13 @@ public:
 	OSPSubsystem();
 		/// Creates the OSPSubsystem.
 
-	~OSPSubsystem();
+	~OSPSubsystem() override;
 		/// Destroys the OSPSubsystem.
 	
-	BundleLoader& bundleLoader();
+	[[nodiscard]] BundleLoader& bundleLoader();
 		/// Returns a reference to the bundle loader.
 		
-	ServiceRegistry& serviceRegistry();
+	[[nodiscard]] ServiceRegistry& serviceRegistry();
 		/// Returns a reference to the service registry.
 
 	void cancelInit();
@@ -93,15 +92,15 @@ public:
 		///
 		/// Must be called before initialize().
 		
-	BundleFilter::Ptr getBundleFilter() const;
+	[[nodiscard]] BundleFilter::Ptr getBundleFilter() const;
 		/// Returns the BundleFilter used by the BundleRepository.
 		/// May return a null pointer if no BundleFilter has been set.
 
 	// Subsystem
-	void initialize(Poco::Util::Application& app);		
-	void uninitialize();
-	void defineOptions(Poco::Util::OptionSet& options);
-	const char* name() const;
+	void initialize(Poco::Util::Application& app) override;
+	void uninitialize() override;
+	void defineOptions(Poco::Util::OptionSet& options) override;
+	[[nodiscard]] const char* name() const override;
 
 protected:
 	void handleClear(const std::string& name, const std::string& value);
@@ -120,8 +119,8 @@ private:
 	std::unique_ptr<BundleRepository> _pBundleRepository;
 	BundleFilter::Ptr _pBundleFilter;
 	SystemEvents      _systemEvents;
-	bool              _clearCache;
-	bool              _cancelInit;
+	bool              _clearCache = false;
+	bool              _cancelInit = false;
 	std::string       _bundles;
 };
 
@@ -145,7 +144,7 @@ inline ServiceRegistry& OSPSubsystem::serviceRegistry()
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_OSPSubsystem_INCLUDED

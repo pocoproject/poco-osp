@@ -24,9 +24,7 @@
 using Poco::NumberParser;
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 OSPCommand::OSPCommand(Poco::OSP::BundleContext::Ptr pContext, const std::string& name):
@@ -38,9 +36,7 @@ OSPCommand::OSPCommand(Poco::OSP::BundleContext::Ptr pContext, const std::string
 }
 
 
-OSPCommand::~OSPCommand()
-{
-}
+OSPCommand::~OSPCommand() = default;
 
 
 Poco::OSP::Bundle::Ptr OSPCommand::findBundle(const std::string& symbolicNameOrId) const
@@ -111,4 +107,4 @@ bool OSPCommand::match(const std::vector<std::string>& patterns, const std::stri
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

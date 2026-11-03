@@ -29,9 +29,7 @@
 #include <map>
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
 class OSPAuth_API AuthAdminService: public Poco::OSP::Auth::AuthService
@@ -94,12 +92,9 @@ public:
 		/// The user's attributes and flags are given in the
 		/// event (attributes, flags).
 
-	enum
-	{
-		INVALIDATE_CACHED_PASSWORDS = 1,
-		INVALIDATE_CACHED_PERMISSIONS = 2,
-		INVALIDATE_ALL = INVALIDATE_CACHED_PASSWORDS | INVALIDATE_CACHED_PERMISSIONS
-	};
+	static constexpr int INVALIDATE_CACHED_PASSWORDS = 1;
+	static constexpr int INVALIDATE_CACHED_PERMISSIONS = 2;
+	static constexpr int INVALIDATE_ALL = INVALIDATE_CACHED_PASSWORDS | INVALIDATE_CACHED_PERMISSIONS;
 
 	enum UserFlags
 	{
@@ -107,7 +102,7 @@ public:
 		USER_EXTERNAL   = 0x02
 	};
 
-	virtual bool verifyCredentials(const std::string& username, const std::string& credentials) = 0;
+	[[nodiscard]] virtual bool verifyCredentials(const std::string& username, const std::string& credentials) = 0;
 		/// Perform verification of the credentials (password) only, without invoking the
 		/// validateUser event.
 
@@ -201,7 +196,7 @@ public:
 		///
 		/// Returns the total number of users with the given attribute.
 
-	virtual bool userEnabled(const std::string& username) const = 0;
+	[[nodiscard]] virtual bool userEnabled(const std::string& username) const = 0;
 		/// Returns true if the user with the given username is enabled.
 		///
 		/// If the implementation has no concept of disabling user accounts,
@@ -240,7 +235,7 @@ public:
 		///
 		/// Throws a Poco::NotFoundException if the role does not exist.
 
-	virtual bool roleExists(const std::string& rolename) const = 0;
+	[[nodiscard]] virtual bool roleExists(const std::string& rolename) const = 0;
 		/// Returns true iff a role with the given rolename exists.
 
 	virtual void roles(std::set<std::string>& roles) const = 0;
@@ -283,7 +278,8 @@ public:
 		///
 		/// Should be done when a user logs out of an application.
 
-	virtual std::string getUserAttribute(const std::string& username, const std::string& attribute, const std::string& deflt = std::string()) const = 0;
+	[[nodiscard]] virtual std::string getUserAttribute(const std::string& username, const std::string& attribute,
+		const std::string& deflt = std::string()) const = 0;
 		/// Returns the value of a user attribute, or the specified default
 		/// value if the user attribute does not exist.
 
@@ -335,7 +331,8 @@ public:
 		/// Returns the names and values of all attributes set for the given username and
 		/// returns flags indicating whether the user has been locked out or is an external user.
 
-	virtual std::vector<std::string> findUsersByAttribute(const std::string& attribute, const std::string& value) const = 0;
+	[[nodiscard]] virtual std::vector<std::string> findUsersByAttribute(const std::string& attribute,
+		const std::string& value) const = 0;
 		/// Returns the names of all users having an attribute with the given value.
 
 	virtual void revokePermission(const std::string& permission) = 0;
@@ -347,13 +344,13 @@ public:
 	virtual void unlockOutUser(const std::string& username) = 0;
 		/// Unlocks out the given username.
 
-	virtual bool isUserLockedOut(const std::string& username) const = 0;
+	[[nodiscard]] virtual bool isUserLockedOut(const std::string& username) const = 0;
 		/// Returns true if the given username has been locked out, otherwise false.
 
-	virtual bool isExternalUser(const std::string& username) const = 0;
+	[[nodiscard]] virtual bool isExternalUser(const std::string& username) const = 0;
 		/// Returns true if the given username is managed externally, e.g. by and LDAP server.
 
-	virtual bool isExternalRole(const std::string& rolename) const = 0;
+	[[nodiscard]] virtual bool isExternalRole(const std::string& rolename) const = 0;
 		/// Returns true if the given rolename is managed externally, e.g. by and LDAP server.
 
 	virtual void allRoleMappings(std::map<std::string, std::string>& mappings) const = 0;
@@ -377,8 +374,8 @@ public:
 		/// which caches to invalidate.
 
 	// Service
-	const std::type_info& type() const;
-	bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 	static const std::string SERVICE_NAME;
 	static const std::string USER_ATTR_FULL_NAME;
@@ -389,7 +386,7 @@ public:
 };
 
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth
 
 
 #endif // OSP_Auth_AuthAdminService_INCLUDED

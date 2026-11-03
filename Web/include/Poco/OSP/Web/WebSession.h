@@ -32,9 +32,7 @@
 #include <memory>
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 class WebSessionStore;
@@ -81,16 +79,16 @@ public:
 	virtual ~WebSession();
 		/// Fires a sessionEnds event and destroys the WebSession.
 
-	const std::string& id() const;
+	[[nodiscard]] const std::string& id() const;
 		/// The unique identifier of the session.
 
-	Poco::Int64 version() const;
+	[[nodiscard]] Poco::Int64 version() const;
 		/// Returns the version number of the session.
 
-	const Poco::Timestamp& created() const;
+	[[nodiscard]] const Poco::Timestamp& created() const;
 		/// Returns the creation time of the session, i.e. the time the user sent the first request.
 
-	bool has(const std::string& key) const;
+	[[nodiscard]] bool has(const std::string& key) const;
 		/// Returns true iff the session has an attribute with the given value.
 
 	[[nodiscard]] Poco::Any get(const std::string& key) const;
@@ -100,7 +98,7 @@ public:
 		/// if the attribute does not exist.
 
 	template <typename T>
-	T getValue(const std::string& key) const
+	[[nodiscard]] T getValue(const std::string& key) const
 		/// Convenience function that returns the attribute with the given key,
 		/// casted to the desired type.
 		///
@@ -112,7 +110,7 @@ public:
 	}
 
 	template <typename T>
-	T getValue(const std::string& key, T deflt) const
+	[[nodiscard]] T getValue(const std::string& key, T deflt) const
 		/// Convenience function that returns the attribute with the given key,
 		/// casted to the desired type. If the attribute does not exist,
 		/// the given default value is returned.
@@ -141,13 +139,13 @@ public:
 	void erase(const std::string& key);
 		/// Erases an attribute value from the session.
 
-	Attributes::const_iterator find(const std::string& key) const;
+	[[nodiscard]] Attributes::const_iterator find(const std::string& key) const;
 		/// Searches for an attribute. Returns end() if not found.
 
-	Attributes::const_iterator begin() const;
+	[[nodiscard]] Attributes::const_iterator begin() const;
 		/// Returns the begin iterator for attributes.
 
-	Attributes::const_iterator end() const;
+	[[nodiscard]] Attributes::const_iterator end() const;
 		/// Returns the end iterator for attributes.
 
 	[[nodiscard]] Attributes attributes() const;
@@ -158,19 +156,19 @@ public:
 		/// Erases all attributes except the CSRF synchronizer token,
 		/// also in the session store.
 
-	int timeout() const;
+	[[nodiscard]] int timeout() const;
 		/// Returns the timeout of the session in seconds.
 
 	void timeout(int seconds);
 		/// Sets a new timeout in seconds for the session.
 
-	const Poco::Net::IPAddress& clientAddress() const;
+	[[nodiscard]] const Poco::Net::IPAddress& clientAddress() const;
 		/// Returns the IP address of the client holding the session.
 
 	void access();
 		/// Updates the expiration time.
 
-	std::string csrfToken() const;
+	[[nodiscard]] std::string csrfToken() const;
 		/// Returns the CSRF synchronizer token for this session.
 
 	// UniqueExpireCache support
@@ -296,7 +294,7 @@ inline std::string WebSession::csrfToken() const
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web
 
 
 #endif // OSP_Web_WebSession_INCLUDED

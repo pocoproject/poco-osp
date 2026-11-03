@@ -16,9 +16,7 @@
 #include "Poco/OSP/Web/WebServerRequestHandler.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 WebServerRequestHandlerFactory::WebServerRequestHandlerFactory(WebServerDispatcher& dispatcher, bool secure):
@@ -28,15 +26,14 @@ WebServerRequestHandlerFactory::WebServerRequestHandlerFactory(WebServerDispatch
 }
 
 	
-WebServerRequestHandlerFactory::~WebServerRequestHandlerFactory()
-{
-}
+WebServerRequestHandlerFactory::~WebServerRequestHandlerFactory() = default;
 
 
-Poco::Net::HTTPRequestHandler* WebServerRequestHandlerFactory::createRequestHandler(const Poco::Net::HTTPServerRequest& request)
+Poco::Net::HTTPRequestHandler* WebServerRequestHandlerFactory::createRequestHandler(
+	const Poco::Net::HTTPServerRequest& /*request*/)
 {
 	return new WebServerRequestHandler(_dispatcher, _secure);
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web

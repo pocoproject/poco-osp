@@ -23,10 +23,7 @@
 #include <memory>
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace Data {
+namespace Poco::OSP::Auth::Data {
 
 
 class OSPAuthData_API StatementPlaceholderProvider
@@ -45,18 +42,18 @@ public:
 class OSPAuthData_API DefaultStatementPlaceholderProvider: public StatementPlaceholderProvider
 {
 public:
-	void reset();
-	std::string next();
-	char quote();
+	void reset() override;
+	std::string next() override;
+	char quote() override;
 };
 
 
 class OSPAuthData_API PostgresStatementPlaceholderProvider: public StatementPlaceholderProvider
 {
 public:
-	void reset();
-	std::string next();
-	char quote();
+	void reset() override;
+	std::string next() override;
+	char quote() override;
 
 private:
 	int _n = 1;
@@ -66,11 +63,11 @@ private:
 class OSPAuthData_API MySQLStatementPlaceholderProvider: public DefaultStatementPlaceholderProvider
 {
 public:
-	char quote();
+	char quote() override;
 };
 
 
-} } } } // namespace Poco::OSP::Auth::Data
+} // namespace Poco::OSP::Auth::Data
 
 
 #endif // OSP_Auth_Data_StatementPlaceholderProvider_INCLUDED

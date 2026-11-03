@@ -33,9 +33,7 @@ using Poco::FastMutex;
 using Poco::Delegate;
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 const std::string WebFilterExtensionPoint::EXTPOINT_FILTER("osp.web.server.filter");
@@ -72,7 +70,7 @@ void WebFilterExtensionPoint::handleExtension(Bundle::ConstPtr pBundle, Poco::XM
 {
 	FastMutex::ScopedLock lock(_mutex);
 
-	if (pExtensionElem)
+	if (pExtensionElem != nullptr)
 	{
 		const Poco::XML::XMLString& extPoint = pExtensionElem->getAttribute(ExtensionPointService::POINT_ATTR);
 		if (extPoint == EXTPOINT_FILTER)
@@ -108,7 +106,7 @@ void WebFilterExtensionPoint::handleFilter(Bundle::ConstPtr pBundle, Poco::XML::
 }
 
 
-void WebFilterExtensionPoint::onBundleStopped(const void* pSender, BundleEvent& ev)
+void WebFilterExtensionPoint::onBundleStopped(const void* /*pSender*/, BundleEvent& ev)
 {
 	FastMutex::ScopedLock lock(_mutex);
 
@@ -124,4 +122,4 @@ void WebFilterExtensionPoint::onBundleStopped(const void* pSender, BundleEvent& 
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web

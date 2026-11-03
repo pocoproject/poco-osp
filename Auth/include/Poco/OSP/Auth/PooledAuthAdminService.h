@@ -25,9 +25,7 @@
 #include "Poco/Mutex.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
 class OSPAuth_API PooledAuthAdminService: public AuthAdminService
@@ -134,9 +132,9 @@ public:
 	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 protected:
-	AuthAdminService::Ptr forUser(const std::string& username) const;
-	AuthAdminService::Ptr forRole(const std::string& rolename) const;
-	AuthAdminService::Ptr any() const;
+	[[nodiscard]] AuthAdminService::Ptr forUser(const std::string& username) const;
+	[[nodiscard]] AuthAdminService::Ptr forRole(const std::string& rolename) const;
+	[[nodiscard]] AuthAdminService::Ptr any() const;
 	void onUserAdded(const std::string& username);
 	void onUserRemoved(const std::string& username);
 	void onRoleAdded(const std::string& rolename);
@@ -150,7 +148,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth
 
 
 #endif // OSP_Auth_PooledAuthAdminService_INCLUDED

@@ -15,18 +15,13 @@
 #include "Poco/OSP/BundleActivator.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
-BundleActivator::BundleActivator()
-{
-}
+BundleActivator::BundleActivator() = default;
 
 
-BundleActivator::~BundleActivator()
-{
-}
+BundleActivator::~BundleActivator() = default;
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

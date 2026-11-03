@@ -32,9 +32,7 @@
 #include <memory>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class CommandExtensionPoint: public ExtensionPoint
@@ -67,11 +65,13 @@ public:
 	CommandExtensionPoint(CommandProcessor& processor);
 		/// Creates the CommandExtensionPoint, using the given command processor and bundle context.
 
-	~CommandExtensionPoint();
+	~CommandExtensionPoint() override;
 		/// Destroys the CommandExtensionPoint.
 
+	CommandExtensionPoint() = delete;
+
 	// ExtensionPoint
-	void handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem);
+	void handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem) override;
 
 	static const std::string EXTPOINT;
 
@@ -95,8 +95,6 @@ protected:
 	static const std::string MANIFEST_NAME;
 
 private:
-	CommandExtensionPoint();
-
 	using FactoryPtr = Poco::SharedPtr<CommandFactory>;
 	using Loader = Poco::ClassLoader<CommandFactory>;
 
@@ -112,7 +110,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_CommandExtensionPoint_INCLUDED

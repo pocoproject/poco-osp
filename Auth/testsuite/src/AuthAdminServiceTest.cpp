@@ -73,9 +73,7 @@ AuthAdminServiceTest::AuthAdminServiceTest(const std::string& name): CppUnit::Te
 }
 
 
-AuthAdminServiceTest::~AuthAdminServiceTest()
-{
-}
+AuthAdminServiceTest::~AuthAdminServiceTest() = default;
 
 
 void AuthAdminServiceTest::testLDAPParamsHaveDefaultTimeout()

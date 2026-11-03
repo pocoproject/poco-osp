@@ -26,8 +26,7 @@
 #include <istream>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API BundleStorage: public Poco::RefCountedObject
@@ -46,7 +45,7 @@ public:
 	using Ptr = Poco::AutoPtr<BundleStorage>;
 	using ConstPtr =  const Ptr;
 
-	virtual std::istream* getResource(const std::string& path) const = 0;
+	[[nodiscard]] virtual std::istream* getResource(const std::string& path) const = 0;
 		/// Returns an input stream for reading the resource with
 		/// the given path, if the resource exists.
 		/// Otherwise, returns NULL.
@@ -62,7 +61,7 @@ public:
 	virtual Poco::Timestamp lastModified(const std::string& path) const = 0;
 		/// Returns the last modification timestamp for the specified file.
 
-	virtual std::string path() const = 0;
+	[[nodiscard]] virtual std::string path() const = 0;
 		/// Returns the path to the bundle's directory or archive file.
 
 	[[nodiscard]] static Ptr open(const std::string& path);
@@ -81,12 +80,12 @@ public:
 		/// that is not a valid Zip archive.
 
 protected:
-	virtual ~BundleStorage();
+	~BundleStorage() override;
 		/// Destroys the BundleStorage.
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleStorage_INCLUDED

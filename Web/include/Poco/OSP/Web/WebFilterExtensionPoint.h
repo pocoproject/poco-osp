@@ -29,9 +29,7 @@
 #include <memory>
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 class OSPWeb_API WebFilterExtensionPoint: public ExtensionPoint
@@ -60,15 +58,17 @@ class OSPWeb_API WebFilterExtensionPoint: public ExtensionPoint
 	/// Any additional attributes are passed to the factory's createFilter() method.
 {
 public:
+	WebFilterExtensionPoint() = delete;
+
 	WebFilterExtensionPoint(BundleContext::Ptr pContext, WebServerDispatcher* pDispatcher);
 		/// Creates the WebServerExtension. Expects a not null pointer to the Web which must be valid during the whole
 		/// life-time of the extension object
 
-	~WebFilterExtensionPoint();
+	~WebFilterExtensionPoint() override;
 		/// Destroys the WebServerExtension.
 
 	// ExtensionPoint
-	void handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem);
+	void handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem) override;
 
 	static const std::string EXTPOINT_FILTER;
 
@@ -84,8 +84,6 @@ protected:
 	static const std::string MANIFEST_NAME;
 
 private:
-	WebFilterExtensionPoint();
-
 	using Loader = Poco::ClassLoader<WebFilterFactory>;
 	using BundleFilterMap = std::multimap<Bundle::Ptr, std::string>;
 
@@ -97,7 +95,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web
 
 
 #endif // OSP_Web_WebFilterExtensionPoint_INCLUDED

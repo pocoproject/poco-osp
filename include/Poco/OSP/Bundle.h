@@ -31,8 +31,7 @@
 #include <atomic>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class BundleActivator;
@@ -52,6 +51,10 @@ class OSP_API Bundle: public Poco::RefCountedObject
 	/// The Bundle class also manages localized resources.
 {
 public:
+	Bundle() = delete;
+	Bundle(const Bundle&) = delete;
+	Bundle& operator = (const Bundle&) = delete;
+
 	using Ptr = Poco::AutoPtr<Bundle>;
 	using ConstPtr = const Ptr;
 	using Dependency = BundleManifest::Dependency;
@@ -87,7 +90,7 @@ public:
 	};
 	using ModuleProviders = std::vector<ModuleProvider>;
 
-	int id() const;
+	[[nodiscard]] int id() const;
 		/// Returns the internal ID of the bundle.
 		///
 		/// Note that internal IDs are only valid during
@@ -99,43 +102,43 @@ public:
 		/// be made that bundle IDs are given out in a certain
 		/// order or that they are strictly consecutive.
 
-	State state() const;
+	[[nodiscard]] State state() const;
 		/// Returns the current state of the bundle.
 
-	const std::string& stateString() const;
+	[[nodiscard]] const std::string& stateString() const;
 		/// Returns the current state of the bundle as a string.
 
-	bool isResolved() const;
+	[[nodiscard]] bool isResolved() const;
 		/// Returns true iff the bundle has been successfully
 		/// resolved.
 		///
 		/// In other words, the bundle's state must be one of
 		/// BUNDLE_RESOLVED, BUNDLE_STARTING, BUNDLE_ACTIVE, BUNDLE_STOPPING.
 
-	bool isActive() const;
+	[[nodiscard]] bool isActive() const;
 		/// Returns true iff the bundle's state is BUNDLE_ACTIVE.
 
-	bool isStarted() const;
+	[[nodiscard]] bool isStarted() const;
 		/// Returns true iff the bundle's state is BUNDLE_STARTING,
 		/// BUNDLE_ACTIVE or BUNDLE_STOPPING.
 
-	std::string path() const;
+	[[nodiscard]] std::string path() const;
 		/// Returns the path to the bundle's directory
 		/// or archive file.
 
-	const std::string& name() const;
+	[[nodiscard]] const std::string& name() const;
 		/// Returns the bundle's name.
 		///
 		/// If the name contains a reference to a property,
 		/// (${<property>}) the reference is expanded first.
 
-	const std::string& symbolicName() const;
+	[[nodiscard]] const std::string& symbolicName() const;
 		/// Returns the symbolic name of the bundle.
 
-	const Version& version() const;
+	[[nodiscard]] const Version& version() const;
 		/// Returns the bundle's version.
 
-	const std::string& vendor() const;
+	[[nodiscard]] const std::string& vendor() const;
 		/// Returns the bundle's vendor name, or
 		/// an empty string if no vendor name
 		/// has been specified in the pManifest->
@@ -143,7 +146,7 @@ public:
 		/// If the vendor string contains a reference to a property,
 		/// (${<property>}) the reference is expanded first.
 
-	const std::string& copyright() const;
+	[[nodiscard]] const std::string& copyright() const;
 		/// Returns the bundle's copyright information,
 		/// or an empty string if no copyright information
 		/// has been specified in the pManifest->
@@ -151,17 +154,17 @@ public:
 		/// If the copyright string contains a reference to a property,
 		/// (${<property>}) the reference is expanded first.
 
-	const std::string& activatorClass() const;
+	[[nodiscard]] const std::string& activatorClass() const;
 		/// Returns the class name of the bundle's activator,
 		/// or an empty string if the manifest does not
 		/// specify an activator.
 
-	const std::string& activatorLibrary() const;
+	[[nodiscard]] const std::string& activatorLibrary() const;
 		/// Returns the name of the library containing
 		/// the bundle's activator class, or an empty string
 		/// if the manifest does not specify an activator library.
 
-	BundleActivator* activator() const;
+	[[nodiscard]] BundleActivator* activator() const;
 		/// If the bundle has been started and has an activator,
 		/// returns a pointer to the bundle's activator.
 		/// Otherwise, returns NULL. The pointer stays set
@@ -171,15 +174,15 @@ public:
 		/// (POCO_OSP_STATIC), the activator is not destroyed, and
 		/// the pointer stays set.
 
-	bool lazyStart() const;
+	[[nodiscard]] bool lazyStart() const;
 		/// Returns true if lazy start has been specified for
 		/// the bundle.
 
-	bool sealed() const;
+	[[nodiscard]] bool sealed() const;
 		/// Returns true if the bundle is sealed and cannot be
 		/// extended by an extension bundle.
 
-	bool preventUninstall() const;
+	[[nodiscard]] bool preventUninstall() const;
 		/// Returns true if the bundle must not be uninstalled
 		/// at run-time.
 		///
@@ -188,13 +191,13 @@ public:
 		/// contain third-party libraries that, once loaded,
 		/// cannot be unloaded cleanly.
 
-	const std::string& runLevel() const;
+	[[nodiscard]] const std::string& runLevel() const;
 		/// Returns the bundle's run level.
 		///
 		/// If the bundle does not specify a run level,
 		/// returns the default "999-user".
 
-	bool isExtensionBundle() const;
+	[[nodiscard]] bool isExtensionBundle() const;
 		/// Returns true iff the bundle is an extension bundle.
 		///
 		/// An extension bundle will "donate" all of its
@@ -207,7 +210,7 @@ public:
 		/// the extended bundle, which look in the extension
 		/// bundles first (see getResource()).
 
-	Bundle::Ptr extendedBundle() const;
+	[[nodiscard]] Bundle::Ptr extendedBundle() const;
 		/// If the bundle is an extension bundle, returns
 		/// the extended bundle, or in other words,
 		/// the bundle that this bundle extends.
@@ -216,12 +219,12 @@ public:
 		/// an extension bundle, or the extended bundle
 		/// has not been loaded.
 
-	const Poco::Util::AbstractConfiguration& properties() const;
+	[[nodiscard]] const Poco::Util::AbstractConfiguration& properties() const;
 		/// Returns the bundle's properties, which are
 		/// obtained from the bundle's "bundle.properties"
 		/// file (and its optional localizations).
 
-	std::istream* getResource(const std::string& name) const;
+	[[nodiscard]] std::istream* getResource(const std::string& name) const;
 		/// Creates and returns an input stream for reading
 		/// the bundle's (non-localized) resource with the given
 		/// name.
@@ -241,7 +244,7 @@ public:
 		/// The caller gets ownership of the input stream and
 		/// must delete it when it's no longer needed.
 
-	std::istream* getLocalizedResource(const std::string& name) const;
+	[[nodiscard]] std::istream* getLocalizedResource(const std::string& name) const;
 		/// Creates and returns an input stream for reading
 		/// the bundle's localized resource with the given
 		/// name.
@@ -254,7 +257,7 @@ public:
 		/// The caller gets ownership of the input stream and
 		/// must delete it when it's no longer needed.
 
-	std::istream* getLocalizedResource(const std::string& name, const LanguageTag& language) const;
+	[[nodiscard]] std::istream* getLocalizedResource(const std::string& name, const LanguageTag& language) const;
 		/// Creates and returns an input stream for reading
 		/// the bundle's localized (for the given language)
 		/// resource with the given name.
@@ -310,7 +313,7 @@ public:
 		/// default. The file or directory of a bundle in another
 		/// path, such as a development tree, is kept.
 
-	ResolvedDependencies resolvedDependencies() const;
+	[[nodiscard]] ResolvedDependencies resolvedDependencies() const;
 		/// Returns a vector containing information about all
 		/// bundles explicitly (through Require-Bundle) or
 		/// implicitly (through Require-Module) required by
@@ -321,30 +324,30 @@ public:
 		/// again after a required bundle has been replaced,
 		/// possibly while another thread is reading them.
 
-	const Dependencies& requiredBundles() const;
+	[[nodiscard]] const Dependencies& requiredBundles() const;
 		/// Returns a vector containing information about
 		/// all bundles required by this bundle.
 
-	const Dependencies& requiredModules() const;
+	[[nodiscard]] const Dependencies& requiredModules() const;
 		/// Returns a vector containing information about
 		/// all modules required by this bundle.
 
-	const Modules& providedModules() const;
+	[[nodiscard]] const Modules& providedModules() const;
 		/// Returns a vector containing information about
 		/// all modules provided by this bundle.
 
-	ModuleProviders moduleProviders() const;
+	[[nodiscard]] ModuleProviders moduleProviders() const;
 		/// Returns a vector of all required modules, with
 		/// information about the bundles providing each
 		/// module.
 
-	const BundleManifest& manifest() const;
+	[[nodiscard]] const BundleManifest& manifest() const;
 		/// Returns a reference to the BundleManifest object.
 
-	const LanguageTag& language() const;
+	[[nodiscard]] const LanguageTag& language() const;
 		/// Returns the language used for localization.
 	
-	BundleStorage& storage();
+	[[nodiscard]] BundleStorage& storage();
 		/// Returns a reference to the BundleStorage object.
 
 	static const std::string MANIFEST_FILE;
@@ -368,7 +371,7 @@ protected:
 		/// Adds the properties from the property file
 		/// specified by path to the bundle's properties.
 
-	BundleEvents& events();
+	[[nodiscard]] BundleEvents& events();
 		/// Returns a reference to the BundleEvents object.
 
 	void setActivator(BundleActivator* pActivator);
@@ -412,13 +415,10 @@ protected:
 		///
 		/// The bundle takes ownership of the BundleStorage object.
 
-	~Bundle();
+	~Bundle() override;
 		/// Destroys the Bundle.
 
 private:
-	Bundle();
-	Bundle(const Bundle&);
-	Bundle& operator = (const Bundle&);
 
 	int                     _id;
 	std::atomic<State>      _state;
@@ -621,7 +621,7 @@ inline BundleStorage& Bundle::storage()
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_Bundle_INCLUDED

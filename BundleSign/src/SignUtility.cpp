@@ -32,9 +32,7 @@
 #include <vector>
 
 
-namespace Poco {
-namespace OSP {
-namespace BundleSign {
+namespace Poco::OSP::BundleSign {
 
 
 namespace
@@ -164,4 +162,4 @@ const std::vector<std::string>& SignUtility::digestAlgorithms()
 }
 
 
-} } } // namespace Poco::OSP::BundleSign
+} // namespace Poco::OSP::BundleSign

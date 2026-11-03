@@ -31,11 +31,9 @@ public:
 	{
 	}
 	
-	~GreetingServiceImpl()
-	{
-	}
+	~GreetingServiceImpl() override = default;
 	
-	std::string greeting()
+	[[nodiscard]] std::string greeting() override
 	{
 		// The greeting text is stored in a localized bundle property.
 		// The framework will automatically return the greeting in the
@@ -44,12 +42,12 @@ public:
 		return _pContext->thisBundle()->properties().getString("greeting");
 	}
 	
-	const std::type_info& type() const
+	[[nodiscard]] const std::type_info& type() const override
 	{
 		return typeid(GreetingService);
 	}
 	
-	bool isA(const std::type_info& otherType) const
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override
 	{
 		std::string name(typeid(GreetingService).name());
 		return name == otherType.name() || Service::isA(otherType);
@@ -65,15 +63,11 @@ class GreetingServiceBundleActivator: public BundleActivator
 	/// Registers the GreetingService with the Service Registry.
 {
 public:
-	GreetingServiceBundleActivator()
-	{
-	}
+	GreetingServiceBundleActivator() = default;
 	
-	~GreetingServiceBundleActivator()
-	{
-	}
+	~GreetingServiceBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		// Create an instance of the GreetingService
 		GreetingService::Ptr pService = new GreetingServiceImpl(pContext);
@@ -81,7 +75,7 @@ public:
 		_pService = pContext->registry().registerService("com.appinf.osp.samples.GreetingService", pService, Properties());
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr pContext) override
 	{
 		// Unregister the GreetingService
 		pContext->registry().unregisterService(_pService);

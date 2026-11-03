@@ -30,9 +30,7 @@
 #include <string>
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
 class LDAPClient;
@@ -155,7 +153,7 @@ public:
 		///
 		/// Note: if ldapParams.uri is empty, LDAP authentication will be disabled.
 
-	~AbstractLDAPAuthAdminService();
+	~AbstractLDAPAuthAdminService() override;
 		/// Destroys the AuthAdminServiceImpl.
 
 protected:
@@ -199,7 +197,8 @@ protected:
 			/// entry has none or it is not read.
 	};
 
-	bool authenticateLDAP(const std::string& username, const std::string& credentials, bool& fallbackLocal) const;
+	[[nodiscard]] bool authenticateLDAP(const std::string& username, const std::string& credentials,
+		bool& fallbackLocal) const;
 		/// Authenticates the user with the LDAP server and stores the user's
 		/// password, roles, permissions and attributes obtained from the server,
 		/// with verifyLDAP(), storeLDAPUser() and canUseLocalCredentials().
@@ -315,7 +314,7 @@ protected:
 		/// the logger of the service.
 #endif
 
-	bool isExtraAttribute(const std::string& attr, std::string& canonicalAttr) const;
+	[[nodiscard]] bool isExtraAttribute(const std::string& attr, std::string& canonicalAttr) const;
 	virtual void createOrUpdateRoleImpl(const std::string& rolename) const = 0;
 	virtual void createOrUpdateUserImpl(const std::string& username, const std::string& credentials) const = 0;
 	virtual void replaceUserAttributeImpl(const std::string& username, const std::string& attribute, const std::string& value) const = 0;
@@ -323,8 +322,10 @@ protected:
 	virtual void replacePermissionsForUserImpl(const std::string& username, const std::set<std::string>& permissions) const = 0;
 	virtual void replaceRolesForUserImpl(const std::string& username, const std::set<std::string>& permissions) const = 0;
 	virtual void replacePermissionsForRoleImpl(const std::string& rolename, const std::set<std::string>& permissions) const = 0;
-	virtual std::string getUserAttributeImpl(const std::string& username, const std::string& attribute, const std::string& deflt = std::string()) const = 0;
-	virtual std::string getRoleAttributeImpl(const std::string& rolename, const std::string& attribute, const std::string& deflt = std::string()) const = 0;
+	[[nodiscard]] virtual std::string getUserAttributeImpl(const std::string& username, const std::string& attribute,
+		const std::string& deflt = std::string()) const = 0;
+	[[nodiscard]] virtual std::string getRoleAttributeImpl(const std::string& rolename, const std::string& attribute,
+		const std::string& deflt = std::string()) const = 0;
 
 
 protected:
@@ -333,7 +334,7 @@ protected:
 };
 
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth
 
 
 #endif // OSP_Auth_AbstractLDAPAuthAdminService_INCLUDED

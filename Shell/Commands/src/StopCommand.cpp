@@ -24,22 +24,16 @@
 using Poco::OSP::BundleManifest;
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 StopCommand::StopCommand(Poco::OSP::BundleContext::Ptr pContext):
-	BundleActionCommand(pContext, "stop"),
-	_force(false),
-	_all(false)
+	BundleActionCommand(pContext, "stop")
 {
 }
 
 
-StopCommand::~StopCommand()
-{
-}
+StopCommand::~StopCommand() = default;
 
 
 int StopCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr)
@@ -96,13 +90,13 @@ void StopCommand::defineOptions(Poco::Util::OptionSet& options)
 }
 
 
-void StopCommand::handleForce(const std::string& name, const std::string& value)
+void StopCommand::handleForce(const std::string& /*name*/, const std::string& /*value*/)
 {
 	_force = true;
 }
 
 
-void StopCommand::handleAll(const std::string& name, const std::string& value)
+void StopCommand::handleAll(const std::string& /*name*/, const std::string& /*value*/)
 {
 	_all = true;
 }
@@ -142,4 +136,4 @@ void StopCommand::stopAll(Poco::OSP::Bundle::Ptr pBundle)
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

@@ -24,9 +24,7 @@
 #include "Poco/OSP/Web/WebSession.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 template <class Request>
@@ -47,11 +45,12 @@ class WebSessionService: public Service
 	/// naming schema. Specifying an empty application name is valid.
 {
 public:
-	virtual WebSession::Ptr find(const std::string& appName, const Request& request) = 0;
+	[[nodiscard]] virtual WebSession::Ptr find(const std::string& appName, const Request& request) = 0;
 		/// Return a WebSession object for the application specified by appName and
 		/// the given HTTP request if one exists, or a null pointer otherwise.
 
-	virtual WebSession::Ptr get(const std::string& appName, const Request& request, int expireSeconds, BundleContext::Ptr pContext) = 0;
+	[[nodiscard]] virtual WebSession::Ptr get(const std::string& appName, const Request& request, int expireSeconds,
+		BundleContext::Ptr pContext) = 0;
 		/// Return a WebSession object for the application specified by appName and
 		/// the given HTTP request. If no session is associated with the given request,
 		/// a new session is created with the given expiration time.
@@ -69,29 +68,25 @@ public:
 		/// Removes all sessions for the given username.
 
 	// Service
-	const std::type_info& type() const
+	[[nodiscard]] const std::type_info& type() const override
 	{
 		return typeid(WebSessionService);
 	}
 
-	bool isA(const std::type_info& otherType) const
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override
 	{
 		std::string name(typeid(WebSessionService).name());
 		return name == otherType.name() || Service::isA(otherType);
 	}
 
 protected:
-	WebSessionService()
-	{
-	}
+	WebSessionService() = default;
 
-	~WebSessionService()
-	{
-	}
+	~WebSessionService() override = default;
 };
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web
 
 
 #endif // OSP_Web_WebSessionService_INCLUDED

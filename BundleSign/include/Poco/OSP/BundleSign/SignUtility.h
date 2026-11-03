@@ -28,9 +28,7 @@
 #include <vector>
 
 
-namespace Poco {
-namespace OSP {
-namespace BundleSign {
+namespace Poco::OSP::BundleSign {
 
 
 class OSPBundleSign_API SignUtility
@@ -82,11 +80,11 @@ public:
 		/// path in canonical form (a name that begins with '/', contains a
 		/// backslash, or has an empty, "." or ".." component).
 
-	static std::string computeDigest(std::istream& istr, Poco::DigestEngine& engine);
+	[[nodiscard]] static std::string computeDigest(std::istream& istr, Poco::DigestEngine& engine);
 		/// Computes a digest for the contents of the given stream,
 		/// using the given digest engine.
 
-	static bool isSignatureFile(const std::string& path);
+	[[nodiscard]] static bool isSignatureFile(const std::string& path);
 		/// Returns true iff the given path references a signature file (META-INF/*.sf or META-INF/*.rsa).
 
 	[[nodiscard]] static const std::vector<std::string>& digestAlgorithms();
@@ -96,7 +94,7 @@ public:
 };
 
 
-} } } // namespace Poco::OSP::BundleSign
+} // namespace Poco::OSP::BundleSign
 
 
 #endif // OSP_BundleSign_SignUtility_INCLUDED

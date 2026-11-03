@@ -24,9 +24,7 @@
 #include "Poco/OSP/BundleContext.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class OSPShell_API QuitCommand: public AbstractCommand
@@ -46,19 +44,19 @@ public:
 	QuitCommand(Poco::OSP::BundleContext::Ptr pContext);
 		/// Creates the QuitCommand.
 		
-	~QuitCommand();
+	~QuitCommand() override;
 		/// Destroys the QuitCommand.
 
 protected:		
 	// AbstractCommand
-	virtual int executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr);
+	[[nodiscard]] int executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr) override;
 	
 private:
 	Poco::OSP::BundleContext::Ptr _pContext;
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_QuitCommand_INCLUDED

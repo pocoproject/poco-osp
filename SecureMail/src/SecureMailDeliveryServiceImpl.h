@@ -27,9 +27,7 @@
 #include "Poco/Util/AbstractConfiguration.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Mail {
+namespace Poco::OSP::Mail {
 
 
 class SecureMailDeliveryServiceImpl: public MailDeliveryServiceImpl
@@ -45,8 +43,9 @@ public:
 
 	SecureMailDeliveryServiceImpl() = delete;
 
-	SecureMailDeliveryServiceImpl(Mode mode, const MailDeliveryServiceImpl::Configuration& config, Poco::Logger& logger, Poco::Net::Context::Ptr pContext = 0);
-	~SecureMailDeliveryServiceImpl();
+	SecureMailDeliveryServiceImpl(Mode mode, const MailDeliveryServiceImpl::Configuration& config, Poco::Logger& logger,
+		Poco::Net::Context::Ptr pContext = nullptr);
+	~SecureMailDeliveryServiceImpl() override;
 
 	SecureMailDeliveryServiceImpl(const SecureMailDeliveryServiceImpl&) = delete;
 	SecureMailDeliveryServiceImpl(SecureMailDeliveryServiceImpl&&) = delete;
@@ -63,14 +62,17 @@ public:
 		/// is false.
 
 	// Service
-	const std::type_info& type() const;
-	bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 protected:
 	// MailDeliveryServiceImpl
-	SMTPClientSessionPtr createSMTPClientSession(const MailDeliveryServiceImpl::Configuration& config);
-	SMTPClientSessionPtr createSMTPClientSessionStartTLS(const MailDeliveryServiceImpl::Configuration& config);
-	SMTPClientSessionPtr createSMTPClientSessionOverTLS(const MailDeliveryServiceImpl::Configuration& config);
+	[[nodiscard]] SMTPClientSessionPtr createSMTPClientSession(
+		const MailDeliveryServiceImpl::Configuration& config) override;
+	[[nodiscard]] SMTPClientSessionPtr createSMTPClientSessionStartTLS(
+		const MailDeliveryServiceImpl::Configuration& config);
+	[[nodiscard]] SMTPClientSessionPtr createSMTPClientSessionOverTLS(
+		const MailDeliveryServiceImpl::Configuration& config);
 
 
 private:
@@ -80,7 +82,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Mail
+} // namespace Poco::OSP::Mail
 
 
 #endif // OSP_Mail_SecureMailDeliveryServiceImpl_INCLUDED

@@ -20,9 +20,7 @@
 #include <ostream>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 UninstallCommand::UninstallCommand(Poco::OSP::BundleContext::Ptr pContext):
@@ -31,9 +29,7 @@ UninstallCommand::UninstallCommand(Poco::OSP::BundleContext::Ptr pContext):
 }
 
 
-UninstallCommand::~UninstallCommand()
-{
-}
+UninstallCommand::~UninstallCommand() = default;
 
 
 int UninstallCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr)
@@ -49,4 +45,4 @@ int UninstallCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ost
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

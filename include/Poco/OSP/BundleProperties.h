@@ -23,8 +23,7 @@
 #include "Poco/Mutex.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API BundleProperties: public Poco::Util::AbstractConfiguration
@@ -51,19 +50,19 @@ public:
 		/// Removes the given configuration.
 
 protected:
-	~BundleProperties();
+	~BundleProperties() override;
 
-	bool getRaw(const std::string& key, std::string& value) const;
-	void setRaw(const std::string& key, const std::string& value);
-	void enumerate(const std::string& key, Keys& range) const;
-	void removeRaw(const std::string& key);
+	[[nodiscard]] bool getRaw(const std::string& key, std::string& value) const override;
+	void setRaw(const std::string& key, const std::string& value) override;
+	void enumerate(const std::string& key, Keys& range) const override;
+	void removeRaw(const std::string& key) override;
 
 	Poco::Util::LayeredConfiguration::Ptr _pLayeredConfig;
 	mutable Poco::FastMutex _mutex;
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleProperties_INCLUDED

@@ -34,9 +34,7 @@
 #include <sstream>
 
 
-namespace Poco {
-namespace OSP {
-namespace Mail {
+namespace Poco::OSP::Mail {
 
 
 MailDeliveryServiceImpl::MailDeliveryServiceImpl(const Configuration& config, Poco::Logger& logger):
@@ -75,7 +73,7 @@ void MailDeliveryServiceImpl::stop()
 	if (_thread.isRunning())
 	{
 		_shutdown.set();
-		_queue.enqueueUrgentNotification(new MailDeliveryHandle(0));
+		_queue.enqueueUrgentNotification(new MailDeliveryHandle(nullptr));
 		_thread.join();
 		closeSMTPClientSession();
 	}
@@ -206,14 +204,14 @@ void MailDeliveryServiceImpl::run()
 		try
 		{
 			Poco::Notification::Ptr pNf = _queue.waitDequeueNotification(sessionTimeout);
-			if (pNf)
+			if (pNf != nullptr)
 			{
 				pHandle = pNf.cast<MailDeliveryHandle>();
-				if (pHandle)
+				if (pHandle != nullptr)
 				{
-					if (pHandle->message())
+					if (pHandle->message() != nullptr)
 					{
-						if (!_pSMTPClientSession)
+						if (_pSMTPClientSession == nullptr)
 						{
 							try
 							{
@@ -250,7 +248,7 @@ void MailDeliveryServiceImpl::run()
 								if (_shutdown.tryWait(sleepTime)) return; // told to quit
 							}
 						}
-						if (_pSMTPClientSession)
+						if (_pSMTPClientSession != nullptr)
 						{
 							try
 							{
@@ -346,7 +344,7 @@ void MailDeliveryServiceImpl::deliver(const Poco::Net::MailMessage& message)
 
 void MailDeliveryServiceImpl::closeSMTPClientSession()
 {
-	if (_pSMTPClientSession)
+	if (_pSMTPClientSession != nullptr)
 	{
 		try
 		{
@@ -356,9 +354,9 @@ void MailDeliveryServiceImpl::closeSMTPClientSession()
 		catch (Poco::Exception&)
 		{
 		}
-		_pSMTPClientSession = 0;
+		_pSMTPClientSession = nullptr;
 	}
 }
 
 
-} } } // namespace Poco::OSP::Mail
+} // namespace Poco::OSP::Mail

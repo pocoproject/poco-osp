@@ -130,7 +130,7 @@ namespace
 		}
 
 	protected:
-		SMTPClientSessionPtr createSMTPClientSession(const Configuration&) override
+		[[nodiscard]] SMTPClientSessionPtr createSMTPClientSession(const Configuration&) override
 		{
 			++_logins;
 			if (_stdException) throw std::runtime_error("login failed");

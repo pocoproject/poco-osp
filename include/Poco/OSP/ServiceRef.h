@@ -26,8 +26,7 @@
 #include "Poco/Exception.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API ServiceRef: public Poco::RefCountedObject
@@ -41,17 +40,21 @@ public:
 	ServiceRef(const std::string& name, const Properties& props, Service::Ptr pService);
 		/// Creates the ServiceRef, using the given arguments.
 
-	const std::string& name() const;
+	ServiceRef() = delete;
+	ServiceRef(const ServiceRef&) = delete;
+	ServiceRef& operator = (const ServiceRef&) = delete;
+
+	[[nodiscard]] const std::string& name() const;
 		/// Returns the name under which the service
 		/// has been registered.
 
-	const Properties& properties() const;
+	[[nodiscard]] const Properties& properties() const;
 		/// Returns the service properties.
 
-	Properties& properties();
+	[[nodiscard]] Properties& properties();
 		/// Returns the service properties.
 
-	Service::Ptr instance() const;
+	[[nodiscard]] Service::Ptr instance() const;
 		/// Returns an instance of the Service.
 		///
 		/// If a ServiceFactory has been registered for the service,
@@ -59,7 +62,7 @@ public:
 		/// Otherwise, returns the registered Service object.
 
 	template <class Svc>
-	Poco::AutoPtr<Svc> castedInstance() const
+	[[nodiscard]] Poco::AutoPtr<Svc> castedInstance() const
 		/// Returns an instance of the Service.
 		///
 		/// If a ServiceFactory has been registered for the service,
@@ -87,7 +90,7 @@ public:
 		}
 	}
 
-	static std::string demangle(const char* typeName);
+	[[nodiscard]] static std::string demangle(const char* typeName);
 		/// Demangles the given mangled type name, if
 		/// demangling support is available in the compiler.
 		///
@@ -96,13 +99,10 @@ public:
 		/// does nothing.
 
 protected:
-	~ServiceRef();
+	~ServiceRef() override;
 		/// Destroys the ServiceRef.
 
 private:
-	ServiceRef();
-	ServiceRef(const ServiceRef&);
-	ServiceRef& operator = (const ServiceRef&);
 
 	std::string  _name;
 	Properties   _props;
@@ -131,7 +131,7 @@ inline Properties& ServiceRef::properties()
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_ServiceRef_INCLUDED

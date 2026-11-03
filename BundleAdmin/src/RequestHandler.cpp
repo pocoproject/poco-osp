@@ -34,15 +34,12 @@ using Poco::AutoPtr;
 
 RequestHandler::RequestHandler(Poco::OSP::BundleContext::Ptr pContext):
 	_pContext(pContext),
-	_pStream(0),
 	_pTemplateArgs(new MapConfiguration)
 {
 }
 
 
-RequestHandler::~RequestHandler()
-{
-}
+RequestHandler::~RequestHandler() = default;
 
 
 void RequestHandler::run()
@@ -71,7 +68,7 @@ void RequestHandler::run()
 
 std::ostream& RequestHandler::stream()
 {
-	if (!_pStream)
+	if (_pStream == nullptr)
 	{
 		response().setContentType("text/html");
 		response().setChunkedTransferEncoding(true);

@@ -35,23 +35,17 @@ using Poco::OSP::ServiceFinder;
 using Poco::OSP::PreferencesService;
 
 
-namespace Poco {
-namespace OSP {
-namespace Mail {
+namespace Poco::OSP::Mail {
 
 
 class SecureBundleActivator: public Poco::OSP::BundleActivator
 {
 public:
-	SecureBundleActivator()
-	{
-	}
+	SecureBundleActivator() = default;
 
-	~SecureBundleActivator()
-	{
-	}
+	~SecureBundleActivator() override = default;
 
-	void start(BundleContext::Ptr pBundleContext)
+	void start(BundleContext::Ptr pBundleContext) override
 	{
 		_pBundleContext = pBundleContext;
 		_pPrefs = ServiceFinder::find<PreferencesService>(pBundleContext);
@@ -88,18 +82,18 @@ public:
 		}
 	}
 
-	void stop(BundleContext::Ptr pBundleContext)
+	void stop(BundleContext::Ptr pBundleContext) override
 	{
 		if (_pMailDeliveryService != nullptr) _pMailDeliveryService->stop();
-		if (_pMailDeliveryServiceRef) pBundleContext->registry().unregisterService(_pMailDeliveryServiceRef);
-		_pMailDeliveryServiceRef = 0;
+		if (_pMailDeliveryServiceRef != nullptr) pBundleContext->registry().unregisterService(_pMailDeliveryServiceRef);
+		_pMailDeliveryServiceRef = nullptr;
 		_pMailDeliveryService = nullptr;
-		_pPrefs = 0;
-		_pBundleContext = 0;
+		_pPrefs = nullptr;
+		_pBundleContext = nullptr;
 	}
 
 protected:
-	std::string getStringConfig(const std::string& key, const std::string& deflt)
+	[[nodiscard]] std::string getStringConfig(const std::string& key, const std::string& deflt)
 	{
 		return _pPrefs->configuration()->getString(key, _pBundleContext->thisBundle()->properties().getString(key, deflt));
 	}
@@ -112,7 +106,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Mail
+} // namespace Poco::OSP::Mail
 
 
 POCO_BEGIN_MANIFEST(Poco::OSP::BundleActivator)

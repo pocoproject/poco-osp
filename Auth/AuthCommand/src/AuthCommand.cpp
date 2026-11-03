@@ -45,7 +45,7 @@ int AuthCommand::execute(Poco::OSP::Shell::Session& session, const std::vector<s
 	Poco::OSP::Auth::AuthAdminService::Ptr pAuthAdminSvc =
 		Poco::OSP::ServiceFinder::find<Poco::OSP::Auth::AuthAdminService>(_pContext);
 
-	if (pAuthAdminSvc)
+	if (pAuthAdminSvc != nullptr)
 	{
 		if (session.authorize("authAdmin"s))
 		{

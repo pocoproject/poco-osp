@@ -28,8 +28,7 @@
 #include <vector>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class Bundle;
@@ -48,18 +47,22 @@ class OSP_API BundleContext: public Poco::RefCountedObject
 	/// used to find other bundles in the system.
 {
 public:
+	BundleContext() = delete;
+	BundleContext(const BundleContext&) = delete;
+	BundleContext& operator = (const BundleContext&) = delete;
+
 	using Ptr = Poco::AutoPtr<BundleContext>;
 	using ConstPtr = const Ptr;
 
-	Bundle::ConstPtr thisBundle() const;
+	[[nodiscard]] Bundle::ConstPtr thisBundle() const;
 		/// Returns a pointer to the bundle's Bundle object.
 
-	Bundle::ConstPtr findBundle(const std::string& name) const;
+	[[nodiscard]] Bundle::ConstPtr findBundle(const std::string& name) const;
 		/// Returns a pointer to the Bundle object for the
 		/// bundle with the given name, if such a bundle
 		/// exists. Otherwise, returns NULL.
 
-	Bundle::ConstPtr findBundle(int id) const;
+	[[nodiscard]] Bundle::ConstPtr findBundle(int id) const;
 		/// Returns a pointer to the Bundle object for the
 		/// bundle with the given ID, if such a bundle
 		/// exists. Otherwise, returns NULL.
@@ -73,30 +76,30 @@ public:
 		/// known to the OSP framework, filtered by the
 		/// given BundleFilter.
 
-	ServiceRegistry& registry() const;
+	[[nodiscard]] ServiceRegistry& registry() const;
 		/// Returns a reference to the ServiceRegistry object, which
 		/// can be used to find or register services.
 
-	BundleEvents& events() const;
+	[[nodiscard]] BundleEvents& events() const;
 		/// Returns a reference to the global BundleEvents object
 		/// which can be used to subscribe to events reporting
 		/// state changes in installed bundles.
 
-	SystemEvents& systemEvents() const;
+	[[nodiscard]] SystemEvents& systemEvents() const;
 		/// Returns a reference to the global SystemEvents object
 		/// which can be used to subscribe to events reporting
 		/// state changes in the OSP system.
 
-	Poco::Logger& logger() const;
+	[[nodiscard]] Poco::Logger& logger() const;
 		/// Returns a reference to a Poco::Logger that the bundle
 		/// can use to emit log messages.
 
-	std::string pathForLibrary(const std::string& libraryName);
+	[[nodiscard]] std::string pathForLibrary(const std::string& libraryName);
 		/// Returns the full path for the library with the given
 		/// libraryName. If libraryName is the empty string,
 		/// return the path to the code cache directory.
 
-	const Poco::Path& temporaryDirectory() const;
+	[[nodiscard]] const Poco::Path& temporaryDirectory() const;
 		/// Returns the path to the bundle's temporary (transient)
 		/// data directory.
 		///
@@ -108,7 +111,7 @@ public:
 		/// The directory is cleared whenever the bundle is
 		/// unloaded.
 
-	const Poco::Path& persistentDirectory() const;
+	[[nodiscard]] const Poco::Path& persistentDirectory() const;
 		/// Returns the path to the bundle's persistent
 		/// data directory.
 		///
@@ -119,29 +122,26 @@ public:
 		/// If the directory does not exist, it is created.
 		/// The persistent data directory is never cleared.
 
-	BundleContext::Ptr contextForBundle(Bundle::ConstPtr pBundle) const;
+	[[nodiscard]] BundleContext::Ptr contextForBundle(Bundle::ConstPtr pBundle) const;
 		/// Returns the BundleContext for the given bundle.
 
 protected:
 	BundleContext(BundleLoader& loader, Bundle::ConstPtr pBundle, BundleEvents& events, SystemEvents& systemEvents, ServiceRegistry& registry, const Path& persistencyDir);
 		/// Creates the BundleContext.
 
-	~BundleContext();
+	~BundleContext() override;
 		/// Destroys the BundleContext.
 
 	void initPersistency(const Poco::Path& persistencyPath);
 		/// Sets up the temporary and persistent data paths.
 
-	static std::string loggerName(const Bundle* pBundle);
+	[[nodiscard]] static std::string loggerName(const Bundle* pBundle);
 		/// Returns a logger name for the bundle.
 		///
 		/// The logger's name is "osp.bundle.<symbolic-name>",
 		/// where <symbolic-name> is the bundle's symbolic name.
 
 private:
-	BundleContext();
-	BundleContext(const BundleContext&);
-	BundleContext& operator = (const BundleContext&);
 
 	BundleLoader&    _loader;
 	Bundle::ConstPtr _pBundle;
@@ -189,7 +189,7 @@ inline Poco::Logger& BundleContext::logger() const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleContext_INCLUDED

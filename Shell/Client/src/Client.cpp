@@ -61,17 +61,12 @@ class ShellClientApp: public Application
 {
 public:
 	ShellClientApp():
-		_showHelp(false),
 		_username(Poco::Environment::get("OSPSH_USERNAME"s, ""s)),
-		_password(Poco::Environment::get("OSPSH_PASSWORD"s, ""s)),
-		_port(0),
-		_prompt(true),
-		_auth(true),
-		_pCommandStream(0)
+		_password(Poco::Environment::get("OSPSH_PASSWORD"s, ""s))
 	{
 	}
 
-	~ShellClientApp()
+	~ShellClientApp() override
 	{
 		delete _pCommandStream;
 	}
@@ -81,7 +76,7 @@ protected:
 	static const std::string SERVER_HOST;
 	static const std::string PROMPT;
 
-	void defineOptions(OptionSet& options)
+	void defineOptions(OptionSet& options) override
 	{
 		Application::defineOptions(options);
 
@@ -147,50 +142,50 @@ protected:
 				.callback(OptionCallback<ShellClientApp>(this, &ShellClientApp::handleConfig)));
 	}
 
-	void handleHelp(const std::string& name, const std::string& value)
+	void handleHelp(const std::string& /*name*/, const std::string& /*value*/)
 	{
 		_showHelp = true;
 		displayHelp();
 		stopOptionsProcessing();
 	}
 
-	void handleUserName(const std::string& name, const std::string& value)
+	void handleUserName(const std::string& /*name*/, const std::string& value)
 	{
 		_username = value;
 	}
 
-	void handlePassword(const std::string& name, const std::string& value)
+	void handlePassword(const std::string& /*name*/, const std::string& value)
 	{
 		_password = value;
 	}
 
-	void handleHost(const std::string& name, const std::string& value)
+	void handleHost(const std::string& /*name*/, const std::string& value)
 	{
 		_host = value;
 	}
 
-	void handlePort(const std::string& name, const std::string& value)
+	void handlePort(const std::string& /*name*/, const std::string& value)
 	{
 		_port = Poco::NumberParser::parse(value);
 	}
 
-	void handleFile(const std::string& name, const std::string& value)
+	void handleFile(const std::string& /*name*/, const std::string& value)
 	{
 		_pCommandStream = new Poco::FileInputStream(value);
 		_prompt = false;
 	}
 
-	void handleNoPrompt(const std::string& name, const std::string& value)
+	void handleNoPrompt(const std::string& /*name*/, const std::string& /*value*/)
 	{
 		_prompt = false;
 	}
 
-	void handleNoAuth(const std::string& name, const std::string& value)
+	void handleNoAuth(const std::string& /*name*/, const std::string& /*value*/)
 	{
 		_auth = false;
 	}
 
-	void handleConfig(const std::string& name, const std::string& value)
+	void handleConfig(const std::string& /*name*/, const std::string& value)
 	{
 		loadConfiguration(value);
 	}
@@ -277,7 +272,7 @@ protected:
 		}
 	}
 
-	int processCommand(const std::string& command, std::ostream& out, std::ostream& err)
+	[[nodiscard]] int processCommand(const std::string& command, std::ostream& out, std::ostream& err)
 	{
 		std::vector<std::string> items = splitCommandLine(command);
 		if (!items.empty() && items[0] == "login")
@@ -291,7 +286,7 @@ protected:
 		else return sendRequest(command, out, err);
 	}
 
-	int sendRequest(const std::string& request, std::ostream& out, std::ostream& err)
+	[[nodiscard]] int sendRequest(const std::string& request, std::ostream& out, std::ostream& err)
 	{
 		_socket.sendMessage(request);
 		std::string response;
@@ -308,7 +303,7 @@ protected:
 		return status;
 	}
 
-	int login(const std::vector<std::string>& items, std::ostream& out, std::ostream& err)
+	[[nodiscard]] int login(const std::vector<std::string>& items, std::ostream& out, std::ostream& err)
 	{
 		std::string username;
 		if (items.size() > 1)
@@ -354,7 +349,7 @@ protected:
 		return status;
 	}
 
-	int passwd(const std::vector<std::string>& items, std::ostream& out, std::ostream& err)
+	[[nodiscard]] int passwd(const std::vector<std::string>& items, std::ostream& out, std::ostream& err)
 	{
 		std::string username;
 		if (items.size() > 1)
@@ -444,13 +439,13 @@ protected:
 	}
 
 #if defined(OSPSH_HAVE_EDITLINE)
-	static const char* prompt(EditLine*)
+	[[nodiscard]] static const char* prompt(EditLine*)
 	{
 		return PROMPT.c_str();
 	}
 #endif
 
-	static std::string escape(const std::string& str)
+	[[nodiscard]] static std::string escape(const std::string& str)
 	{
 		std::string result;
 		for (std::string::const_iterator it = str.begin(); it != str.end(); ++it)
@@ -471,7 +466,7 @@ protected:
 		return result;
 	}
 
-	static std::vector<std::string> splitCommandLine(const std::string& commandLine)
+	[[nodiscard]] static std::vector<std::string> splitCommandLine(const std::string& commandLine)
 	{
 		std::vector<std::string> items;
 
@@ -545,7 +540,7 @@ protected:
 		}
 	}
 
-	int main(const std::vector<std::string>& args)
+	int main(const std::vector<std::string>& args) override
 	{
 		if (!_showHelp)
 		{
@@ -560,7 +555,7 @@ protected:
 
 			if (!args.empty())
 			{
-				if (!_pCommandStream)
+				if (_pCommandStream == nullptr)
 				{
 					std::string command = args[0];
 					for (std::size_t i = 1; i < args.size(); i++)
@@ -595,23 +590,23 @@ protected:
 			if (status == ShellConnection::STATUS_OK)
 			{
 				std::istream* pStream = _pCommandStream;
-				if (!pStream) pStream = &std::cin;
+				if (pStream == nullptr) pStream = &std::cin;
 
 #if defined(OSPSH_HAVE_EDITLINE)
 				bool useEditLine = false;
 
-				EditLine* editLine = NULL;
-				History* elHist = NULL;
+				EditLine* editLine = nullptr;
+				History* elHist = nullptr;
 				HistEvent elHistEvent;
-				if (!_pCommandStream)
+				if (_pCommandStream == nullptr)
 				{
 					editLine = el_init("ospsh", stdin, stdout, stderr);
-					if (!editLine) throw Poco::IOException("Failed to initialize editline");
+					if (editLine == nullptr) throw Poco::IOException("Failed to initialize editline");
 					el_set(editLine, EL_PROMPT, &ShellClientApp::prompt);
 					el_set(editLine, EL_EDITOR, "emacs");
 					el_set(editLine, EL_SIGNAL, 1);
 					elHist = history_init();
-					if (elHist)
+					if (elHist != nullptr)
 					{
 						history(elHist, &elHistEvent, H_SETSIZE, 64);
 						el_set(editLine, EL_HIST, history, elHist);
@@ -627,15 +622,15 @@ protected:
 				{
 					int count;
 					const char* line;
-					while ((line = el_gets(editLine, &count)) != NULL)
+					while ((line = el_gets(editLine, &count)) != nullptr)
 					{
 						std::string request(line);
 						Poco::trimRightInPlace(request);
 						int status = processCommand(request, std::cout, std::cerr);
 						if (status == ShellConnection::STATUS_GOODBYE) break;
-						if (elHist && !request.empty()) history(elHist, &elHistEvent, H_ENTER, line);
+						if (elHist != nullptr && !request.empty()) history(elHist, &elHistEvent, H_ENTER, line);
 					}
-					if (elHist) history_end(elHist);
+					if (elHist != nullptr) history_end(elHist);
 					el_end(editLine);
 					return Application::EXIT_OK;
 				}
@@ -654,14 +649,14 @@ protected:
 	}
 
 private:
-	bool         _showHelp;
+	bool         _showHelp = false;
 	std::string  _username;
 	std::string  _password;
 	std::string  _host;
-	Poco::UInt16 _port;
-	bool         _prompt;
-	bool         _auth;
-	std::istream* _pCommandStream;
+	Poco::UInt16 _port = 0;
+	bool         _prompt = true;
+	bool         _auth = true;
+	std::istream* _pCommandStream = nullptr;
 	Poco::Net::DialogSocket _socket;
 };
 

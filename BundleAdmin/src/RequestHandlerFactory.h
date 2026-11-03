@@ -19,7 +19,8 @@ template <class Handler>
 class RequestHandlerFactory: public Poco::OSP::Web::WebRequestHandlerFactory
 {
 public:
-	Poco::Net::HTTPRequestHandler* createRequestHandler(const Poco::Net::HTTPServerRequest& request)
+	[[nodiscard]] Poco::Net::HTTPRequestHandler* createRequestHandler(
+		const Poco::Net::HTTPServerRequest& /*request*/) override
 	{
 		return new Handler(context());
 	}

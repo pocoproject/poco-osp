@@ -25,7 +25,7 @@ class BundleVerifierTest: public CppUnit::TestCase
 {
 public:
 	BundleVerifierTest(const std::string& name);
-	~BundleVerifierTest();
+	~BundleVerifierTest() override;
 
 	void testVerifyFile();
 	void testVerifyFileSHA256();
@@ -57,8 +57,8 @@ public:
 	void testVerifyFailCertificateWithoutRSAKey();
 	void testVerifyWithManyTrustedCertificates();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 

@@ -28,9 +28,7 @@
 #include <memory>
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 class OSPWeb_API WebServerExtensionPoint: public ExtensionPoint
@@ -145,15 +143,17 @@ class OSPWeb_API WebServerExtensionPoint: public ExtensionPoint
 	///                   handlers are always JSON.
 {
 public:
+	WebServerExtensionPoint() = delete;
+
 	WebServerExtensionPoint(BundleContext::Ptr pContext, WebServerDispatcher* pDispatcher);
 		/// Creates the WebServerExtension. Expects a not null pointer to the Web which must be valid during the whole
 		/// life-time of the extension object
 
-	~WebServerExtensionPoint();
+	~WebServerExtensionPoint() override;
 		/// Destroys the WebServerExtension.
 
 	// ExtensionPoint
-	void handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem);
+	void handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem) override;
 
 	static const std::string EXTPOINT_DIRECTORY;
 	static const std::string EXTPOINT_HANDLER;
@@ -192,8 +192,6 @@ protected:
 	static const std::string MANIFEST_NAME;
 
 private:
-	WebServerExtensionPoint();
-
 	using Loader = Poco::ClassLoader<WebRequestHandlerFactory>;
 
 	BundleContext::Ptr   _pContext;
@@ -203,7 +201,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web
 
 
 #endif // OSP_Web_WebServerExtensionPoint_INCLUDED

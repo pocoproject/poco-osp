@@ -22,20 +22,20 @@ class BundleStreamFactoryTest: public CppUnit::TestCase
 {
 public:
 	BundleStreamFactoryTest(const std::string& name);
-	~BundleStreamFactoryTest();
+	~BundleStreamFactoryTest() override;
 
 	void testOpenReadsBundleResource();
 	void testOpenOfMissingResourceOrBundleThrowsNotFound();
 	void testUriWithoutPathIsRejected();
 	void testDefaultOpenerUsesRegisteredFactory();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 
 protected:
-	std::string findBundle(const std::string& name);
+	[[nodiscard]] std::string findBundle(const std::string& name);
 
 private:
 };

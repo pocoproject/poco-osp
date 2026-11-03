@@ -65,7 +65,7 @@ namespace
 		int maxKeepAlive = 0;
 	};
 
-	ServerSettings readSettings(BundleContext::Ptr pContext, bool secure)
+	[[nodiscard]] ServerSettings readSettings(BundleContext::Ptr pContext, bool secure)
 		/// Reads the server settings from the global application configuration,
 		/// with the bundle properties as defaults.
 	{
@@ -120,52 +120,52 @@ namespace
 		ServerService& operator = (const ServerService&) = delete;
 		ServerService& operator = (ServerService&&) = delete;
 
-		int currentThreads() const override
+		[[nodiscard]] int currentThreads() const override
 		{
 			return _pServer->currentThreads();
 		}
 
-		int totalConnections() const override
+		[[nodiscard]] int totalConnections() const override
 		{
 			return static_cast<int>(_pServer->totalConnections());
 		}
 
-		int currentConnections() const override
+		[[nodiscard]] int currentConnections() const override
 		{
 			return _pServer->currentConnections();
 		}
 
-		int maxConcurrentConnections() const override
+		[[nodiscard]] int maxConcurrentConnections() const override
 		{
 			return _pServer->maxConcurrentConnections();
 		}
 
-		int queuedConnections() const override
+		[[nodiscard]] int queuedConnections() const override
 		{
 			return _pServer->queuedConnections();
 		}
 
-		int refusedConnections() const override
+		[[nodiscard]] int refusedConnections() const override
 		{
 			return _pServer->refusedConnections();
 		}
 
-		std::string host() const override
+		[[nodiscard]] std::string host() const override
 		{
 			return _host;
 		}
 
-		Poco::UInt16 port() const override
+		[[nodiscard]] Poco::UInt16 port() const override
 		{
 			return _pServer->port();
 		}
 
-		bool secure() const override
+		[[nodiscard]] bool secure() const override
 		{
 			return _secure;
 		}
 
-		HTTPServerParams::Ptr params() const override
+		[[nodiscard]] HTTPServerParams::Ptr params() const override
 		{
 			return _pParams;
 		}

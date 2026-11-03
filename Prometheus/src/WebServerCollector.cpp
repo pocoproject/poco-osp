@@ -26,9 +26,7 @@
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
-namespace Prometheus {
+namespace Poco::OSP::Prometheus {
 
 
 namespace
@@ -133,4 +131,4 @@ void WebServerCollector::addMetric(Poco::Prometheus::Metric::Type type, const st
 }
 
 
-} } } // namespace Poco::OSP::Prometheus
+} // namespace Poco::OSP::Prometheus

@@ -22,8 +22,7 @@
 #include "Poco/OSP/BundleContext.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class BundleContext;
@@ -72,16 +71,15 @@ public:
 	virtual ~BundleActivator();
 		/// Destroys the BundleActivator.
 
+	BundleActivator(const BundleActivator&) = delete;
+	BundleActivator& operator = (const BundleActivator&) = delete;
+
 protected:
 	BundleActivator();
-
-private:
-	BundleActivator(const BundleActivator&);
-	BundleActivator& operator = (const BundleActivator&);
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleActivator_INCLUDED

@@ -22,7 +22,7 @@ class BundleManifestTest: public CppUnit::TestCase
 {
 public:
 	BundleManifestTest(const std::string& name);
-	~BundleManifestTest();
+	~BundleManifestTest() override;
 
 	void testBasicPropertiesAreRead();
 	void testMissingPropertiesAreEmptyAndLazyStartIsRead();
@@ -61,8 +61,8 @@ public:
 	void testFlagsRunLevelAndExtendedBundle();
 	void testUnknownHeaderIsIgnoredAndLinesContinue();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 

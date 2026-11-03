@@ -24,17 +24,14 @@
 using Poco::NumberParser;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 const std::string Properties::PROP_TRUE("true");
 const std::string Properties::PROP_FALSE("false");
 
 
-Properties::Properties()
-{
-}
+Properties::Properties() = default;
 
 
 Properties::Properties(const Properties& props)
@@ -45,9 +42,7 @@ Properties::Properties(const Properties& props)
 }
 
 
-Properties::~Properties()
-{
-}
+Properties::~Properties() = default;
 
 
 Properties& Properties::operator = (const Properties& props)
@@ -58,7 +53,7 @@ Properties& Properties::operator = (const Properties& props)
 }
 
 
-void Properties::swap(Properties& props)
+void Properties::swap(Properties& props) noexcept
 {
 	if (this == &props) return;
 
@@ -253,4 +248,4 @@ void Properties::keys(std::vector<std::string>& keys) const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

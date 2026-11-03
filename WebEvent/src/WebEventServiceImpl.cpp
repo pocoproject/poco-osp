@@ -38,9 +38,7 @@
 #include <utility>
 
 
-namespace Poco {
-namespace OSP {
-namespace WebEvent {
+namespace Poco::OSP::WebEvent {
 
 
 const std::string WebEventServiceImpl::SUBSCRIBE("SUBSCRIBE");
@@ -160,7 +158,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 		_service.removeSubscriberImpl(_pWS, _clientShutdown);
 	}
@@ -181,7 +179,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 		_service.subscribeImpl(_pWS, _subjectNames);
 	}
@@ -202,7 +200,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 		_service.unsubscribeImpl(_pWS, _subjectNames);
 	}
@@ -223,7 +221,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 		_service.notifyImpl(_subjectName, _data);
 	}
@@ -245,7 +243,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 		_service.notifyUserImpl(_username, _subjectName, _data);
 	}
@@ -266,7 +264,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 		_service.sendPending(_pSubscriber);
 	}
@@ -285,7 +283,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 		_service.receiveImpl(_pSubscriber);
 	}
@@ -307,7 +305,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 		_service.shutdownImpl(_pSubscriber, _statusCode, _statusMessage, _passive);
 	}
@@ -329,7 +327,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 		_service.watchSocketImpl(_socket);
 	}
@@ -359,7 +357,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 		_service.listSubscribersImpl(_pState->subscribers);
 		_pState->done.set();
@@ -379,7 +377,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 	}
 };
@@ -405,7 +403,7 @@ WebEventServiceImpl::WebEventServiceImpl(Poco::OSP::BundleContext::Ptr pContext,
 	_mainRunnable(*this, &WebEventServiceImpl::runMain),
 	_workerRunnable(*this, &WebEventServiceImpl::runWorker),
 	_stopped(false),
-	_logger(pContext ? pContext->logger() : Poco::Logger::get("Poco.OSP.WebEvent"))
+	_logger(pContext != nullptr ? pContext->logger() : Poco::Logger::get("Poco.OSP.WebEvent"))
 {
 	const int actualWorkerCount = std::min(config.workerCount > 0 ? config.workerCount : defaultWorkerCount(), MAX_WORKER_COUNT);
 	try
@@ -628,12 +626,12 @@ void WebEventServiceImpl::runMain()
 		}
 
 		Poco::Notification::Ptr pNf = _mainQueue.dequeueNotification();
-		while (pNf && !_stopped)
+		while (pNf != nullptr && !_stopped)
 		{
 			try
 			{
 				TaskNotification::Ptr pTaskNf = pNf.cast<TaskNotification>();
-				if (pTaskNf)
+				if (pTaskNf != nullptr)
 				{
 					pTaskNf->execute();
 				}
@@ -672,10 +670,10 @@ void WebEventServiceImpl::runWorker()
 		try
 		{
 			Poco::Notification::Ptr pNf = _workerQueue.waitDequeueNotification(WEBEVENT_QUEUE_WAIT_MS);
-			if (pNf && !_stopped)
+			if (pNf != nullptr && !_stopped)
 			{
 				TaskNotification::Ptr pTaskNf = pNf.cast<TaskNotification>();
-				if (pTaskNf)
+				if (pTaskNf != nullptr)
 				{
 					pTaskNf->execute();
 				}
@@ -755,7 +753,7 @@ WebEventService::SubscriberInfoVec WebEventServiceImpl::listSubscribers()
 		// for a stopped service is an empty list, arrived at now rather
 		// than at the end of a wait nothing can satisfy.
 		if (_stopped) return SubscriberInfoVec();
-		if (deadline.isElapsed(Poco::Clock::ClockDiff(WEBEVENT_LIST_SUBSCRIBERS_TIMEOUT)*Poco::Clock::resolution()))
+		if (deadline.isElapsed(WEBEVENT_LIST_SUBSCRIBERS_TIMEOUT*Poco::Clock::resolution()))
 		{
 			// Not an empty snapshot: the caller would read that as every
 			// user having gone away, when in truth the event thread has
@@ -802,7 +800,7 @@ void WebEventServiceImpl::enqueueSend(Subscriber::Ptr pSubscriber, const std::st
 				}
 				pSubscriber->pending.pop_front();
 				dropped = ++pSubscriber->droppedFrames;
-				if (pSubscriber->lastDropWarning.isElapsed(Poco::Clock::ClockDiff(WEBEVENT_DROP_WARNING_INTERVAL)*Poco::Clock::resolution()))
+				if (pSubscriber->lastDropWarning.isElapsed(WEBEVENT_DROP_WARNING_INTERVAL*Poco::Clock::resolution()))
 				{
 					warn = true;
 					pSubscriber->lastDropWarning.update();
@@ -1160,7 +1158,8 @@ void WebEventServiceImpl::receiveImpl(Subscriber::Ptr pSubscriber)
 			Poco::FastMutex::ScopedLock lock(pSubscriber->queueMutex);
 			pSubscriber->receiving = false;
 		}
-		if (logger().debug()) logger().debug(Poco::format("Frame received (length=%d, flags=0x%x).", n, unsigned(flags)));
+		if (logger().debug()) logger().debug(Poco::format("Frame received (length=%d, flags=0x%x).", n,
+			static_cast<unsigned>(flags)));
 
 		// Opcodes are a 4-bit field, not flags: CLOSE (0x8) shares a bit with
 		// PONG (0xA), so testing bits instead of the masked value read every
@@ -1699,4 +1698,4 @@ void WebEventServiceImpl::releaseSocketSlot()
 }
 
 
-} } } // namespace Poco::OSP::WebEvent
+} // namespace Poco::OSP::WebEvent

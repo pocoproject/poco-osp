@@ -23,20 +23,16 @@ using Poco::OSP::Bundle;
 class CryptoBundleActivator: public BundleActivator
 {
 public:
-	CryptoBundleActivator()
-	{
-	}
+	CryptoBundleActivator() = default;
 	
-	~CryptoBundleActivator()
-	{
-	}
+	~CryptoBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr /*pContext*/) override
 	{
 		Poco::Crypto::initializeCrypto();
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 		Poco::Crypto::uninitializeCrypto();
 	}

@@ -23,8 +23,7 @@
 #endif
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 LanguageTag::LanguageTag()
@@ -46,9 +45,7 @@ LanguageTag::LanguageTag(const std::string& primaryTag, const std::string& subTa
 }
 
 
-LanguageTag::~LanguageTag()
-{
-}
+LanguageTag::~LanguageTag() = default;
 
 
 std::string LanguageTag::toString() const
@@ -68,15 +65,15 @@ void LanguageTag::init()
 #if defined(_WIN32)
 #if defined(POCO_WIN32_UTF8)
 	wchar_t buffer[8];
-	int len = GetLocaleInfoW(LOCALE_USER_DEFAULT, LOCALE_SISO639LANGNAME, (LPWSTR) &buffer, sizeof(buffer)/sizeof(wchar_t));
+	int len = GetLocaleInfoW(LOCALE_USER_DEFAULT, LOCALE_SISO639LANGNAME, buffer, sizeof(buffer)/sizeof(wchar_t));
 	if (len > 0) Poco::UnicodeConverter::toUTF8(buffer, _primaryTag);
-	len = GetLocaleInfoW(LOCALE_USER_DEFAULT, LOCALE_SISO3166CTRYNAME, (LPWSTR) &buffer, sizeof(buffer)/sizeof(wchar_t));
+	len = GetLocaleInfoW(LOCALE_USER_DEFAULT, LOCALE_SISO3166CTRYNAME, buffer, sizeof(buffer)/sizeof(wchar_t));
 	if (len > 0) Poco::UnicodeConverter::toUTF8(buffer, _subTags);
 #else
 	char buffer[8];
-	int len = GetLocaleInfoA(LOCALE_USER_DEFAULT, LOCALE_SISO639LANGNAME, (LPSTR) &buffer, sizeof(buffer));
+	int len = GetLocaleInfoA(LOCALE_USER_DEFAULT, LOCALE_SISO639LANGNAME, buffer, sizeof(buffer));
 	if (len > 0) _primaryTag.assign(buffer);
-	len = GetLocaleInfoA(LOCALE_USER_DEFAULT, LOCALE_SISO3166CTRYNAME, (LPSTR) &buffer, sizeof(buffer));
+	len = GetLocaleInfoA(LOCALE_USER_DEFAULT, LOCALE_SISO3166CTRYNAME, buffer, sizeof(buffer));
 	if (len > 0) _subTags.assign(buffer);
 #endif
 #endif
@@ -112,4 +109,4 @@ void LanguageTag::init(const std::string& tag)
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

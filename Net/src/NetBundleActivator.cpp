@@ -36,15 +36,11 @@ using Poco::Net::HTTPSessionInstantiator;
 class NetBundleActivator: public BundleActivator
 {
 public:
-	NetBundleActivator()
-	{
-	}
+	NetBundleActivator() = default;
 	
-	~NetBundleActivator()
-	{
-	}
+	~NetBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		Poco::Net::initializeNetwork();
 		HTTPStreamFactory::registerFactory();
@@ -52,7 +48,7 @@ public:
 		HTTPSessionInstantiator::registerInstantiator();
 
 		PreferencesService::Ptr pPrefs = ServiceFinder::find<PreferencesService>(pContext);
-		if (pPrefs)
+		if (pPrefs != nullptr)
 		{
 			Poco::Net::ProxyConfig proxyConfig;
 			proxyConfig.host          = pPrefs->configuration()->getString("http.proxy.host", "");
@@ -69,7 +65,7 @@ public:
 		}
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 		if (_proxyConfigured)
 		{

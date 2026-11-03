@@ -18,14 +18,12 @@
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
-namespace Prometheus {
+namespace Poco::OSP::Prometheus {
 
 
 namespace
 {
-	std::string escape(const std::string& str)
+	[[nodiscard]] std::string escape(const std::string& str)
 	{
 		std::string result;
 		for (char c: str)
@@ -49,7 +47,9 @@ namespace
 	}
 
 	template <typename T>
-	void writeSampleImpl(std::ostream& stream, const Poco::Prometheus::Metric& metric, const std::vector<std::string>& labelNames, const std::vector<std::string>& labelValues, T&& value, const Poco::Timestamp& timestamp)
+	void writeSampleImpl(std::ostream& stream, const Poco::Prometheus::Metric& metric,
+		const std::vector<std::string>& labelNames, const std::vector<std::string>& labelValues, T&& value,
+		const Poco::Timestamp& /*timestamp*/)
 	{
 		poco_assert_dbg (labelNames.size() == labelValues.size());
 
@@ -132,4 +132,4 @@ void StringExporter::writeSample(const Poco::Prometheus::Metric& metric, const s
 }
 
 
-} } } // namespace Poco::OSP::Prometheus
+} // namespace Poco::OSP::Prometheus

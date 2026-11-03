@@ -26,9 +26,7 @@
 #include <string>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 namespace
@@ -86,4 +84,4 @@ std::size_t ShellServer::stop(std::chrono::milliseconds timeout)
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

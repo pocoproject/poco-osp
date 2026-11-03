@@ -22,7 +22,7 @@ class ServiceTest: public CppUnit::TestCase
 {
 public:
 	ServiceTest(const std::string& name);
-	~ServiceTest();
+	~ServiceTest() override;
 
 	void testServiceType();
 	void testServiceConfig();
@@ -35,8 +35,8 @@ public:
 	void testServiceConfigIncludesConfigurationOfPreferencesService();
 	void testServiceFinderFindsServiceOfType();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 };

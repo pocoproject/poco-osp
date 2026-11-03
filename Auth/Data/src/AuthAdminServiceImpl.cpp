@@ -61,10 +61,7 @@ using namespace Poco::Data;
 using namespace Poco::Data::Keywords;
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace Data {
+namespace Poco::OSP::Auth::Data {
 
 
 namespace
@@ -76,18 +73,15 @@ namespace
 	class SHA256Engine: public Poco::SHA2Engine
 	{
 	public:
-		enum
-		{
-			BLOCK_SIZE = 64,
-			DIGEST_SIZE = 32
-		};
+		static constexpr std::size_t BLOCK_SIZE = 64;
+		static constexpr std::size_t DIGEST_SIZE = 32;
 
 		SHA256Engine(): Poco::SHA2Engine(Poco::SHA2Engine::ALGORITHM::SHA_256)
 		{
 		}
 	};
 
-	std::string decodeBase64(const std::string& base64)
+	[[nodiscard]] std::string decodeBase64(const std::string& base64)
 	{
 		Poco::MemoryInputStream istr(base64.data(), base64.size());
 		Poco::Base64Decoder decoder(istr);
@@ -169,9 +163,7 @@ AuthAdminServiceImpl::AuthAdminServiceImpl(const Poco::Util::AbstractConfigurati
 }
 
 
-AuthAdminServiceImpl::~AuthAdminServiceImpl()
-{
-}
+AuthAdminServiceImpl::~AuthAdminServiceImpl() = default;
 
 
 inline bool AuthAdminServiceImpl::isInlineAttribute(const std::string& attribute) const
@@ -1516,7 +1508,7 @@ bool AuthAdminServiceImpl::isUserLockedOut(const std::string& username) const
 }
 
 
-bool AuthAdminServiceImpl::isExternalUser(const std::string& username) const
+bool AuthAdminServiceImpl::isExternalUser([[maybe_unused]] const std::string& username) const
 {
 	bool result = false;
 
@@ -1556,7 +1548,8 @@ bool AuthAdminServiceImpl::isExternalRole(const std::string& rolename) const
 }
 
 
-bool AuthAdminServiceImpl::isLDAPUserImpl(Poco::Data::Session& sess, const std::string& username, std::string& ldapAttr) const
+bool AuthAdminServiceImpl::isLDAPUserImpl([[maybe_unused]] Poco::Data::Session& sess,
+	[[maybe_unused]] const std::string& username, [[maybe_unused]] std::string& ldapAttr) const
 {
 #if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 	if (!_ldapParams.uri.empty())
@@ -1576,7 +1569,8 @@ bool AuthAdminServiceImpl::isLDAPUserImpl(Poco::Data::Session& sess, const std::
 }
 
 
-bool AuthAdminServiceImpl::isLDAPRoleImpl(Poco::Data::Session& sess, const std::string& rolename, std::string& ldapAttr) const
+bool AuthAdminServiceImpl::isLDAPRoleImpl([[maybe_unused]] Poco::Data::Session& sess,
+	[[maybe_unused]] const std::string& rolename, [[maybe_unused]] std::string& ldapAttr) const
 {
 #if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 	if (!_ldapParams.uri.empty())
@@ -1644,7 +1638,7 @@ bool AuthAdminServiceImpl::authorize(const std::string& username, const std::str
 #endif
 
 	PermissionsPtr pPerms = _permissionsCache.get(lookupUsername);
-	if (!pPerms)
+	if (pPerms == nullptr)
 	{
 		Poco::Data::Session& sess = session();
 		Poco::Data::Transaction xa(sess, &_logger);
@@ -2097,7 +2091,7 @@ bool AuthAdminServiceImpl::isA(const std::type_info& otherType) const
 
 Poco::Data::Session& AuthAdminServiceImpl::session() const
 {
-	if (!_pSession || !_pSession->isGood() || sessionExpired())
+	if (_pSession == nullptr || !_pSession->isGood() || sessionExpired())
 	{
 		_logger.debug("Creating new database session."s);
 		_pSession = new Poco::Data::Session(_authParams.dbConnector, _authParams.dbConnectionString);
@@ -2548,7 +2542,7 @@ std::string AuthAdminServiceImpl::hashForUser(Poco::Data::Session& sess, const s
 {
 	std::string hash;
 	Poco::SharedPtr<std::string> pCachedPass = _passwordPersistentHashCache.get(username);
-	if (pCachedPass)
+	if (pCachedPass != nullptr)
 	{
 		hash = *pCachedPass;
 	}
@@ -2582,7 +2576,7 @@ std::string AuthAdminServiceImpl::saltForUser(Poco::Data::Session& sess, const s
 	std::string salt;
 	std::string hash;
 	Poco::SharedPtr<std::string> pCachedPass = _passwordPersistentHashCache.get(username);
-	if (pCachedPass)
+	if (pCachedPass != nullptr)
 	{
 		hash = *pCachedPass;
 	}
@@ -2734,4 +2728,4 @@ std::string AuthAdminServiceImpl::generateCacheSalt()
 }
 
 
-} } } } // namespace Poco::OSP::Auth::Data
+} // namespace Poco::OSP::Auth::Data

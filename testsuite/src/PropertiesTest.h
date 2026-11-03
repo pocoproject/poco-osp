@@ -22,7 +22,7 @@ class PropertiesTest: public CppUnit::TestCase
 {
 public:
 	PropertiesTest(const std::string& name);
-	~PropertiesTest();
+	~PropertiesTest() override;
 
 	void testGettersAreCaseInsensitiveAndUseDefaults();
 	void testTypedSettersRoundTrip();
@@ -31,8 +31,8 @@ public:
 	void testCopyAssignAndSwap();
 	void testCopyAndSwapWhileModified();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 

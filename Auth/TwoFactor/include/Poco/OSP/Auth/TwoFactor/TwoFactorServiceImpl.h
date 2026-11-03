@@ -30,10 +30,7 @@
 #include "Poco/Timestamp.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace TwoFactor {
+namespace Poco::OSP::Auth::TwoFactor {
 
 
 class OSPAuthTwoFactor_API TwoFactorServiceImpl: public TwoFactorService
@@ -86,7 +83,7 @@ public:
 		///
 		/// Throws a Poco::InvalidArgumentException if the configuration is not valid.
 
-	~TwoFactorServiceImpl();
+	~TwoFactorServiceImpl() override;
 		/// Destroys the TwoFactorServiceImpl.
 
 	TwoFactorServiceImpl() = delete;
@@ -96,18 +93,18 @@ public:
 	TwoFactorServiceImpl& operator = (TwoFactorServiceImpl&&) = delete;
 
 	// TwoFactorService
-	bool is2FAEnabled(const std::string& username) const;
-	void enable2FA(const std::string& username);
-	void disable2FA(const std::string& username);
-	ValidationResult validateTOTP(const std::string& username, const std::string& totp);
+	[[nodiscard]] bool is2FAEnabled(const std::string& username) const override;
+	void enable2FA(const std::string& username) override;
+	void disable2FA(const std::string& username) override;
+	ValidationResult validateTOTP(const std::string& username, const std::string& totp) override;
 		/// Validates the code. Returns VALIDATION_FAILED_CODE_INCORRECT
 		/// without checking the code while the user is locked out.
-	std::string secret(const std::string& username) const;
-	std::string generateAuthenticatorURI(const std::string& username) const;
+	std::string secret(const std::string& username) const override;
+	[[nodiscard]] std::string generateAuthenticatorURI(const std::string& username) const override;
 
 	// Service
-	const std::type_info& type() const;
-	bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 protected:
 	[[nodiscard]] virtual Poco::Timestamp now() const;
@@ -115,8 +112,8 @@ protected:
 		/// validateTOTP(). Can be overridden, for example in tests.
 
 	void storeSecret(const std::string& username, const std::string& secret);
-	std::string loadSecret(const std::string& username) const;
-	Poco::Crypto::CipherKey generateKey() const;
+	[[nodiscard]] std::string loadSecret(const std::string& username) const;
+	[[nodiscard]] Poco::Crypto::CipherKey generateKey() const;
 		/// Returns the key of the format without version prefix.
 
 	static const std::string ATTR_SECRET;
@@ -150,7 +147,7 @@ private:
 };
 
 
-} } } } // namespace Poco::OSP::Auth::TwoFactor
+} // namespace Poco::OSP::Auth::TwoFactor
 
 
 #endif // OSP_Auth_TwoFactor_TwoFactorServiceImpl_INCLUDED

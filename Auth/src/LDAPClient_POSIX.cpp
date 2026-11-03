@@ -30,7 +30,7 @@
 #include <sys/time.h>
 
 namespace {
-	std::string ldapError(int err)
+	[[nodiscard]] std::string ldapError(int err)
 	{
   		return ldap_err2string(err);
 	}
@@ -61,9 +61,7 @@ namespace {
 }
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
 class LDAPClientImpl
@@ -96,13 +94,13 @@ public:
 
 	~LDAPClientImpl();
 
-	bool initialize(const std::string& url);
+	[[nodiscard]] bool initialize(const std::string& url);
 
-	bool setTimeLimit(int limit);
+	[[nodiscard]] bool setTimeLimit(int limit);
 
-	Result bind(const std::string& bindDN, const std::string& credentials);
+	[[nodiscard]] Result bind(const std::string& bindDN, const std::string& credentials);
 
-	bool isBound() const;
+	[[nodiscard]] bool isBound() const;
 
 	void unbind();
 
@@ -117,12 +115,12 @@ public:
 	[[nodiscard]] bool find(const std::string& searchBase, const std::string& filter, bool subtree, bool queryRoles,
 		bool queryAccountName, AuthProperties& properties);
 
-	int lastReturnCode() const;
+	[[nodiscard]] int lastReturnCode() const;
 		/// Return code of the last LDAP operation.
 
 private:
 
-	bool isExtraAttribute(const std::string& attr, std::string& canonicalAttr) const;
+	[[nodiscard]] bool isExtraAttribute(const std::string& attr, std::string& canonicalAttr) const;
 
 	static const std::string DISPLAY_NAME_ATTR;
 	static const std::string ACCOUNT_NAME_ATTR;
@@ -156,7 +154,7 @@ LDAPClientImpl::LDAPClientImpl(Poco::Logger& logger) : _logger{logger}
 
 LDAPClientImpl::~LDAPClientImpl()
 {
-	(void)unbind();
+	unbind();
 }
 
 
@@ -254,7 +252,7 @@ bool LDAPClientImpl::isBound() const
 
 void LDAPClientImpl::unbind()
 {
-	if (!_ldap)
+	if (_ldap == nullptr)
 	{
 		return;
 	}
@@ -493,4 +491,4 @@ bool LDAPClientImpl::isExtraAttribute(const std::string& attr, std::string& cano
 }
 
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth

@@ -22,9 +22,7 @@
 #include <memory>
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 const std::string WebSession::CSRF_TOKEN("#csrfToken");
@@ -105,7 +103,7 @@ void WebSession::set(const std::string& key, const Poco::Any& value)
 	replaced.swap(attr);
 	attr = value;
 
-	if (_pStore)
+	if (_pStore != nullptr)
 	{
 		updateVersion(_pStore->saveValue(_id, key, value));
 	}
@@ -125,7 +123,7 @@ void WebSession::erase(const std::string& key)
 		_attrs.erase(it);
 	}
 
-	if (_pStore)
+	if (_pStore != nullptr)
 	{
 		updateVersion(_pStore->removeValue(_id, key));
 	}
@@ -171,7 +169,7 @@ void WebSession::clearImpl()
 {
 	_attrs.clear();
 
-	if (_pStore)
+	if (_pStore != nullptr)
 	{
 		updateVersion(_pStore->clearValues(_id));
 	}
@@ -190,7 +188,7 @@ void WebSession::timeout(int seconds)
 	}
 
 	Poco::FastMutex::ScopedLock lock(_mutex);
-	if (_pStore)
+	if (_pStore != nullptr)
 	{
 		updateVersion(_pStore->saveTimeout(_id, tsTimeout));
 		_pStore->expireSession(_id, tsTimeout);
@@ -209,7 +207,7 @@ void WebSession::access()
 	}
 
 	Poco::FastMutex::ScopedLock lock(_mutex);
-	if (_pStore)
+	if (_pStore != nullptr)
 	{
 		_pStore->expireSession(_id, tsTimeout);
 	}
@@ -256,4 +254,4 @@ WebSession::Attributes WebSession::releaseAttributes(const Bundle::ConstPtr& pBu
 }
 
 
-} } } // namespace Poco::OSP
+} // namespace Poco::OSP::Web

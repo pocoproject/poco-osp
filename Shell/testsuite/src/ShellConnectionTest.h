@@ -52,7 +52,7 @@ public:
 	static CppUnit::Test* suite();
 
 private:
-	std::vector<Poco::Message> rejectLoginsUntilClosed(const std::string& loginLine);
+	[[nodiscard]] std::vector<Poco::Message> rejectLoginsUntilClosed(const std::string& loginLine);
 		/// Sends the login command line MAX_FAILED_LOGINS times over a new
 		/// connection, checks that each login is rejected after the delay and
 		/// that the server then closes the connection, and returns the

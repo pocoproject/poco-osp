@@ -23,8 +23,7 @@
 #include "Poco/AutoPtr.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API Configuration: public Poco::Util::AbstractConfiguration
@@ -38,21 +37,22 @@ public:
 	Configuration(Poco::Util::AbstractConfiguration* pConfig);
 		/// Creates the Configuration.
 
+	Configuration() = delete;
+
 protected:
-	bool getRaw(const std::string& key, std::string& value) const;
-	void setRaw(const std::string& key, const std::string& value);
-	void enumerate(const std::string& key, Keys& range) const;
-	void removeRaw(const std::string& key);
-	~Configuration();
+	[[nodiscard]] bool getRaw(const std::string& key, std::string& value) const override;
+	void setRaw(const std::string& key, const std::string& value) override;
+	void enumerate(const std::string& key, Keys& range) const override;
+	void removeRaw(const std::string& key) override;
+	~Configuration() override;
 
 private:
-	Configuration();
 
 	AbstractConfiguration* _pConfig;
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_Configuration_INCLUDED

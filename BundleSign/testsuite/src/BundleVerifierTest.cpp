@@ -40,9 +40,7 @@ BundleVerifierTest::BundleVerifierTest(const std::string& name): CppUnit::TestCa
 }
 
 
-BundleVerifierTest::~BundleVerifierTest()
-{
-}
+BundleVerifierTest::~BundleVerifierTest() = default;
 
 
 void BundleVerifierTest::testVerifyFile()

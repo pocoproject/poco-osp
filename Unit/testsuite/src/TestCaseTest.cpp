@@ -53,7 +53,7 @@ namespace
 	{
 	public:
 		explicit ThrowingFixture(const std::string& name);
-		void testThrows();
+		[[noreturn]] void testThrows();
 	};
 
 

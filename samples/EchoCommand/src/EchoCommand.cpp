@@ -25,7 +25,8 @@ class EchoCommand: public Poco::OSP::Shell::Command
 	/// checks itself that the user has logged in.
 {
 public:
-	int execute(Poco::OSP::Shell::Session& session, const std::vector<std::string>& args, std::ostream& ostr)
+	[[nodiscard]] int execute(Poco::OSP::Shell::Session& session, const std::vector<std::string>& args,
+		std::ostream& ostr) override
 	{
 		if (!session.authenticated()) return Command::STATUS_DENIED;
 
@@ -51,7 +52,7 @@ public:
 class EchoCommandFactory: public Poco::OSP::Shell::CommandFactory
 {
 public:
-	Poco::OSP::Shell::Command* createCommand()
+	[[nodiscard]] Poco::OSP::Shell::Command* createCommand() override
 	{
 		return new EchoCommand;
 	}

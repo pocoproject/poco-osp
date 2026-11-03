@@ -31,9 +31,7 @@
 #include <utility>
 
 
-namespace Poco {
-namespace OSP {
-namespace WebEvent {
+namespace Poco::OSP::WebEvent {
 
 
 WebEventRequestHandler::WebEventRequestHandler(WebEventServiceImpl::Ptr pWebEventServiceImpl, OriginSetPtr pAllowedOrigins):
@@ -43,9 +41,7 @@ WebEventRequestHandler::WebEventRequestHandler(WebEventServiceImpl::Ptr pWebEven
 }
 
 	
-WebEventRequestHandler::~WebEventRequestHandler()
-{
-}
+WebEventRequestHandler::~WebEventRequestHandler() = default;
 
 	
 void WebEventRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response)
@@ -114,7 +110,7 @@ void WebEventRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request
 			{
 			case Poco::Net::WebSocket::WS_ERR_HANDSHAKE_UNSUPPORTED_VERSION:
 				response.set("Sec-WebSocket-Version", Poco::Net::WebSocket::WEBSOCKET_VERSION);
-				// fallthrough
+				[[fallthrough]];
 			case Poco::Net::WebSocket::WS_ERR_NO_HANDSHAKE:
 			case Poco::Net::WebSocket::WS_ERR_HANDSHAKE_NO_VERSION:
 			case Poco::Net::WebSocket::WS_ERR_HANDSHAKE_NO_KEY:
@@ -194,4 +190,4 @@ bool WebEventRequestHandler::originAllowed(const Poco::Net::HTTPServerRequest& r
 }
 
 
-} } } // namespace Poco::OSP::WebEvent
+} // namespace Poco::OSP::WebEvent

@@ -24,9 +24,7 @@
 #include "Poco/OSP/Bundle.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class UpgradeCommand: public OSPCommand
@@ -38,22 +36,22 @@ public:
 		/// Creates the UpgradeCommand, using the given
 		/// bundle context.
 		
-	~UpgradeCommand();
+	~UpgradeCommand() override;
 		/// Destroys the UpgradeCommand.
 
 protected:
 	// AbstractCommand
-	virtual int executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr);
-	virtual void defineOptions(Poco::Util::OptionSet& options);
+	[[nodiscard]] int executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr) override;
+	void defineOptions(Poco::Util::OptionSet& options) override;
 
 	void handleForce(const std::string& name, const std::string& value);
 	
 private:
-	bool _force;
+	bool _force = false;
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_UpgradeCommand_INCLUDED

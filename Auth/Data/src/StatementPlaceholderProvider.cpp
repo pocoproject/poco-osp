@@ -21,15 +21,10 @@
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace Data {
+namespace Poco::OSP::Auth::Data {
 
 
-StatementPlaceholderProvider::~StatementPlaceholderProvider()
-{
-}
+StatementPlaceholderProvider::~StatementPlaceholderProvider() = default;
 
 
 void DefaultStatementPlaceholderProvider::reset()
@@ -73,4 +68,4 @@ char MySQLStatementPlaceholderProvider::quote()
 }
 
 
-} } } } // namespace Poco::OSP::Auth::Data
+} // namespace Poco::OSP::Auth::Data

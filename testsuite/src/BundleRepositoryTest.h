@@ -27,7 +27,7 @@ class BundleRepositoryTest: public CppUnit::TestCase
 {
 public:
 	BundleRepositoryTest(const std::string& name);
-	~BundleRepositoryTest();
+	~BundleRepositoryTest() override;
 
 	void testLoadFindsNewestVersionOfEachBundle();
 	void testLoadKeepsNewerVersionFoundFirst();
@@ -58,13 +58,13 @@ public:
 	void testRepositoryPathWithGlobPattern();
 	void testInstallerServiceInstallsFromUriAndReplaces();
 	
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 
 protected:
-	std::string findBundleRepository();
+	[[nodiscard]] std::string findBundleRepository();
 	[[nodiscard]] static std::vector<std::string> loadedBundleNames(const Poco::OSP::BundleLoader& loader);
 		/// Returns the symbolic names of the bundles of the loader, sorted.
 	[[nodiscard]] std::string codeCachePath() const;

@@ -25,8 +25,7 @@
 #include "Poco/AutoPtr.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API ExtensionPoint: public Poco::RefCountedObject
@@ -77,12 +76,12 @@ protected:
 	ExtensionPoint();
 		/// Creates the ExtensionPoint.
 
-	~ExtensionPoint();
+	~ExtensionPoint() override;
 		/// Destroys the ExtensionPoint.
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_ExtensionPoint_INCLUDED

@@ -24,22 +24,16 @@
 using Poco::OSP::BundleManifest;
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 InfoCommand::InfoCommand(Poco::OSP::BundleContext::Ptr pContext):
-	BundleActionCommand(pContext, "info"),
-	_dependencies(false),
-	_clients(false)
+	BundleActionCommand(pContext, "info")
 {
 }
 
 
-InfoCommand::~InfoCommand()
-{
-}
+InfoCommand::~InfoCommand() = default;
 
 
 int InfoCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr)
@@ -122,16 +116,16 @@ void InfoCommand::defineOptions(Poco::Util::OptionSet& options)
 }
 
 
-void InfoCommand::handleDependencies(const std::string& name, const std::string& value)
+void InfoCommand::handleDependencies(const std::string& /*name*/, const std::string& /*value*/)
 {
 	_dependencies = true;
 }
 
 
-void InfoCommand::handleClients(const std::string& name, const std::string& value)
+void InfoCommand::handleClients(const std::string& /*name*/, const std::string& /*value*/)
 {
 	_clients = true;
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

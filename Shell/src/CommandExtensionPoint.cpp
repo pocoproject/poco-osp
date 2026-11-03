@@ -39,9 +39,7 @@ using Poco::Delegate;
 using Poco::StringTokenizer;
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 namespace
@@ -69,7 +67,7 @@ namespace
 		LibraryCommand& operator = (const LibraryCommand&) = delete;
 		LibraryCommand& operator = (LibraryCommand&&) = delete;
 
-		int execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr) override
+		[[nodiscard]] int execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr) override
 		{
 			return _pCommand->execute(session, args, ostr);
 		}
@@ -150,7 +148,7 @@ CommandExtensionPoint::~CommandExtensionPoint()
 
 void CommandExtensionPoint::handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem)
 {
-	if (pExtensionElem)
+	if (pExtensionElem != nullptr)
 	{
 		const Poco::XML::XMLString& extPoint = pExtensionElem->getAttribute(ExtensionPointService::POINT_ATTR);
 		if (extPoint == EXTPOINT)
@@ -243,7 +241,7 @@ void CommandExtensionPoint::handleCommand(Bundle::ConstPtr pBundle, Poco::XML::E
 }
 
 
-void CommandExtensionPoint::onBundleStopped(const void* pSender, Poco::OSP::BundleEvent& ev)
+void CommandExtensionPoint::onBundleStopped(const void* /*pSender*/, Poco::OSP::BundleEvent& ev)
 {
 	FastMutex::ScopedLock lock(_mutex);
 
@@ -251,4 +249,4 @@ void CommandExtensionPoint::onBundleStopped(const void* pSender, Poco::OSP::Bund
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

@@ -25,9 +25,7 @@
 #include <utility>
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 class OSPWeb_API WebSessionStore: public Poco::OSP::Service
@@ -40,7 +38,8 @@ public:
 	virtual void saveSession(WebSession::Ptr pSession) = 0;
 		/// Saves the given session.
 
-	virtual std::pair<WebSession::Ptr, bool> loadSession(Poco::OSP::BundleContext::Ptr pContext, const std::string& id, Poco::Int64 version = 0) = 0;
+	[[nodiscard]] virtual std::pair<WebSession::Ptr, bool> loadSession(Poco::OSP::BundleContext::Ptr pContext,
+		const std::string& id, Poco::Int64 version = 0) = 0;
 		/// Loads the persisted session with the given ID, but
 		/// only if the stored version is greater than the given version.
 		///
@@ -80,21 +79,21 @@ public:
 	virtual Poco::Int64 clearValues(const std::string& sessionId) = 0;
 		/// Removes all values from the session.
 
-	virtual std::vector<std::string> sessionsByValue(const std::string& key, const Poco::Any& value) = 0;
+	[[nodiscard]] virtual std::vector<std::string> sessionsByValue(const std::string& key, const Poco::Any& value) = 0;
 		/// Returns a vector containing the session IDs of all sessions
 		/// having a value with the given key and value. Typically, this
 		/// is used to obtain all sessions for a given username.
 
-	virtual std::size_t countSessions() = 0;
+	[[nodiscard]] virtual std::size_t countSessions() = 0;
 		/// Returns the total number of sessions in the store.
 
 	// Service
-	const std::type_info& type() const;
-	bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 };
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web
 
 
 #endif // OSP_Web_WebSessionStore_INCLUDED

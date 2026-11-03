@@ -26,8 +26,7 @@
 #include "Poco/Glob.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class Properties;
@@ -40,12 +39,12 @@ public:
 	using Ptr = Poco::AutoPtr<QLExpr>;
 	using ConstPtr = const Ptr;
 
-	virtual bool evaluate(const Properties& props) const = 0;
+	[[nodiscard]] virtual bool evaluate(const Properties& props) const = 0;
 		/// Evaluates the expression on the given properties.
 
 protected:
 	QLExpr();
-	virtual ~QLExpr();
+	~QLExpr() override;
 };
 
 
@@ -53,9 +52,9 @@ class OSP_API QLAndExpr: public QLExpr
 {
 public:
 	QLAndExpr(QLExpr::Ptr pLeft, QLExpr::Ptr pRight);
-	~QLAndExpr();
+	~QLAndExpr() override;
 
-	bool evaluate(const Properties& props) const;
+	[[nodiscard]] bool evaluate(const Properties& props) const override;
 
 private:
 	QLExpr::Ptr _pLeft;
@@ -67,9 +66,9 @@ class OSP_API QLOrExpr: public QLExpr
 {
 public:
 	QLOrExpr(QLExpr::Ptr pLeft, QLExpr::Ptr pRight);
-	~QLOrExpr();
+	~QLOrExpr() override;
 
-	bool evaluate(const Properties& props) const;
+	[[nodiscard]] bool evaluate(const Properties& props) const override;
 
 private:
 	QLExpr::Ptr _pLeft;
@@ -81,9 +80,9 @@ class OSP_API QLNotExpr: public QLExpr
 {
 public:
 	QLNotExpr(QLExpr::Ptr pExpr);
-	~QLNotExpr();
+	~QLNotExpr() override;
 
-	bool evaluate(const Properties& props) const;
+	[[nodiscard]] bool evaluate(const Properties& props) const override;
 
 private:
 	QLExpr::Ptr _pExpr;
@@ -94,9 +93,9 @@ class OSP_API QLExistsExpr: public QLExpr
 {
 public:
 	QLExistsExpr(const std::string& prop);
-	~QLExistsExpr();
+	~QLExistsExpr() override;
 
-	bool evaluate(const Properties& props) const;
+	[[nodiscard]] bool evaluate(const Properties& props) const override;
 
 private:
 	std::string _prop;
@@ -106,10 +105,10 @@ private:
 class OSP_API QLRelExpr: public QLExpr
 {
 public:
-	bool evaluate(const Properties& props) const;
+	[[nodiscard]] bool evaluate(const Properties& props) const override;
 
 protected:
-	virtual bool evaluateImpl(const Properties& props) const = 0;
+	[[nodiscard]] virtual bool evaluateImpl(const Properties& props) const = 0;
 };
 
 
@@ -117,10 +116,10 @@ class OSP_API QLEqExpr: public QLRelExpr
 {
 public:
 	QLEqExpr(const std::string& prop, const Poco::Any& value);
-	~QLEqExpr();
+	~QLEqExpr() override;
 
 protected:
-	bool evaluateImpl(const Properties& props) const;
+	[[nodiscard]] bool evaluateImpl(const Properties& props) const override;
 
 private:
 	std::string _prop;
@@ -132,10 +131,10 @@ class OSP_API QLNeExpr: public QLRelExpr
 {
 public:
 	QLNeExpr(const std::string& prop, const Poco::Any& value);
-	~QLNeExpr();
+	~QLNeExpr() override;
 
 protected:
-	bool evaluateImpl(const Properties& props) const;
+	[[nodiscard]] bool evaluateImpl(const Properties& props) const override;
 
 private:
 	std::string _prop;
@@ -147,10 +146,10 @@ class OSP_API QLLtExpr: public QLRelExpr
 {
 public:
 	QLLtExpr(const std::string& prop, const Poco::Any& value);
-	~QLLtExpr();
+	~QLLtExpr() override;
 
 protected:
-	bool evaluateImpl(const Properties& props) const;
+	[[nodiscard]] bool evaluateImpl(const Properties& props) const override;
 
 private:
 	std::string _prop;
@@ -162,10 +161,10 @@ class OSP_API QLLeExpr: public QLRelExpr
 {
 public:
 	QLLeExpr(const std::string& prop, const Poco::Any& value);
-	~QLLeExpr();
+	~QLLeExpr() override;
 
 protected:
-	bool evaluateImpl(const Properties& props) const;
+	[[nodiscard]] bool evaluateImpl(const Properties& props) const override;
 
 private:
 	std::string _prop;
@@ -177,10 +176,10 @@ class OSP_API QLGtExpr: public QLRelExpr
 {
 public:
 	QLGtExpr(const std::string& prop, const Poco::Any& value);
-	~QLGtExpr();
+	~QLGtExpr() override;
 
 protected:
-	bool evaluateImpl(const Properties& props) const;
+	[[nodiscard]] bool evaluateImpl(const Properties& props) const override;
 
 private:
 	std::string _prop;
@@ -192,10 +191,10 @@ class OSP_API QLGeExpr: public QLRelExpr
 {
 public:
 	QLGeExpr(const std::string& prop, const Poco::Any& value);
-	~QLGeExpr();
+	~QLGeExpr() override;
 
 protected:
-	bool evaluateImpl(const Properties& props) const;
+	[[nodiscard]] bool evaluateImpl(const Properties& props) const override;
 
 private:
 	std::string _prop;
@@ -212,9 +211,9 @@ public:
 		/// Throws a Poco::SyntaxException if the pattern contains
 		/// more than MAX_WILDCARDS '*' characters.
 
-	~QLMatchExpr();
+	~QLMatchExpr() override;
 
-	bool evaluate(const Properties& props) const;
+	[[nodiscard]] bool evaluate(const Properties& props) const override;
 
 	static constexpr int MAX_WILDCARDS = 16;
 		/// The maximum number of '*' characters in a pattern.
@@ -230,9 +229,9 @@ class OSP_API QLMatchRegExpr: public QLExpr
 {
 public:
 	QLMatchRegExpr(const std::string& prop, const std::string& expr);
-	~QLMatchRegExpr();
+	~QLMatchRegExpr() override;
 
-	bool evaluate(const Properties& props) const;
+	[[nodiscard]] bool evaluate(const Properties& props) const override;
 
 private:
 	std::string _prop;
@@ -245,11 +244,11 @@ class OSP_API QLTrueExpr: public QLExpr
 public:
 	QLTrueExpr();
 
-	bool evaluate(const Properties& props) const;
+	[[nodiscard]] bool evaluate(const Properties& props) const override;
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_QLExpr_INCLUDED

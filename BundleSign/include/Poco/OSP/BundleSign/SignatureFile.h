@@ -27,9 +27,7 @@
 #include <map>
 
 
-namespace Poco {
-namespace OSP {
-namespace BundleSign {
+namespace Poco::OSP::BundleSign {
 
 
 class OSPBundleSign_API SignatureFile
@@ -61,6 +59,9 @@ class OSPBundleSign_API SignatureFile
 
 {
 public:
+	SignatureFile(const SignatureFile&) = delete;
+	SignatureFile& operator = (const SignatureFile&) = delete;
+
 	using Signatures = std::map<std::string, std::string>;
 
 	static constexpr std::size_t MAX_PATH_LENGTH = 4096;
@@ -118,22 +119,19 @@ public:
 		/// a bundle with the given number of files:
 		/// (fileCount + HEADER_ENTRIES) * MAX_ENTRY_LENGTH.
 
-	const std::string& version() const;
+	[[nodiscard]] const std::string& version() const;
 		/// Returns the signature file version.
 
-	const std::string& creator() const;
+	[[nodiscard]] const std::string& creator() const;
 		/// Returns the signature file creator.
 
-	const std::string& digestType() const;
+	[[nodiscard]] const std::string& digestType() const;
 		/// Returns the signature file digest type.
 
 protected:
 	static void readEntry(std::istream& istr, std::string& name, std::string& value);
 
 private:
-	SignatureFile(const SignatureFile&);
-	SignatureFile& operator = (const SignatureFile&);
-
 	static const std::string SIGNATURE_VERSION;
 	static const std::string CREATED_BY;
 	static const std::string NAME;
@@ -165,7 +163,7 @@ inline const std::string& SignatureFile::digestType() const
 }
 
 
-} } } // namespace Poco::OSP::BundleSign
+} // namespace Poco::OSP::BundleSign
 
 
 #endif // OSP_BundleSign_SignatureFile_INCLUDED

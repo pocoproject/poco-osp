@@ -15,18 +15,13 @@
 #include "Poco/OSP/ServiceFactory.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
-ServiceFactory::ServiceFactory()
-{
-}
+ServiceFactory::ServiceFactory() = default;
 
 
-ServiceFactory::~ServiceFactory()
-{
-}
+ServiceFactory::~ServiceFactory() = default;
 
 
 const std::type_info& ServiceFactory::type() const
@@ -42,4 +37,4 @@ bool ServiceFactory::isA(const std::type_info& otherType) const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

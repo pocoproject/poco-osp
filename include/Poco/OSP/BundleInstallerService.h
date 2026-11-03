@@ -24,8 +24,7 @@
 #include <istream>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class BundleRepository;
@@ -46,6 +45,8 @@ public:
 	BundleInstallerService(BundleRepository& repository);
 		/// Creates the BundleInstallerService, using
 		/// the given BundleRepository.
+
+	BundleInstallerService() = delete;
 
 	Bundle::Ptr installBundle(const std::string& uri);
 		/// Installs a bundle from the given URI.
@@ -79,21 +80,20 @@ public:
 	static const std::string SERVICE_NAME;
 
 	// Service
-	const std::type_info& type() const;
-	bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 protected:
-	~BundleInstallerService();
+	~BundleInstallerService() override;
 		/// Destroys the BundleInstallerService.
 
 private:
-	BundleInstallerService();
 
 	BundleRepository& _bundleRepository;
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleInstallerService_INCLUDED

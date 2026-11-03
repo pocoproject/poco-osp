@@ -29,8 +29,7 @@
 #include <istream>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class BundleLoader;
@@ -62,7 +61,7 @@ class OSP_API BundleRepository
 	/// to log non-fatal errors.
 {
 public:
-	BundleRepository(const std::string& path, BundleLoader& loader, BundleFilter::Ptr pBundleFilter = 0);
+	BundleRepository(const std::string& path, BundleLoader& loader, BundleFilter::Ptr pBundleFilter = nullptr);
 		/// Creates the BundleRepository, using the given
 		/// path and BundleLoader, and optional BundleFilter.
 		///
@@ -79,7 +78,8 @@ public:
 		///
 		/// Paths may contain Glob expressions (see Poco::Glob).
 
-	BundleRepository(const std::vector<std::string>& paths, BundleLoader& loader, BundleFilter::Ptr pBundleFilter = 0);
+	BundleRepository(const std::vector<std::string>& paths, BundleLoader& loader,
+		BundleFilter::Ptr pBundleFilter = nullptr);
 		/// Creates the BundleRepository, using the given
 		/// paths and BundleLoader, and optional BundleFilter.
 		///
@@ -97,6 +97,10 @@ public:
 
 	~BundleRepository();
 		/// Destroys the BundleRepository.
+
+	BundleRepository() = delete;
+	BundleRepository(const BundleRepository&) = delete;
+	BundleRepository& operator = (const BundleRepository&) = delete;
 
 	void loadBundles();
 		/// Loads all available bundles, using the BundleLoader.
@@ -189,7 +193,7 @@ public:
 		/// Returns the newly installed bundle, which will
 		/// be in INSTALLED state.
 
-	const std::vector<std::string>& paths() const;
+	[[nodiscard]] const std::vector<std::string>& paths() const;
 		/// Returns a vector containing all configured repository paths.
 
 	static const std::string TEMP_BUNDLE_EXTENSION;
@@ -261,9 +265,6 @@ protected:
 		/// logged.
 
 private:
-	BundleRepository();
-	BundleRepository(const BundleRepository&);
-	BundleRepository& operator = (const BundleRepository&);
 
 	std::vector<std::string> _paths;
 	BundleLoader&            _loader;
@@ -286,7 +287,7 @@ inline const std::vector<std::string>& BundleRepository::paths() const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleRepository_INCLUDED

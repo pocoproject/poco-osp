@@ -28,7 +28,7 @@ class GreetingService: public Poco::OSP::Service
 public:
 	using Ptr = Poco::AutoPtr<GreetingService>;
 
-	virtual std::string greeting() = 0;
+	[[nodiscard]] virtual std::string greeting() = 0;
 		/// Return a greeting in the user's language, if the
 		/// language is known, or in English otherwise.
 };

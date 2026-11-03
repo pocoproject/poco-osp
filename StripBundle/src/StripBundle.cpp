@@ -27,26 +27,22 @@ using Poco::Util::HelpFormatter;
 using Poco::Util::OptionCallback;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class StripBundle: public Application
 {
 public:
-	StripBundle():
-		_showHelp(false)
-	{
-	}
+	StripBundle() = default;
 
 protected:
-	void initialize(Application& self)
+	void initialize(Application& self) override
 	{
 		loadConfiguration(); // load default configuration files, if present
 		Application::initialize(self);
 	}
 
-	void defineOptions(OptionSet& options)
+	void defineOptions(OptionSet& options) override
 	{
 		Application::defineOptions(options);
 
@@ -57,7 +53,7 @@ protected:
 				.callback(OptionCallback<StripBundle>(this, &StripBundle::handleHelp)));
 	}
 
-	void handleHelp(const std::string& name, const std::string& value)
+	void handleHelp(const std::string& /*name*/, const std::string& /*value*/)
 	{
 		_showHelp = true;
 		stopOptionsProcessing();
@@ -126,7 +122,7 @@ protected:
 		manip.commit();
 	}
 
-	int main(const std::vector<std::string>& args)
+	int main(const std::vector<std::string>& args) override
 	{
 		if (_showHelp || args.empty())
 		{
@@ -151,11 +147,11 @@ protected:
 	}
 
 private:
-	bool _showHelp;
+	bool _showHelp = false;
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 POCO_APP_MAIN(Poco::OSP::StripBundle)

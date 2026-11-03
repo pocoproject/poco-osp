@@ -31,9 +31,7 @@
 #include <string>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 inline constexpr std::size_t MAX_COMMAND_LINE_LENGTH = 4096;
@@ -125,7 +123,7 @@ inline void logIdleSessionClosed(const ShellConnection::Config& config, const Po
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_ShellConnectionSupport_INCLUDED

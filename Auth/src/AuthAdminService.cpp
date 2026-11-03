@@ -17,9 +17,7 @@
 #include "Poco/OSP/Auth/AuthAdminService.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
 const std::string AuthAdminService::SERVICE_NAME("osp.auth"s);
@@ -41,4 +39,4 @@ bool AuthAdminService::isA(const std::type_info& otherType) const
 }
 
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth

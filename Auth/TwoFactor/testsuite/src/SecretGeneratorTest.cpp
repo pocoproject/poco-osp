@@ -27,9 +27,7 @@ SecretGeneratorTest::SecretGeneratorTest(const std::string& name): CppUnit::Test
 }
 
 
-SecretGeneratorTest::~SecretGeneratorTest()
-{
-}
+SecretGeneratorTest::~SecretGeneratorTest() = default;
 
 
 void SecretGeneratorTest::testGenerate()

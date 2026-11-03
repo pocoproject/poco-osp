@@ -26,9 +26,7 @@ using Poco::OSP::ServiceRef;
 using Poco::OSP::BundleInstallerService;
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 InstallCommand::InstallCommand(Poco::OSP::BundleContext::Ptr pContext):
@@ -37,12 +35,10 @@ InstallCommand::InstallCommand(Poco::OSP::BundleContext::Ptr pContext):
 }
 
 
-InstallCommand::~InstallCommand()
-{
-}
+InstallCommand::~InstallCommand() = default;
 
 
-int InstallCommand::executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr)
+int InstallCommand::executeImpl(Session& /*session*/, const std::vector<std::string>& args, std::ostream& ostr)
 {
 	if (args.empty())
 	{
@@ -51,7 +47,7 @@ int InstallCommand::executeImpl(Session& session, const std::vector<std::string>
 	}
 	
 	ServiceRef::Ptr pInstallerRef = context()->registry().findByName(BundleInstallerService::SERVICE_NAME);
-	if (pInstallerRef)
+	if (pInstallerRef != nullptr)
 	{
 		Poco::AutoPtr<BundleInstallerService> pInstaller = pInstallerRef->castedInstance<BundleInstallerService>();
 	
@@ -80,4 +76,4 @@ int InstallCommand::executeImpl(Session& session, const std::vector<std::string>
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

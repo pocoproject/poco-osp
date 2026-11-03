@@ -58,9 +58,7 @@ BundleSignerTest::BundleSignerTest(const std::string& name): CppUnit::TestCase(n
 }
 
 
-BundleSignerTest::~BundleSignerTest()
-{
-}
+BundleSignerTest::~BundleSignerTest() = default;
 
 
 void BundleSignerTest::testSignFile()
@@ -126,7 +124,7 @@ void BundleSignerTest::testSignDirectory()
 		rsa += static_cast<char>(ch);
 		ch = rsaStream->get();
 	}
-	rsaStream = 0;
+	rsaStream = nullptr;
 	
 	assert (rsa == SIGNER_RSA_SHA256);
 }
@@ -154,7 +152,7 @@ void BundleSignerTest::testSignDirectoryCert()
 		rsa += static_cast<char>(ch);
 		ch = rsaStream->get();
 	}
-	rsaStream = 0;
+	rsaStream = nullptr;
 
 	std::ostringstream expected;
 	expected << SIGNER_RSA_SHA256 << "X509-Certificate: OSP Test Signer\n";

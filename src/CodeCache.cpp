@@ -30,8 +30,7 @@ using Poco::StreamCopier;
 using Poco::Timestamp;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 CodeCache::CodeCache(const std::string& path, bool shared):
@@ -44,9 +43,7 @@ CodeCache::CodeCache(const std::string& path, bool shared):
 }
 
 
-CodeCache::~CodeCache()
-{
-}
+CodeCache::~CodeCache() = default;
 
 
 bool CodeCache::hasLibrary(const std::string& name)
@@ -136,13 +133,13 @@ void CodeCache::clear()
 
 void CodeCache::lock()
 {
-	if (_pMutex) _pMutex->lock();
+	if (_pMutex != nullptr) _pMutex->lock();
 }
 
 
 void CodeCache::unlock()
 {
-	if (_pMutex) _pMutex->unlock();
+	if (_pMutex != nullptr) _pMutex->unlock();
 }
 
 
@@ -161,4 +158,4 @@ std::string CodeCache::mutexName(const std::string& path)
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

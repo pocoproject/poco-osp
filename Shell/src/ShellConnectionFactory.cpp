@@ -18,9 +18,7 @@
 #include "Poco/OSP/Shell/ShellConnection.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 ShellConnectionFactory::ShellConnectionFactory(const ShellConnection::Config& config, SessionTracker& sessions):
@@ -30,9 +28,7 @@ ShellConnectionFactory::ShellConnectionFactory(const ShellConnection::Config& co
 }
 
 
-ShellConnectionFactory::~ShellConnectionFactory()
-{
-}
+ShellConnectionFactory::~ShellConnectionFactory() = default;
 
 
 Poco::Net::TCPServerConnection* ShellConnectionFactory::createConnection(const Poco::Net::StreamSocket& s)
@@ -41,4 +37,4 @@ Poco::Net::TCPServerConnection* ShellConnectionFactory::createConnection(const P
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

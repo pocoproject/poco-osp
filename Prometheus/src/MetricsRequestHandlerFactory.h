@@ -21,9 +21,7 @@
 #include <string>
 
 
-namespace Poco {
-namespace OSP {
-namespace Prometheus {
+namespace Poco::OSP::Prometheus {
 
 
 class MetricsRequestHandlerFactory: public Poco::Net::HTTPRequestHandlerFactory
@@ -71,7 +69,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Prometheus
+} // namespace Poco::OSP::Prometheus
 
 
 #endif // OSP_Prometheus_MetricsRequestHandlerFactory_INCLUDED

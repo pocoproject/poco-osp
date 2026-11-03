@@ -72,7 +72,11 @@ using namespace std::string_literals;
 class FileLock
 {
 public:
-	FileLock(const std::string& path):
+	FileLock() = delete;
+	FileLock(const FileLock&) = delete;
+	FileLock& operator = (const FileLock&) = delete;
+
+	POCO_NODISCARD_CTOR FileLock(const std::string& path):
 		_file(path + ".lock")
 	{
 		acquire();
@@ -110,7 +114,7 @@ protected:
 		_file.remove();
 	}
 
-	bool createFile()
+	[[nodiscard]] bool createFile()
 	{
 		try
 		{
@@ -123,10 +127,6 @@ protected:
 	}
 
 private:
-	FileLock();
-	FileLock(const FileLock&);
-	FileLock& operator = (const FileLock&);
-
 	File _file;
 };
 
@@ -137,12 +137,7 @@ public:
 	BundleCreatorApplication():
 		_osName(Poco::Environment::osName()),
 		_osArch(Poco::Environment::osArchitecture()),
-		_showHelp(false),
 		_outputDir(Path::current()),
-		_keep(false),
-		_noDeflate(false),
-		_noFile(false),
-		_symlinks(false),
 		_defaultVersion("1.0.0"s),
 		_strip(Poco::Environment::get("BUNDLE_STRIP"s, ""s))
 	{
@@ -151,13 +146,13 @@ public:
 	}
 
 protected:
-	void initialize(Application& self)
+	void initialize(Application& self) override
 	{
 		loadConfiguration(); // load default configuration files, if present
 		Application::initialize(self);
 	}
 
-	void defineOptions(OptionSet& options)
+	void defineOptions(OptionSet& options) override
 	{
 		Application::defineOptions(options);
 
@@ -260,41 +255,41 @@ protected:
 				.callback(OptionCallback<BundleCreatorApplication>(this, &BundleCreatorApplication::handleSymlinks)));
 	}
 
-	void handleHelp(const std::string& name, const std::string& value)
+	void handleHelp(const std::string& /*name*/, const std::string& /*value*/)
 	{
 		_showHelp = true;
 		stopOptionsProcessing();
 	}
 
-	void handleOutput(const std::string& name, const std::string& value)
+	void handleOutput(const std::string& /*name*/, const std::string& value)
 	{
 		_outputDir = value;
 	}
 
-	void handleKeep(const std::string& name, const std::string& value)
+	void handleKeep(const std::string& /*name*/, const std::string& /*value*/)
 	{
 		_keep = true;
 	}
 
-	void handleBundleDir(const std::string& name, const std::string& value)
+	void handleBundleDir(const std::string& /*name*/, const std::string& /*value*/)
 	{
 		_keep = true;
 		_noFile = true;
 	}
 
-	void handleOSName(const std::string& name, const std::string& value)
+	void handleOSName(const std::string& /*name*/, const std::string& value)
 	{
 		_osName = value;
 		makeValidFileName(_osName);
 	}
 
-	void handleOSArch(const std::string& name, const std::string& value)
+	void handleOSArch(const std::string& /*name*/, const std::string& value)
 	{
 		_osArch = value;
 		makeValidFileName(_osArch);
 	}
 
-	void handleNoDeflate(const std::string& name, const std::string& value)
+	void handleNoDeflate(const std::string& /*name*/, const std::string& value)
 	{
 		if (value.empty())
 		{
@@ -307,17 +302,17 @@ protected:
 		}
 	}
 
-	void handleVersion(const std::string& name, const std::string& value)
+	void handleVersion(const std::string& /*name*/, const std::string& value)
 	{
 		_defaultVersion = value;
 	}
 
-	void handleDefine(const std::string& name, const std::string& value)
+	void handleDefine(const std::string& /*name*/, const std::string& value)
 	{
 		defineProperty(value);
 	}
 
-	void handleCode(const std::string& name, const std::string& value)
+	void handleCode(const std::string& /*name*/, const std::string& value)
 	{
 		if (_code.empty())
 		{
@@ -330,12 +325,12 @@ protected:
 		}
 	}
 
-	void handleStrip(const std::string& name, const std::string& value)
+	void handleStrip(const std::string& /*name*/, const std::string& value)
 	{
 		_strip = value;
 	}
 
-	void handleSymlinks(const std::string& name, const std::string& value)
+	void handleSymlinks(const std::string& /*name*/, const std::string& /*value*/)
 	{
 #ifdef POCO_OS_FAMILY_WINDOWS
 		throw Poco::NotImplementedException("The --symlinks option is not supported on Windows"s);
@@ -382,7 +377,7 @@ protected:
 		helpFormatter.format(std::cout);
 	}
 
-	int main(const std::vector<std::string>& args)
+	int main(const std::vector<std::string>& args) override
 	{
 		if (_showHelp || args.empty())
 		{
@@ -1021,12 +1016,12 @@ private:
 private:
 	std::string _osName;
 	std::string _osArch;
-	bool _showHelp;
+	bool _showHelp = false;
 	std::string _outputDir;
-	bool _keep;
-	bool _noDeflate;
-	bool _noFile;
-	bool _symlinks;
+	bool _keep = false;
+	bool _noDeflate = false;
+	bool _noFile = false;
+	bool _symlinks = false;
 	Poco::AutoPtr<XMLConfiguration> _ptrCfg;
 	std::set<std::string> _storeExtensions;
 	std::string _defaultVersion;

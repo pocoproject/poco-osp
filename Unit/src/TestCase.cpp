@@ -17,9 +17,7 @@
 #include "Poco/OSP/Unit/TestCase.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Unit {
+namespace Poco::OSP::Unit {
 
 
 Poco::OSP::BundleContext::Ptr TestCase::_pContext;
@@ -31,9 +29,7 @@ TestCase::TestCase(const std::string& name):
 }
 
 	
-TestCase::~TestCase()
-{
-}
+TestCase::~TestCase() = default;
 
 
 Poco::OSP::BundleContext::Ptr TestCase::context()
@@ -48,4 +44,4 @@ void TestCase::resetContext(Poco::OSP::BundleContext::Ptr pContext)
 }
 
 
-} } } // namespace Poco::OSP::Unit
+} // namespace Poco::OSP::Unit

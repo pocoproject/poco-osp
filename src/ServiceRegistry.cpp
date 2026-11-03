@@ -25,8 +25,7 @@ using Poco::Logger;
 using Poco::FastMutex;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 const std::string ServiceRegistry::PROP_NAME("name");
@@ -40,9 +39,7 @@ ServiceRegistry::ServiceRegistry():
 }
 
 
-ServiceRegistry::~ServiceRegistry()
-{
-}
+ServiceRegistry::~ServiceRegistry() = default;
 
 
 ServiceRef::Ptr ServiceRegistry::registerService(const std::string& name, Service::Ptr pService, const Properties& props)
@@ -101,7 +98,7 @@ void ServiceRegistry::removeService(const std::string& name, const ServiceRef* p
 
 void ServiceRegistry::unregisterService(ServiceRef::Ptr pServiceRef)
 {
-	if (pServiceRef)
+	if (pServiceRef != nullptr)
 	{
 		removeService(pServiceRef->name(), pServiceRef.get());
 	}
@@ -157,4 +154,4 @@ ServiceRegistry::ServiceMap ServiceRegistry::services() const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

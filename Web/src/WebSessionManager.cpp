@@ -40,9 +40,7 @@ using Poco::NumberFormatter;
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 const std::string WebSessionManager::COOKIE_NAME("osp.web.session");
@@ -51,12 +49,7 @@ const std::string WebSessionManager::SERVICE_NAME("osp.web.session");
 
 WebSessionManager::WebSessionManager(Poco::OSP::BundleContext::Ptr pContext):
 	_pContext(pContext),
-	_serial(0),
 	_pSessionRegistry(std::make_shared<WebSessionRegistry>()),
-	_cookiePersistence(COOKIE_PERSISTENT),
-	_cookieSecure(false),
-	_verifyAddress(true),
-	_cookieSameSite(Poco::Net::HTTPCookie::SAME_SITE_NOT_SPECIFIED),
 	_logger(Poco::Logger::get("osp.web.session"))
 {
 	_pContext->events().bundleStopping += Poco::delegate(this, &WebSessionManager::onBundleStopping);
@@ -207,7 +200,7 @@ std::size_t WebSessionManager::countSessions()
 {
 	FastMutex::ScopedLock lock(_mutex);
 
-	if (_pStore)
+	if (_pStore != nullptr)
 	{
 		return _pStore->countSessions();
 	}
@@ -280,7 +273,7 @@ WebSession::Ptr WebSessionManager::get(const std::string& appName, const Poco::N
 	FastMutex::ScopedLock lock(_mutex);
 
 	WebSession::Ptr pSession = findImpl(appName, request, pContext);
-	if (!pSession)
+	if (pSession == nullptr)
 	{
 		_logger.debug("No existing session, creating new one."s);
 		pSession = createImpl(appName, request, expireSeconds, pContext);
@@ -311,7 +304,7 @@ void WebSessionManager::removeForUser(const std::string& username)
 
 	std::vector<std::string> sessionsToRemove;
 
-	if (_pStore)
+	if (_pStore != nullptr)
 	{
 		sessionsToRemove = _pStore->sessionsByValue("username"s, username);
 	}
@@ -375,7 +368,7 @@ WebSession::Ptr WebSessionManager::findImpl(const std::string& appName, const Po
 	{
 		_logger.debug("No session cookie found in request."s);
 	}
-	if (pSession)
+	if (pSession != nullptr)
 	{
 		if (_logger.debug())
 		{
@@ -395,7 +388,7 @@ WebSession::Ptr WebSessionManager::findImpl(const std::string& appName, const Po
 
 			// possible attack: same session ID from different host - invalidate session
 			removeImpl(pSession);
-			return 0;
+			return nullptr;
 		}
 	}
 	return pSession;
@@ -405,20 +398,20 @@ WebSession::Ptr WebSessionManager::findImpl(const std::string& appName, const Po
 WebSession::Ptr WebSessionManager::findByIdImpl(const std::string& sessionId, BundleContext::Ptr pContext)
 {
 	WebSession::Ptr pSession = _cache.get(sessionId);
-	if (_logger.debug() && pSession)
+	if (_logger.debug() && pSession != nullptr)
 	{
 		_logger.debug("Session %s found in cache."s, sessionId);
 	}
-	if (_pStore)
+	if (_pStore != nullptr)
 	{
 		if (_logger.debug())
 		{
 			_logger.debug("Looking up session %s in session store..."s, sessionId);
 		}
-		if (pSession)
+		if (pSession != nullptr)
 		{
 			std::pair<WebSession::Ptr, bool> result = _pStore->loadSession(pContext, sessionId, pSession->version());
-			if (result.first && result.second)
+			if (result.first != nullptr && result.second)
 				pSession = result.first;
 			else if (!result.second)
 				pSession.reset();
@@ -441,7 +434,7 @@ WebSession::Ptr WebSessionManager::createImpl(const std::string& appName, const 
 	_cache.add(pSession->id(), pSession);
 	addSessionCookie(appName, request, pSession);
 	addCSRFCookie(appName, request, pSession);
-	if (_pStore)
+	if (_pStore != nullptr)
 	{
 		_pStore->saveSession(pSession);
 	}
@@ -466,7 +459,7 @@ void WebSessionManager::removeImpl(const std::string& id)
 		_logger.debug("Removing session %s."s, id);
 	}
 	_cache.remove(id);
-	if (_pStore)
+	if (_pStore != nullptr)
 	{
 		_pStore->expireSession(id, 0);
 	}
@@ -601,4 +594,4 @@ std::string WebSessionManager::cookiePath(const std::string& appName)
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web

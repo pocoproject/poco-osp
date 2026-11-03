@@ -26,8 +26,7 @@
 #include "Poco/SharedPtr.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API CodeCache
@@ -66,13 +65,17 @@ public:
 	~CodeCache();
 		/// Destroys the CodeCache.
 
-	bool hasLibrary(const std::string& name);
+	CodeCache() = delete;
+	CodeCache(const CodeCache&) = delete;
+	CodeCache& operator = (const CodeCache&) = delete;
+
+	[[nodiscard]] bool hasLibrary(const std::string& name);
 		/// Returns true if a library with the given name
 		/// is stored in the code cache.
 		///
 		/// The name must not contain an filename extension.
 
-	Poco::Timestamp libraryTimestamp(const std::string& name);
+	[[nodiscard]] Poco::Timestamp libraryTimestamp(const std::string& name);
 		/// Returns library last modification timestamp.
 		///
 		/// The name must not contain an filename extension.
@@ -99,7 +102,7 @@ public:
 		/// cannot be used as a file name (see
 		/// BundleManifest::isValidFileName()).
 
-	std::string pathFor(const std::string& name, bool appendSuffix = true);
+	[[nodiscard]] std::string pathFor(const std::string& name, bool appendSuffix = true);
 		/// Returns the full path for the library with the given name.
 		/// If appendSuffix is true (default), appends the appropriate suffix
 		/// for debug version and OS dynamic library extension.
@@ -119,19 +122,16 @@ public:
 		/// Does nothing if the codeCache is not shared.
 
 protected:
-	static std::string mutexName(const std::string& path);
+	[[nodiscard]] static std::string mutexName(const std::string& path);
 
 private:
-	CodeCache();
-	CodeCache(const CodeCache&);
-	CodeCache& operator = (const CodeCache&);
 
 	Poco::Path _path;
 	Poco::SharedPtr<Poco::NamedMutex> _pMutex;
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_CodeCache_INCLUDED

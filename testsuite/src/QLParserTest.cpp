@@ -52,9 +52,7 @@ QLParserTest::QLParserTest(const std::string& name): CppUnit::TestCase(name)
 }
 
 
-QLParserTest::~QLParserTest()
-{
-}
+QLParserTest::~QLParserTest() = default;
 
 
 void QLParserTest::testPropertyPresence()

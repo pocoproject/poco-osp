@@ -32,9 +32,7 @@ BundleDirectoryTest::BundleDirectoryTest(const std::string& name): CppUnit::Test
 }
 
 
-BundleDirectoryTest::~BundleDirectoryTest()
-{
-}
+BundleDirectoryTest::~BundleDirectoryTest() = default;
 
 
 void BundleDirectoryTest::testGetResourceOpensFile()
@@ -43,12 +41,12 @@ void BundleDirectoryTest::testGetResourceOpensFile()
 	BundleStorage::Ptr pBD(new BundleDirectory(_bundlePath));
 
 	std::unique_ptr<std::istream> istr1(pBD->getResource("META-INF/manifest.mf"));
-	assert (istr1.get() != 0);
+	assert (istr1 != nullptr);
 	std::getline(*istr1, s);
 	assert (s == "Manifest-Version: 1.0");
 
 	std::unique_ptr<std::istream> istr2(pBD->getResource("bundle.properties"));
-	assert (istr2.get() != 0);
+	assert (istr2 != nullptr);
 	std::getline(*istr2, s);
 	assert (s == "foo: bar");
 

@@ -15,8 +15,7 @@
 #include "Poco/OSP/ServiceEvent.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 ServiceEvent::ServiceEvent(ServiceRef::Ptr pService, EventKind what):
@@ -26,16 +25,10 @@ ServiceEvent::ServiceEvent(ServiceRef::Ptr pService, EventKind what):
 }
 
 
-ServiceEvent::ServiceEvent(const ServiceEvent& event):
-	_pService(event._pService),
-	_what(event._what)
-{
-}
+ServiceEvent::ServiceEvent(const ServiceEvent& event) = default;
 
 
-ServiceEvent::~ServiceEvent()
-{
-}
+ServiceEvent::~ServiceEvent() = default;
 
 	
 ServiceEvent& ServiceEvent::operator = (const ServiceEvent& event)
@@ -49,4 +42,4 @@ ServiceEvent& ServiceEvent::operator = (const ServiceEvent& event)
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

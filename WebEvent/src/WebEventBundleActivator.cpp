@@ -32,24 +32,23 @@ using Poco::OSP::Properties;
 using Poco::AutoPtr;
 
 
-namespace Poco {
-namespace OSP {
-namespace WebEvent {
+namespace Poco::OSP::WebEvent {
 
 
 class WebEventRequestHandlerFactory: public WebRequestHandlerFactory
 {
 public:
-	Poco::Net::HTTPRequestHandler* createRequestHandler(const Poco::Net::HTTPServerRequest& request)
+	[[nodiscard]] Poco::Net::HTTPRequestHandler* createRequestHandler(
+		const Poco::Net::HTTPServerRequest& /*request*/) override
 	{
 		return new WebEventRequestHandler(_pWebEventServiceImpl, _pAllowedOrigins);
 	}
 	
 protected:
-	void initImpl()
+	void initImpl() override
 	{
 		ServiceRef::Ptr pWebEventServiceRef = context()->registry().findByName(WebEventService::SERVICE_NAME);
-		if (pWebEventServiceRef)
+		if (pWebEventServiceRef != nullptr)
 		{
 			 _pWebEventServiceImpl = pWebEventServiceRef->castedInstance<WebEventServiceImpl>();
 		}
@@ -69,15 +68,11 @@ class WebEventBundleActivator: public BundleActivator
 	/// Registers the WebEventService.
 {
 public:
-	WebEventBundleActivator()
-	{
-	}
+	WebEventBundleActivator() = default;
 	
-	~WebEventBundleActivator()
-	{
-	}
+	~WebEventBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		Poco::OSP::PreferencesService::Ptr pPrefs = Poco::OSP::ServiceFinder::find<Poco::OSP::PreferencesService>(pContext);
 
@@ -93,7 +88,7 @@ public:
 		_pWebEventServiceRef = pContext->registry().registerService(WebEventService::SERVICE_NAME, _pWebEventService, Properties());
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr pContext) override
 	{
 		pContext->registry().unregisterService(_pWebEventServiceRef);
 		_pWebEventServiceRef.reset();
@@ -109,7 +104,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::WebEvent
+} // namespace Poco::OSP::WebEvent
 
 
 POCO_BEGIN_MANIFEST(BundleActivator)

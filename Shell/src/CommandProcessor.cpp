@@ -24,9 +24,7 @@
 using Poco::FastMutex;
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 CommandProcessor::CommandProcessor(Poco::OSP::BundleContext::Ptr pContext):
@@ -35,9 +33,7 @@ CommandProcessor::CommandProcessor(Poco::OSP::BundleContext::Ptr pContext):
 }
 
 
-CommandProcessor::~CommandProcessor()
-{
-}
+CommandProcessor::~CommandProcessor() = default;
 
 
 int CommandProcessor::execute(Session& session, const std::string& commandLine, std::ostream& ostr)
@@ -59,7 +55,7 @@ int CommandProcessor::execute(Session& session, const std::string& commandLine, 
 			if (!session.authenticated()) return Command::STATUS_DENIED;
 			throw;
 		}
-		if (pCommand)
+		if (pCommand != nullptr)
 			return pCommand->execute(session, items, ostr);
 		else
 			return Command::STATUS_DENIED;
@@ -172,7 +168,7 @@ Command* CommandProcessor::createCommand(const Session& session, const std::stri
 		if (it->second.permission.empty() || session.authorize(it->second.permission))
 			return it->second.pFactory->createCommand();
 		else
-			return 0;
+			return nullptr;
 	}
 	else throw Poco::NotFoundException(command);
 }
@@ -237,4 +233,4 @@ void CommandProcessor::parseCommandLine(const std::string& commandLine, std::vec
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

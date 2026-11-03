@@ -18,9 +18,7 @@
 #include "Poco/NumberFormatter.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 BundleActionCommand::BundleActionCommand(Poco::OSP::BundleContext::Ptr pContext, const std::string& command):
@@ -29,12 +27,10 @@ BundleActionCommand::BundleActionCommand(Poco::OSP::BundleContext::Ptr pContext,
 }
 
 
-BundleActionCommand::~BundleActionCommand()
-{
-}
+BundleActionCommand::~BundleActionCommand() = default;
 
 
-int BundleActionCommand::executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr)
+int BundleActionCommand::executeImpl(Session& /*session*/, const std::vector<std::string>& args, std::ostream& ostr)
 {
 	if (args.empty())
 	{
@@ -44,7 +40,7 @@ int BundleActionCommand::executeImpl(Session& session, const std::vector<std::st
 	for (std::vector<std::string>::const_iterator it = args.begin(); it != args.end(); ++it)
 	{
 		Poco::OSP::Bundle::Ptr pBundle = findBundle(*it);
-		if (pBundle)
+		if (pBundle != nullptr)
 		{
 			const int status = doAction(pBundle, ostr);
 			if (status != Command::STATUS_OK) return status;
@@ -59,4 +55,4 @@ int BundleActionCommand::executeImpl(Session& session, const std::vector<std::st
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

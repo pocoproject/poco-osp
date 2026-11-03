@@ -59,7 +59,7 @@ bool TestAuthService::authorize(const std::string& userName, const std::string& 
 }
 
 
-bool TestAuthService::authorize(const std::string& userName, const std::string& roleOrScope,
+bool TestAuthService::authorize(const std::string& userName, const std::string& /*roleOrScope*/,
 	const std::string& permission) const
 {
 	return authorize(userName, permission);

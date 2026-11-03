@@ -27,9 +27,7 @@
 #include <string>
 
 
-namespace Poco {
-namespace OSP {
-namespace WebEvent {
+namespace Poco::OSP::WebEvent {
 
 
 class OSPWebEvent_API WebEventRequestHandler: public Poco::Net::HTTPRequestHandler
@@ -59,15 +57,15 @@ public:
 		/// Returns the origins of a comma-separated list, trimmed and in
 		/// lower case, as the value of osp.web.event.allowedOrigins is given.
 		
-	~WebEventRequestHandler();
+	~WebEventRequestHandler() override;
 		/// Destroys the WebEventRequestHandler.
 		
-	void handleRequest(Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response);
+	void handleRequest(Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response) override;
 		/// Checks the upgrade request, upgrades the connection and hands
 		/// it over to the WebEventServiceImpl.
 
 private:
-	static std::string resolvePage(const Poco::Net::HTTPServerRequest& request);
+	[[nodiscard]] static std::string resolvePage(const Poco::Net::HTTPServerRequest& request);
 		/// Returns the URL of the document that opened the connection: the
 		/// "page" query parameter of the upgrade request if present (browsers
 		/// send no Referer on WebSocket upgrades), the Referer header otherwise.
@@ -81,7 +79,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::WebEvent
+} // namespace Poco::OSP::WebEvent
 
 
 #endif // OSP_WebEvent_WebEventRequestHandler_INCLUDED

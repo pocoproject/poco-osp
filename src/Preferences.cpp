@@ -24,8 +24,7 @@
 using Poco::FastMutex;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 Preferences::Preferences(const std::string& path):
@@ -154,4 +153,4 @@ void Preferences::removeRaw(const std::string& key)
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

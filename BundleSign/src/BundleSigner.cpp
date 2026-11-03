@@ -31,9 +31,7 @@
 #include <vector>
 
 
-namespace Poco {
-namespace OSP {
-namespace BundleSign {
+namespace Poco::OSP::BundleSign {
 
 
 const std::string BundleSigner::SHA1("SHA1");
@@ -70,14 +68,12 @@ BundleSigner::BundleSigner(const std::string& signer, const Poco::Crypto::RSAKey
 }
 
 	
-BundleSigner::~BundleSigner()
-{
-}
+BundleSigner::~BundleSigner() = default;
 
 
 void BundleSigner::signBundle(const std::string& bundlePath)
 {
-	signBundle(bundlePath, 0);
+	signBundle(bundlePath, nullptr);
 }
 
 
@@ -131,7 +127,7 @@ void BundleSigner::writeDSAFile(std::ostream& ostr, const std::string& rsaSignat
 	signatures[sfPath] = rsaSignature;	
 	SignatureFile rsa(SIGNATURE_VERSION, CREATOR, Poco::format("RSA-%s-Signature", _digestAlgorithm));
 	rsa.write(signatures, ostr);
-	if (pCert)
+	if (pCert != nullptr)
 	{
 		ostr << "X509-Certificate: " << pCert->commonName() << "\n";
 		pCert->save(ostr);
@@ -176,4 +172,4 @@ void BundleSigner::signBundleDirectory(const std::string& bundlePath, const std:
 }
 
 
-} } } // namespace Poco::OSP::BundleSign
+} // namespace Poco::OSP::BundleSign

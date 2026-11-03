@@ -43,21 +43,14 @@ class BundleSignerApp: public Application
 {
 public:
 	BundleSignerApp():
-		_showHelp(false),
-		_digestType("SHA256"),
-		_verify(false),
-		_allowSHA1(false),
-		_signers(false),
-		_result(Application::EXIT_OK)
+		_digestType("SHA256")
 	{
 	}
 
-	~BundleSignerApp()
-	{
-	}
+	~BundleSignerApp() override = default;
 
 protected:
-	void defineOptions(OptionSet& options)
+	void defineOptions(OptionSet& options) override
 	{
 		Application::defineOptions(options);
 
@@ -142,60 +135,60 @@ protected:
 				.callback(OptionCallback<BundleSignerApp>(this, &BundleSignerApp::handleSigners)));
 	}
 
-	void handleHelp(const std::string& name, const std::string& value)
+	void handleHelp(const std::string& /*name*/, const std::string& /*value*/)
 	{
 		_showHelp = true;
 		stopOptionsProcessing();
 	}
 
-	void handleAlias(const std::string& name, const std::string& value)
+	void handleAlias(const std::string& /*name*/, const std::string& value)
 	{
 		_alias = value;
 	}
 
-	void handleCertificate(const std::string& name, const std::string& value)
+	void handleCertificate(const std::string& /*name*/, const std::string& value)
 	{
 		_certificatePath = value;
 	}
 
-	void handleCAFile(const std::string& name, const std::string& value)
+	void handleCAFile(const std::string& /*name*/, const std::string& value)
 	{
 		_caFilePath = value;
 	}
 
-	void handleKey(const std::string& name, const std::string& value)
+	void handleKey(const std::string& /*name*/, const std::string& value)
 	{
 		_keyPath = value;
 	}
 
-	void handlePassphrase(const std::string& name, const std::string& value)
+	void handlePassphrase(const std::string& /*name*/, const std::string& value)
 	{
 		_passphrase = value;
 	}
 
-	void handlePassphraseFile(const std::string& name, const std::string& value)
+	void handlePassphraseFile(const std::string& /*name*/, const std::string& value)
 	{
 		Poco::FileInputStream istr(value);
 		std::getline(istr, _passphrase);
 		if (!_passphrase.empty() && _passphrase.back() == '\r') _passphrase.pop_back();
 	}
 
-	void handleDigestType(const std::string& name, const std::string& value)
+	void handleDigestType(const std::string& /*name*/, const std::string& value)
 	{
 		_digestType = value;
 	}
 
-	void handleVerify(const std::string& name, const std::string& value)
+	void handleVerify(const std::string& /*name*/, const std::string& /*value*/)
 	{
 		_verify = true;
 	}
 
-	void handleAllowSHA1(const std::string& name, const std::string& value)
+	void handleAllowSHA1(const std::string& /*name*/, const std::string& /*value*/)
 	{
 		_allowSHA1 = true;
 	}
 
-	void handleSigners(const std::string& name, const std::string& value)
+	void handleSigners(const std::string& /*name*/, const std::string& /*value*/)
 	{
 		_signers = true;
 	}
@@ -358,7 +351,7 @@ protected:
 		}
 	}
 
-	int main(const std::vector<std::string>& args)
+	int main(const std::vector<std::string>& args) override
 	{
 		if (_showHelp || args.empty())
 		{
@@ -386,7 +379,7 @@ protected:
 	}
 
 private:
-	bool         _showHelp;
+	bool         _showHelp = false;
 	std::string  _alias;
 	std::string  _certificatePath;
 	std::string  _caFilePath;
@@ -394,10 +387,10 @@ private:
 	std::string  _passphrase;
 	std::unique_ptr<Poco::Crypto::RSAKey> _pRSAKey;
 	std::string  _digestType;
-	bool         _verify;
-	bool         _allowSHA1;
-	bool         _signers;
-	int          _result;
+	bool         _verify = false;
+	bool         _allowSHA1 = false;
+	bool         _signers = false;
+	int          _result = Application::EXIT_OK;
 };
 
 

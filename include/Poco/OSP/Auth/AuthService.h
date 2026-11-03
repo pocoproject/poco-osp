@@ -22,9 +22,7 @@
 #include "Poco/AutoPtr.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
 class OSP_API AuthService: public Poco::OSP::Service
@@ -44,10 +42,10 @@ public:
 	AuthService();
 		/// Creates the AuthService.
 
-	~AuthService();
+	~AuthService() override;
 		/// Destroys the AuthService.
 
-	virtual bool authenticate(const std::string& userName, const std::string& credentials) const = 0;
+	[[nodiscard]] virtual bool authenticate(const std::string& userName, const std::string& credentials) const = 0;
 		/// Checks if the userName and credentials combination is valid.
 		///
 		/// Returns true if the user specified by userName is known and the specified credentials
@@ -68,12 +66,13 @@ public:
 		///
 		/// The default implementation calls authenticate() and stores userName.
 
-	virtual bool authorize(const std::string& userName, const std::string& permission) const = 0;
+	[[nodiscard]] virtual bool authorize(const std::string& userName, const std::string& permission) const = 0;
 		/// Checks if a user has a specific permission.
 		///
 		/// Returns true if the user specified by userName has the specified permission.
 
-	virtual bool authorize(const std::string& userName, const std::string& roleOrScope, const std::string& permission) const = 0;
+	[[nodiscard]] virtual bool authorize(const std::string& userName, const std::string& roleOrScope,
+		const std::string& permission) const = 0;
 		/// Checks if a user has a specific permission within the given role or scope.
 		///
 		/// If roleOrScope is empty, the result is the same as the two-argument version.
@@ -84,18 +83,18 @@ public:
 		///
 		/// Returns true if the user specified by userName has the specified permission.
 
-	virtual bool userExists(const std::string& userName) const = 0;
+	[[nodiscard]] virtual bool userExists(const std::string& userName) const = 0;
 		/// Checks if a user has exists.
 		///
 		/// Returns true if the user specified by userName exists, otherwise false.
 
 	// Service
-	const std::type_info& type() const;
-	bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 };
 
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth
 
 
 #endif // OSP_Auth_AuthService_INCLUDED

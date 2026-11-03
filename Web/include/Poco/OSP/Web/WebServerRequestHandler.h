@@ -22,9 +22,7 @@
 #include "Poco/Net/HTTPRequestHandler.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 class WebServerDispatcher;
@@ -39,11 +37,11 @@ public:
 	WebServerRequestHandler(WebServerDispatcher& dispatcher, bool secure);
 		/// Creates the WebServerRequestHandler, using the given WebServerDispatcher.
 		
-	~WebServerRequestHandler();
+	~WebServerRequestHandler() override;
 		/// Destroys the WebServerRequestHandler.
 		
 	// HTTPRequestHandler
-	void handleRequest(Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response);
+	void handleRequest(Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response) override;
 	
 private:
 	WebServerDispatcher& _dispatcher;
@@ -51,7 +49,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web
 
 
 #endif // OSP_Web_WebServerRequestHandler_INCLUDED

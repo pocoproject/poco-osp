@@ -24,9 +24,7 @@ VersionTest::VersionTest(const std::string& name): CppUnit::TestCase(name)
 }
 
 
-VersionTest::~VersionTest()
-{
-}
+VersionTest::~VersionTest() = default;
 
 
 void VersionTest::testConstruct()

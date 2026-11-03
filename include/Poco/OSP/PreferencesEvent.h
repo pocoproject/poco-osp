@@ -21,8 +21,7 @@
 #include "Poco/OSP/OSP.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API PreferencesEvent
@@ -39,23 +38,24 @@ public:
 	~PreferencesEvent();
 		/// Destroys the PreferencesEvent.
 
+	PreferencesEvent() = delete;
+
 	PreferencesEvent& operator = (const PreferencesEvent& event);
 		/// Assignment operator.
 		
-	void swap(PreferencesEvent& event);
+	void swap(PreferencesEvent& event) noexcept;
 		/// Swaps the event's state with another one.
 
-	const std::string& name() const;
+	[[nodiscard]] const std::string& name() const;
 		/// Returns the name of the changed property.
 		
-	const std::string& oldValue() const;
+	[[nodiscard]] const std::string& oldValue() const;
 		/// Returns the value of the property before the change.
 		
-	const std::string& newValue() const;
+	[[nodiscard]] const std::string& newValue() const;
 		/// Returns the value of the property after the change.
 
 private:
-	PreferencesEvent();
 
 	std::string _name;
 	std::string _oldValue;
@@ -84,7 +84,7 @@ inline const std::string& PreferencesEvent::newValue() const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_PreferencesEvent_INCLUDED

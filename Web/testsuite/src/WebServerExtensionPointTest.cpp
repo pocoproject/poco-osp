@@ -46,7 +46,7 @@ namespace
 		{
 		}
 
-		WebServerDispatcher::VirtualPath parse(Bundle::ConstPtr pBundle, Element* pElem)
+		[[nodiscard]] WebServerDispatcher::VirtualPath parse(Bundle::ConstPtr pBundle, Element* pElem)
 		{
 			WebServerDispatcher::VirtualPath vPath;
 			handleCommon(pBundle, pElem, vPath);

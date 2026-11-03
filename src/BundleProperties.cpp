@@ -15,8 +15,7 @@
 #include "Poco/OSP/BundleProperties.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 BundleProperties::BundleProperties():
@@ -25,9 +24,7 @@ BundleProperties::BundleProperties():
 }
 
 
-BundleProperties::~BundleProperties()
-{
-}
+BundleProperties::~BundleProperties() = default;
 
 
 void BundleProperties::addProperties(Poco::Util::AbstractConfiguration::Ptr pConfig)
@@ -67,7 +64,7 @@ bool BundleProperties::getRaw(const std::string& key, std::string& value) const
 }
 
 
-void BundleProperties::setRaw(const std::string& key, const std::string& value)
+void BundleProperties::setRaw(const std::string& /*key*/, const std::string& /*value*/)
 {
 	throw Poco::InvalidAccessException("Cannot change bundle properties");
 }
@@ -89,4 +86,4 @@ void BundleProperties::removeRaw(const std::string& key)
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

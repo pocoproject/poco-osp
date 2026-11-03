@@ -23,30 +23,20 @@
 #include "Poco/Util/HelpFormatter.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
-AbstractCommand::AbstractCommand():
-	_stopOptionsProcessing(false),
-	_showHelp(false)
-{
-}
+AbstractCommand::AbstractCommand() = default;
 
 
 AbstractCommand::AbstractCommand(const std::string& description, const std::string& usage):
 	_description(description),
-	_usage(usage),
-	_stopOptionsProcessing(false),
-	_showHelp(false)
+	_usage(usage)
 {
 }
 
 
-AbstractCommand::~AbstractCommand()
-{
-}
+AbstractCommand::~AbstractCommand() = default;
 
 
 int AbstractCommand::execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr)
@@ -124,7 +114,7 @@ void AbstractCommand::stopOptionsProcessing()
 void AbstractCommand::handleOption(const std::string& name, const std::string& value)
 {
 	const Poco::Util::Option& option = _options.getOption(name);
-	if (option.validator())
+	if (option.validator() != nullptr)
 	{
 		option.validator()->validate(option, value);
 	}
@@ -134,14 +124,14 @@ void AbstractCommand::handleOption(const std::string& name, const std::string& v
 		poco_check_ptr (pConfig);
 		pConfig->setString(option.binding(), value);
 	}
-	if (option.callback())
+	if (option.callback() != nullptr)
 	{
 		option.callback()->invoke(name, value);
 	}
 }
 
 
-void AbstractCommand::handleHelp(const std::string& name, const std::string& value)
+void AbstractCommand::handleHelp(const std::string& /*name*/, const std::string& /*value*/)
 {
 	_showHelp = true;
 	stopOptionsProcessing();
@@ -160,4 +150,4 @@ void AbstractCommand::displayHelp(std::ostream& ostr)
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

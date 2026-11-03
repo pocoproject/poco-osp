@@ -102,7 +102,7 @@ void WebEventSampleTest::testNotificationIsNotLoggedAtInformationLevel()
 }
 
 
-void WebEventSampleTest::onSubjectNotified(const WebEventService::NotificationEvent& ev)
+void WebEventSampleTest::onSubjectNotified(const WebEventService::NotificationEvent& /*ev*/)
 {
 	_notified.set();
 }

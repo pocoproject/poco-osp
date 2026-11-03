@@ -18,9 +18,7 @@
 #include "Poco/OSP/Shell/Session.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 LoginCommand::LoginCommand(Poco::OSP::BundleContext::Ptr pContext):
@@ -32,9 +30,7 @@ LoginCommand::LoginCommand(Poco::OSP::BundleContext::Ptr pContext):
 }
 
 
-LoginCommand::~LoginCommand()
-{
-}
+LoginCommand::~LoginCommand() = default;
 
 
 int LoginCommand::executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr)
@@ -54,4 +50,4 @@ int LoginCommand::executeImpl(Session& session, const std::vector<std::string>& 
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

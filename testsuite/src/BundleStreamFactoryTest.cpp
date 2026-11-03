@@ -82,9 +82,7 @@ BundleStreamFactoryTest::BundleStreamFactoryTest(const std::string& name): CppUn
 }
 
 
-BundleStreamFactoryTest::~BundleStreamFactoryTest()
-{
-}
+BundleStreamFactoryTest::~BundleStreamFactoryTest() = default;
 
 
 void BundleStreamFactoryTest::testOpenReadsBundleResource()
@@ -96,7 +94,7 @@ void BundleStreamFactoryTest::testOpenReadsBundleResource()
 	opener.registerStreamFactory("bndl", new BundleStreamFactory(loader));
 
 	std::unique_ptr<std::istream> pStream(opener.open("bndl://com.appinf.osp.bundle2/lang.txt"));
-	assert (pStream.get() != 0);
+	assert (pStream != nullptr);
 	std::string s;
 	*pStream >> s;
 	assert (s == "en-US");

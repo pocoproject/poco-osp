@@ -17,10 +17,7 @@
 #include "Poco/OSP/Auth/TwoFactor/TwoFactorService.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace TwoFactor {
+namespace Poco::OSP::Auth::TwoFactor {
 
 
 const std::string TwoFactorService::SERVICE_NAME("osp.auth.twofactor");
@@ -38,4 +35,4 @@ bool TwoFactorService::isA(const std::type_info& otherType) const
 }
 
 
-} } } } // namespace Poco::OSP::Auth::TwoFactor
+} // namespace Poco::OSP::Auth::TwoFactor

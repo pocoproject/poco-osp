@@ -33,9 +33,7 @@
 #include <memory>
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 class WebSessionRegistry;
@@ -71,20 +69,20 @@ public:
 	explicit WebSessionManager(Poco::OSP::BundleContext::Ptr pContext);
 		/// Creates the SessionManager without a WebSessionStore.
 
-	~WebSessionManager();
+	~WebSessionManager() override;
 		/// Destroys the SessionManager.
 
 	void setDefaultDomain(const std::string& domain);
 		/// Sets the default domain for the session cookie.
 
-	const std::string& getDefaultDomain() const;
+	[[nodiscard]] const std::string& getDefaultDomain() const;
 		/// Returns the default domain for the session cookie.
 
 	void setDefaultPath(const std::string& path);
 		/// Sets the default path for the session cookie, used if the
 		/// application name does not contain a path.
 
-	const std::string& getDefaultPath() const;
+	[[nodiscard]] const std::string& getDefaultPath() const;
 		/// Returns the default path for the session cookie.
 
 	void setCookiePersistence(CookiePersistence persistence);
@@ -92,7 +90,7 @@ public:
 		/// session and CSRF cookies are transient (go away when the
 		/// browser is closed) or persistent (default).
 
-	CookiePersistence getCookiePersistence() const;
+	[[nodiscard]] CookiePersistence getCookiePersistence() const;
 		/// Returns the cookie persistence for the session
 		/// and CSRF cookies.
 
@@ -105,7 +103,7 @@ public:
 		/// Session and CSRF cookies sent in the response to a request
 		/// received over HTTPS always have the secure attribute.
 
-	bool isCookieSecure() const;
+	[[nodiscard]] bool isCookieSecure() const;
 		/// Returns true if the session cookie has the secure
 		/// attribute set for all requests, otherwise false.
 
@@ -118,14 +116,14 @@ public:
 		/// Returns the SameSite attribute for the session cookie.
 
 	POCO_DEPRECATED("use getCookieSameSite() instead")
-	Poco::Net::HTTPCookie::SameSite setCookieSameSite() const;
+	[[nodiscard]] Poco::Net::HTTPCookie::SameSite setCookieSameSite() const;
 		/// Returns the SameSite attribute for the session cookie.
 
 	void setVerifyAddress(bool verify);
 		/// Enable or disable verification of client address
 		/// against the address stored in the session.
 
-	bool isAddressVerified() const;
+	[[nodiscard]] bool isAddressVerified() const;
 		/// Returns true if the client IP address is verified
 		/// against the address stored in the session.
 
@@ -137,20 +135,20 @@ public:
 		/// from JavaScript and can be used to authenticate scripted
 		/// HTTP requests (together with the session cookie).
 
-	const std::string& getCSRFCookie() const;
+	[[nodiscard]] const std::string& getCSRFCookie() const;
 		/// Returns the name of the CSRF cookie, if set, otherwise
 		/// an empty string.
 
 	void setSessionStore(WebSessionStore::Ptr pWebSessionStore);
 		/// Sets the WebSessionStore.
 
-	WebSessionStore::Ptr getSessionStore() const;
+	[[nodiscard]] WebSessionStore::Ptr getSessionStore() const;
 		/// Returns the WebSessionStore.
 
-	WebSession::Ptr findById(const std::string& sessionId);
+	[[nodiscard]] WebSession::Ptr findById(const std::string& sessionId);
 		/// Returns the session with the given ID, or null if it does not exist.
 
-	std::size_t countSessions();
+	[[nodiscard]] std::size_t countSessions();
 		/// Returns the number of active sessions.
 
 	void forEachSession(const std::function<void(const std::string& sessionId, const WebSession& session)>& fn);
@@ -186,15 +184,18 @@ public:
 		/// of the logged-in user.
 
 	// WebSessionService
-	WebSession::Ptr find(const std::string& appName, const Poco::Net::HTTPServerRequest& request);
-	WebSession::Ptr get(const std::string& appName, const Poco::Net::HTTPServerRequest& request, int expireSeconds, BundleContext::Ptr pContext);
-	WebSession::Ptr create(const std::string& appName, const Poco::Net::HTTPServerRequest& request, int expireSeconds, BundleContext::Ptr pContext);
-	void remove(WebSession::Ptr ptr);
-	void removeForUser(const std::string& username);
+	[[nodiscard]] WebSession::Ptr find(const std::string& appName,
+		const Poco::Net::HTTPServerRequest& request) override;
+	[[nodiscard]] WebSession::Ptr get(const std::string& appName, const Poco::Net::HTTPServerRequest& request,
+		int expireSeconds, BundleContext::Ptr pContext) override;
+	WebSession::Ptr create(const std::string& appName, const Poco::Net::HTTPServerRequest& request, int expireSeconds,
+		BundleContext::Ptr pContext) override;
+	void remove(WebSession::Ptr ptr) override;
+	void removeForUser(const std::string& username) override;
 
 	// Service
-	virtual const std::type_info& type() const;
-	virtual bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 	static const std::string SERVICE_NAME;
 
@@ -204,12 +205,14 @@ protected:
 		/// this manager has created or loaded and that still exists, also if it is
 		/// no longer cached (see WebSession::releaseAttributes()).
 
-	WebSession::Ptr findImpl(const std::string& appName, const Poco::Net::HTTPServerRequest& request, BundleContext::Ptr pContext);
-	WebSession::Ptr findByIdImpl(const std::string& sessionId, BundleContext::Ptr pContext);
-	WebSession::Ptr createImpl(const std::string& appName, const Poco::Net::HTTPServerRequest& request, int expireSeconds, BundleContext::Ptr pContext);
+	[[nodiscard]] WebSession::Ptr findImpl(const std::string& appName, const Poco::Net::HTTPServerRequest& request,
+		BundleContext::Ptr pContext);
+	[[nodiscard]] WebSession::Ptr findByIdImpl(const std::string& sessionId, BundleContext::Ptr pContext);
+	[[nodiscard]] WebSession::Ptr createImpl(const std::string& appName, const Poco::Net::HTTPServerRequest& request,
+		int expireSeconds, BundleContext::Ptr pContext);
 	void removeImpl(WebSession::Ptr pSession);
 	void removeImpl(const std::string& id);
-	std::string getId(const std::string& appName, const Poco::Net::HTTPServerRequest& request);
+	[[nodiscard]] std::string getId(const std::string& appName, const Poco::Net::HTTPServerRequest& request);
 	void addSessionCookie(const std::string& appName, const Poco::Net::HTTPServerRequest& request, WebSession::Ptr pSession);
 	void addCSRFCookie(const std::string& appName, const Poco::Net::HTTPServerRequest& request, WebSession::Ptr pSession);
 	[[nodiscard]] Poco::Net::HTTPCookie createSessionCookie(const std::string& appName, const Poco::Net::HTTPServerRequest& request, WebSession::Ptr pSession);
@@ -217,10 +220,10 @@ protected:
 		/// Creates the CSRF cookie for the session. Creates and stores a new
 		/// CSRF token if the session has none. Must be called with the mutex locked.
 
-	std::string createToken(const Poco::Net::HTTPServerRequest& request);
-	std::string cookieName(const std::string& appName);
-	std::string cookieDomain(const std::string& appName);
-	std::string cookiePath(const std::string& appName);
+	[[nodiscard]] std::string createToken(const Poco::Net::HTTPServerRequest& request);
+	[[nodiscard]] std::string cookieName(const std::string& appName);
+	[[nodiscard]] std::string cookieDomain(const std::string& appName);
+	[[nodiscard]] std::string cookiePath(const std::string& appName);
 
 private:
 	static const std::string COOKIE_NAME;
@@ -228,21 +231,21 @@ private:
 	mutable Poco::FastMutex _mutex;
 	Poco::OSP::BundleContext::Ptr _pContext;
 	WebSessionStore::Ptr _pStore;
-	Poco::UInt32 _serial;
+	Poco::UInt32 _serial = 0;
 	Poco::UniqueExpireCache<std::string, WebSession> _cache;
 	std::shared_ptr<WebSessionRegistry> _pSessionRegistry;
 	std::string _defaultDomain;
 	std::string _defaultPath;
 	std::string _csrfCookie;
-	CookiePersistence _cookiePersistence;
-	bool _cookieSecure;
-	bool _verifyAddress;
-	Poco::Net::HTTPCookie::SameSite _cookieSameSite;
+	CookiePersistence _cookiePersistence = COOKIE_PERSISTENT;
+	bool _cookieSecure = false;
+	bool _verifyAddress = true;
+	Poco::Net::HTTPCookie::SameSite _cookieSameSite = Poco::Net::HTTPCookie::SAME_SITE_NOT_SPECIFIED;
 	Poco::Logger& _logger;
 };
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web
 
 
 #endif // OSP_Web_WebSessionManager_INCLUDED

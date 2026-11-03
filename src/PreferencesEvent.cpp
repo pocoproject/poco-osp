@@ -16,8 +16,7 @@
 #include <algorithm>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 PreferencesEvent::PreferencesEvent(const std::string& name, const std::string& oldValue, const std::string& newValue):
@@ -28,17 +27,10 @@ PreferencesEvent::PreferencesEvent(const std::string& name, const std::string& o
 }
 
 
-PreferencesEvent::PreferencesEvent(const PreferencesEvent& event):
-	_name(event._name),
-	_oldValue(event._oldValue),
-	_newValue(event._newValue)
-{
-}
+PreferencesEvent::PreferencesEvent(const PreferencesEvent& event) = default;
 
 
-PreferencesEvent::~PreferencesEvent()
-{
-}
+PreferencesEvent::~PreferencesEvent() = default;
 
 
 PreferencesEvent& PreferencesEvent::operator = (const PreferencesEvent& event)
@@ -49,7 +41,7 @@ PreferencesEvent& PreferencesEvent::operator = (const PreferencesEvent& event)
 }
 
 
-void PreferencesEvent::swap(PreferencesEvent& event)
+void PreferencesEvent::swap(PreferencesEvent& event) noexcept
 {
 	using std::swap;
 	swap(_name, event._name);
@@ -58,4 +50,4 @@ void PreferencesEvent::swap(PreferencesEvent& event)
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

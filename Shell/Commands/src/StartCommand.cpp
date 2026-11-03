@@ -20,9 +20,7 @@
 #include <ostream>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 StartCommand::StartCommand(Poco::OSP::BundleContext::Ptr pContext):
@@ -31,9 +29,7 @@ StartCommand::StartCommand(Poco::OSP::BundleContext::Ptr pContext):
 }
 
 
-StartCommand::~StartCommand()
-{
-}
+StartCommand::~StartCommand() = default;
 
 
 int StartCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream&)
@@ -43,4 +39,4 @@ int StartCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream&)
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

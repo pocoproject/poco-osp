@@ -26,9 +26,7 @@
 #include "Poco/Net/TCPServerConnectionFactory.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class SessionTracker;
@@ -42,21 +40,21 @@ public:
 		/// Creates the ShellConnectionFactory for connections with the given
 		/// config and SessionTracker.
 		
-	~ShellConnectionFactory();
+	~ShellConnectionFactory() override;
 		/// Destroys the ShellConnectionFactory.
+
+	ShellConnectionFactory() = delete;
 		
 	// TCPServerConnectionFactory
-	Poco::Net::TCPServerConnection* createConnection(const Poco::Net::StreamSocket& socket);
+	[[nodiscard]] Poco::Net::TCPServerConnection* createConnection(const Poco::Net::StreamSocket& socket) override;
 
 private:
-	ShellConnectionFactory();
-	
 	ShellConnection::Config _config;
 	SessionTracker& _sessions;
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_ShellConnectionFactory_INCLUDED

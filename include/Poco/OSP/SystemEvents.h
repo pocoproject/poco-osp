@@ -23,8 +23,7 @@
 #include "Poco/BasicEvent.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API SystemEvents
@@ -56,14 +55,13 @@ public:
 		
 	~SystemEvents();
 		/// Destroys the SystemEvents object.
-		
-private:
-	SystemEvents(const SystemEvents&);
-	SystemEvents& operator = (const SystemEvents&);
+
+	SystemEvents(const SystemEvents&) = delete;
+	SystemEvents& operator = (const SystemEvents&) = delete;
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_SystemEvents_INCLUDED

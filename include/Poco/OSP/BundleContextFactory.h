@@ -25,8 +25,7 @@
 #include "Poco/Path.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class BundleContext;
@@ -50,11 +49,12 @@ public:
 	BundleContextFactory(ServiceRegistry& registry, SystemEvents& systemEvents, const Path& persistencyDir);
 		/// Creates the BundleContextFactory.
 
-	virtual BundleContext* createBundleContext(BundleLoader& loader, Bundle::ConstPtr pBundle, BundleEvents& events);
+	[[nodiscard]] virtual BundleContext* createBundleContext(BundleLoader& loader, Bundle::ConstPtr pBundle,
+		BundleEvents& events);
 		/// Creates and returns a new BundleContext object.
 
 protected:
-	~BundleContextFactory();
+	~BundleContextFactory() override;
 		/// Destroys the BundleContextFactory.
 
 private:
@@ -64,7 +64,7 @@ private:
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleContextFactory_INCLUDED

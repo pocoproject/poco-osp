@@ -25,9 +25,7 @@
 #include <ostream>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class Session;
@@ -53,8 +51,11 @@ public:
 		
 	virtual ~Command();
 		/// Destroys the Command.
+
+	Command(const Command&) = delete;
+	Command& operator = (const Command&) = delete;
 		
-	virtual int execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr) = 0;
+	[[nodiscard]] virtual int execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr) = 0;
 		/// Execute the command, using the given arguments, within
 		/// the given session.
 		/// The first element of the args vector is the command name.
@@ -73,14 +74,10 @@ public:
 		/// a few commonly used error codes that should be used. Other statis codes in
 		/// the range 0 - 99 can be used as well. Negative status codes are reserved
 		/// for internal use.
-
-private:
-	Command(const Command&);
-	Command& operator = (const Command&);
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_Command_INCLUDED

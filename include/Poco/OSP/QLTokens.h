@@ -23,8 +23,7 @@
 #include <map>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API QLToken: public Poco::Token
@@ -32,10 +31,10 @@ class OSP_API QLToken: public Poco::Token
 {
 public:
 	QLToken();
-	~QLToken();
+	~QLToken() override;
 
 protected:
-	void syntaxError(const std::string& expected, const std::string& actual);
+	[[noreturn]] void syntaxError(const std::string& expected, const std::string& actual);
 
 	[[nodiscard]] static std::string characterText(int ch);
 		/// Returns ch, a result of std::istream::peek(), as text
@@ -64,11 +63,11 @@ public:
 	};
 
 	OperatorToken();
-	~OperatorToken();
-	Poco::Token::Class tokenClass() const;
-	bool start(char c, std::istream& istr);
-	void finish(std::istream& istr);
-	int asInteger() const;
+	~OperatorToken() override;
+	[[nodiscard]] Poco::Token::Class tokenClass() const override;
+	bool start(char c, std::istream& istr) override;
+	void finish(std::istream& istr) override;
+	[[nodiscard]] int asInteger() const override;
 
 private:
 	using OpMap = std::map<std::string, int>;
@@ -81,10 +80,10 @@ class OSP_API IdentifierToken: public QLToken
 {
 public:
 	IdentifierToken();
-	~IdentifierToken();
-	Poco::Token::Class tokenClass() const;
-	bool start(char c, std::istream& istr);
-	void finish(std::istream& istr);
+	~IdentifierToken() override;
+	[[nodiscard]] Poco::Token::Class tokenClass() const override;
+	bool start(char c, std::istream& istr) override;
+	void finish(std::istream& istr) override;
 };
 
 
@@ -92,11 +91,11 @@ class OSP_API StringLiteralToken: public QLToken
 {
 public:
 	StringLiteralToken();
-	~StringLiteralToken();
-	Poco::Token::Class tokenClass() const;
-	bool start(char c, std::istream& istr);
-	void finish(std::istream& istr);
-	std::string asString() const;
+	~StringLiteralToken() override;
+	[[nodiscard]] Poco::Token::Class tokenClass() const override;
+	bool start(char c, std::istream& istr) override;
+	void finish(std::istream& istr) override;
+	[[nodiscard]] std::string asString() const override;
 };
 
 
@@ -104,11 +103,11 @@ class OSP_API RegExpToken: public QLToken
 {
 public:
 	RegExpToken();
-	~RegExpToken();
-	Poco::Token::Class tokenClass() const;
-	bool start(char c, std::istream& istr);
-	void finish(std::istream& istr);
-	std::string asString() const;
+	~RegExpToken() override;
+	[[nodiscard]] Poco::Token::Class tokenClass() const override;
+	bool start(char c, std::istream& istr) override;
+	void finish(std::istream& istr) override;
+	[[nodiscard]] std::string asString() const override;
 };
 
 
@@ -116,17 +115,17 @@ class OSP_API NumberLiteralToken: public QLToken
 {
 public:
 	NumberLiteralToken();
-	~NumberLiteralToken();
-	Poco::Token::Class tokenClass() const;
-	bool start(char c, std::istream& istr);
-	void finish(std::istream& istr);
+	~NumberLiteralToken() override;
+	[[nodiscard]] Poco::Token::Class tokenClass() const override;
+	bool start(char c, std::istream& istr) override;
+	void finish(std::istream& istr) override;
 
 private:
-	bool _isFloat;
+	bool _isFloat = false;
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_QLTokens_INCLUDED

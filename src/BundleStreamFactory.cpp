@@ -20,8 +20,7 @@
 #include "Poco/Exception.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 BundleStreamFactory::BundleStreamFactory(BundleLoader& loader):
@@ -30,9 +29,7 @@ BundleStreamFactory::BundleStreamFactory(BundleLoader& loader):
 }
 
 
-BundleStreamFactory::~BundleStreamFactory()
-{
-}
+BundleStreamFactory::~BundleStreamFactory() = default;
 
 
 std::istream* BundleStreamFactory::open(const Poco::URI& uri)
@@ -48,10 +45,10 @@ std::istream* BundleStreamFactory::open(const Poco::URI& uri)
 		path.erase(0, 1);
 	
 	Bundle::Ptr pBundle = _loader.findBundle(symbolicName);
-	if (pBundle)
+	if (pBundle != nullptr)
 	{
 		std::istream* pStream = pBundle->getResource(path);
-		if (pStream)
+		if (pStream != nullptr)
 			return pStream;
 	}
 	throw Poco::NotFoundException("Bundle resource", uri.toString());
@@ -70,4 +67,4 @@ void BundleStreamFactory::unregisterFactory()
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

@@ -23,16 +23,14 @@
 #include "UpgradeCommand.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 template <class Cmd>
 class CommandFactoryImpl: public CommandFactory
 {
 public:
-	Command* createCommand()
+	[[nodiscard]] Command* createCommand() override
 	{
 		return new Cmd(context());
 	}
@@ -50,7 +48,7 @@ using InstallCommandFactory = CommandFactoryImpl<InstallCommand>;
 using UpgradeCommandFactory = CommandFactoryImpl<UpgradeCommand>;
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 POCO_BEGIN_NAMED_MANIFEST(Shell, Poco::OSP::Shell::CommandFactory)

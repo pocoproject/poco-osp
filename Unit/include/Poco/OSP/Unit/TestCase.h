@@ -25,9 +25,7 @@
 #include "CppUnit/TestCase.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Unit {
+namespace Poco::OSP::Unit {
 
 
 class OSPUnit_API TestCase: public CppUnit::TestCase
@@ -39,10 +37,10 @@ public:
 	TestCase(const std::string& name);
 		/// Creates a TestCase.
 		
-	~TestCase();
+	~TestCase() override;
 		/// Destroys the TestCase.
 
-	static Poco::OSP::BundleContext::Ptr context();
+	[[nodiscard]] static Poco::OSP::BundleContext::Ptr context();
 		/// Returns the bundle context of the test bundle.
 		
 	static void resetContext(Poco::OSP::BundleContext::Ptr pContext);
@@ -53,7 +51,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Unit
+} // namespace Poco::OSP::Unit
 
 
 #endif // OSP_Unit_TestCase_INCLUDED

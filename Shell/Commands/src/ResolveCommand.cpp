@@ -21,9 +21,7 @@
 #include <ostream>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 ResolveCommand::ResolveCommand(Poco::OSP::BundleContext::Ptr pContext):
@@ -32,9 +30,7 @@ ResolveCommand::ResolveCommand(Poco::OSP::BundleContext::Ptr pContext):
 }
 
 
-ResolveCommand::~ResolveCommand()
-{
-}
+ResolveCommand::~ResolveCommand() = default;
 
 
 int ResolveCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream&)
@@ -44,4 +40,4 @@ int ResolveCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream&)
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

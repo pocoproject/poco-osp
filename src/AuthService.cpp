@@ -17,19 +17,13 @@
 #include <string>
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
-AuthService::AuthService()
-{
-}
+AuthService::AuthService() = default;
 
 
-AuthService::~AuthService()
-{
-}
+AuthService::~AuthService() = default;
 
 
 bool AuthService::authenticateAccount(const std::string& userName, const std::string& credentials,
@@ -55,4 +49,4 @@ bool AuthService::isA(const std::type_info& otherType) const
 }
 
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth

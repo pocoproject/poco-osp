@@ -20,9 +20,7 @@
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
-namespace JWT {
+namespace Poco::OSP::JWT {
 
 
 namespace
@@ -58,9 +56,7 @@ JWTValidator::JWTValidator(const Config& config):
 }
 
 
-JWTValidator::~JWTValidator()
-{
-}
+JWTValidator::~JWTValidator() = default;
 
 
 bool JWTValidator::validateToken(const std::string& jwt, std::string& username, std::string& scope)
@@ -121,4 +117,4 @@ void JWTValidator::configureSigner(const Config& config)
 }
 
 
-} } } // namespace Poco::OSP::JWT
+} // namespace Poco::OSP::JWT

@@ -15,19 +15,13 @@
 #include "Poco/OSP/Web/WebRequestHandlerFactory.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
-WebRequestHandlerFactory::WebRequestHandlerFactory()
-{
-}
+WebRequestHandlerFactory::WebRequestHandlerFactory() = default;
 
 
-WebRequestHandlerFactory::~WebRequestHandlerFactory()
-{
-}
+WebRequestHandlerFactory::~WebRequestHandlerFactory() = default;
 
 
 void WebRequestHandlerFactory::init(BundleContext::Ptr pContext)
@@ -42,4 +36,4 @@ void WebRequestHandlerFactory::initImpl()
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web

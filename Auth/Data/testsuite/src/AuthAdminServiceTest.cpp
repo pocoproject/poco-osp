@@ -617,9 +617,7 @@ AuthAdminServiceTest::AuthAdminServiceTest(const std::string& name, bool testInl
 }
 
 
-AuthAdminServiceTest::~AuthAdminServiceTest()
-{
-}
+AuthAdminServiceTest::~AuthAdminServiceTest() = default;
 
 
 void AuthAdminServiceTest::testUsers()
@@ -2109,9 +2107,9 @@ void AuthAdminServiceTest::testLDAPRoundTripsOfOneUserAreSequential()
 		};
 	}
 
-	std::thread first([&]() { pAAS->authenticate("alice", "wrong1"); });
+	std::thread first([&]() { static_cast<void>(pAAS->authenticate("alice", "wrong1")); });
 	const bool firstBindStarted = tryWaitForEvent(directory.bindStarted);
-	std::thread second([&]() { pAAS->authenticate("alice", "wrong2"); });
+	std::thread second([&]() { static_cast<void>(pAAS->authenticate("alice", "wrong2")); });
 	const bool secondLoginWaits = pAAS->waitForWaitingLogins(1);
 	int bindsWhileFirstHeld = 0;
 	{
@@ -2151,7 +2149,7 @@ void AuthAdminServiceTest::testConcurrentLDAPAttemptsAreLimitedByFailureCount()
 	attempts.reserve(static_cast<std::size_t>(authParams.maxFailures) + 2);
 	for (int i = 0; i < authParams.maxFailures + 2; i++)
 	{
-		attempts.emplace_back([&]() { pAAS->authenticate("alice", "wrong"); });
+		attempts.emplace_back([&]() { static_cast<void>(pAAS->authenticate("alice", "wrong")); });
 	}
 	const bool bindStarted = tryWaitForEvent(directory.bindStarted);
 	const bool otherAttemptsWait = pAAS->waitForWaitingLogins(authParams.maxFailures + 1);
@@ -2323,7 +2321,7 @@ void AuthAdminServiceTest::testLoginWaitingTooLongForOtherLDAPLoginIsRefused()
 		directory.holdBinds = true;
 	}
 
-	std::thread first([&]() { pAAS->authenticate("alice", "A"); });
+	std::thread first([&]() { static_cast<void>(pAAS->authenticate("alice", "A")); });
 	const bool bindStarted = tryWaitForEvent(directory.bindStarted);
 	const bool authenticated = pAAS->authenticate("alice", "wrong");
 	directory.bindReleased.set();
@@ -3029,7 +3027,7 @@ void AuthAdminServiceTest::testLoginThroughOtherNameWaitingTooLongIsRefused()
 		directory.binds = 0;
 	}
 
-	std::thread first([&]() { pAAS->authenticate("alice", "A"); });
+	std::thread first([&]() { static_cast<void>(pAAS->authenticate("alice", "A")); });
 	const bool bindStarted = tryWaitForEvent(directory.bindStarted);
 	std::string accountName;
 	const bool authenticated = pAAS->authenticateAccount("alice@example.com", "A", accountName);
@@ -3080,7 +3078,7 @@ void AuthAdminServiceTest::testConcurrentLoginsThroughNamesOfAccountAreLimitedBy
 	for (int i = 0; i < LOGINS; i++)
 	{
 		attempts.emplace_back([&pAAS, i]()
-			{ pAAS->authenticate("alice@guess" + std::to_string(i) + ".example.com", "wrong"); });
+			{ static_cast<void>(pAAS->authenticate("alice@guess" + std::to_string(i) + ".example.com", "wrong")); });
 	}
 	const bool bindStarted = tryWaitForEvent(directory.bindStarted);
 	const bool otherLoginsWait = pAAS->waitForWaitingLogins(LOGINS - 1);
@@ -3537,7 +3535,7 @@ void AuthAdminServiceTest::setUp()
 
 void AuthAdminServiceTest::tearDown()
 {
-	_pAAS = 0;
+	_pAAS = nullptr;
 }
 
 

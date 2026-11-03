@@ -28,9 +28,7 @@
 #include <vector>
 
 
-namespace Poco {
-namespace OSP {
-namespace WebEvent {
+namespace Poco::OSP::WebEvent {
 
 
 class OSPWebEvent_API WebEventService: public Poco::OSP::Service
@@ -236,7 +234,7 @@ public:
 		/// anonymous connections. Pass nullptr to remove the resolver (e.g.
 		/// when the installing bundle stops).
 
-	virtual int subscriberCount(const std::string& subject) = 0;
+	[[nodiscard]] virtual int subscriberCount(const std::string& subject) = 0;
 		/// Returns the number of subscribers to the subject.
 
 	virtual SubscriberInfoVec listSubscribers() = 0;
@@ -255,8 +253,8 @@ public:
 		/// timeout of five seconds and then throw the TimeoutException.
 
 	// Service
-	const std::type_info& type() const;
-	bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 	static const std::string SERVICE_NAME;
 
@@ -264,12 +262,12 @@ protected:
 	WebEventService();
 		/// Creates the WebEventService.
 
-	~WebEventService();
+	~WebEventService() override;
 		/// Destroys the WebEventService.
 };
 
 
-} } } // namespace Poco::OSP::WebEvent
+} // namespace Poco::OSP::WebEvent
 
 
 #endif // OSP_WebEvent_WebEventService_INCLUDED

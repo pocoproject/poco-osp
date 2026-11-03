@@ -29,9 +29,7 @@
 #include <cstddef>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class OSPShell_API ShellServer
@@ -87,7 +85,7 @@ inline Poco::UInt16 ShellServer::port() const
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_ShellServer_INCLUDED

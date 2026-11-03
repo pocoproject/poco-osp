@@ -24,9 +24,7 @@
 #include "Poco/Util/OptionSet.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class OSPShell_API AbstractCommand: public Command
@@ -42,7 +40,7 @@ class OSPShell_API AbstractCommand: public Command
 {
 public:	
 	// Command
-	virtual int execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr);
+	[[nodiscard]] int execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr) override;
 
 protected:
 	AbstractCommand();
@@ -54,10 +52,11 @@ protected:
 		/// The given description and usage hint is used in the help text given
 		/// if the command is invoked with the --help option.
 		
-	virtual ~AbstractCommand();
+	~AbstractCommand() override;
 		/// Destroys the AbstractCommand.
 		
-	virtual int executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr) = 0;
+	[[nodiscard]] virtual int executeImpl(Session& session, const std::vector<std::string>& args,
+		std::ostream& ostr) = 0;
 		/// Execute the command, using the given arguments.
 		/// Called by AbstractCommand::execute() after options have been handled.
 		///
@@ -78,7 +77,7 @@ protected:
 		///
 		/// A Command should specify a callback to handle the option.
 		
-	const Poco::Util::OptionSet& options() const;
+	[[nodiscard]] const Poco::Util::OptionSet& options() const;
 		/// Returns the application's option set.
 
 	void processOptions(std::vector<std::string>& args);
@@ -105,7 +104,7 @@ protected:
 		///
 		/// Overriding implementations must call the base class implementation.
 
-	const std::string& commandName() const;
+	[[nodiscard]] const std::string& commandName() const;
 		/// Returns the command name.
 
 	void handleHelp(const std::string& name, const std::string& value);
@@ -118,8 +117,8 @@ private:
 	std::string           _description;
 	std::string           _usage;
 	Poco::Util::OptionSet _options;
-	bool                  _stopOptionsProcessing;
-	bool                  _showHelp;
+	bool                  _stopOptionsProcessing = false;
+	bool                  _showHelp = false;
 	std::string           _commandName;
 };
 
@@ -139,7 +138,7 @@ inline const std::string& AbstractCommand::commandName() const
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_AbstractCommand_INCLUDED

@@ -76,9 +76,7 @@ BundleManifestTest::BundleManifestTest(const std::string& name): CppUnit::TestCa
 }
 
 
-BundleManifestTest::~BundleManifestTest()
-{
-}
+BundleManifestTest::~BundleManifestTest() = default;
 
 
 void BundleManifestTest::testBasicPropertiesAreRead()

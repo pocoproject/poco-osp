@@ -18,9 +18,7 @@
 #include "Poco/OSP/Shell/Session.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 QuitCommand::QuitCommand(Poco::OSP::BundleContext::Ptr pContext):
@@ -32,15 +30,13 @@ QuitCommand::QuitCommand(Poco::OSP::BundleContext::Ptr pContext):
 }
 
 
-QuitCommand::~QuitCommand()
-{
-}
+QuitCommand::~QuitCommand() = default;
 
 
-int QuitCommand::executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr)
+int QuitCommand::executeImpl(Session& /*session*/, const std::vector<std::string>& /*args*/, std::ostream& /*ostr*/)
 {
 	return -1;
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

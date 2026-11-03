@@ -28,8 +28,7 @@
 #include <istream>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API BundleManifest: public Poco::RefCountedObject
@@ -62,56 +61,56 @@ public:
 		/// Bundle-SymbolicName or Bundle-Version is missing, or if a
 		/// header has a value that is not valid.
 
-	const std::string& name() const;
+	[[nodiscard]] const std::string& name() const;
 		/// Returns the name of the bundle.
 
-	const std::string& symbolicName() const;
+	[[nodiscard]] const std::string& symbolicName() const;
 		/// Returns the symbolic name of the bundle.
 
-	const Version& version() const;
+	[[nodiscard]] const Version& version() const;
 		/// Returns the version of the bundle.
 
-	const std::string& vendor() const;
+	[[nodiscard]] const std::string& vendor() const;
 		/// Returns the bundle's vendor name, or
 		/// an empty string if no vendor name
 		/// has been specified in the pManifest->
 
-	const std::string& copyright() const;
+	[[nodiscard]] const std::string& copyright() const;
 		/// Returns the bundle's copyright information,
 		/// or an empty string if no copyright information
 		/// has been specified in the pManifest->
 
-	const std::string& activatorClass() const;
+	[[nodiscard]] const std::string& activatorClass() const;
 		/// Returns the class name of the bundle's activator,
 		/// or an empty string if the manifest does not
 		/// specify an activator.
 
-	const std::string& activatorLibrary() const;
+	[[nodiscard]] const std::string& activatorLibrary() const;
 		/// Returns the name of the library containing
 		/// the bundle's activator class, or an empty string
 		/// if the manifest does not specify an activator library.
 
-	const Dependencies& requiredBundles() const;
+	[[nodiscard]] const Dependencies& requiredBundles() const;
 		/// Returns a vector containing information about
 		/// all bundles required by this bundle.
 
-	const Dependencies& requiredModules() const;
+	[[nodiscard]] const Dependencies& requiredModules() const;
 		/// Returns a vector containing information about
 		/// all modules required by this bundle.
 
-	const Modules& providedModules() const;
+	[[nodiscard]] const Modules& providedModules() const;
 		/// Returns a vector containing information about
 		/// all modules provided by this bundle.
 
-	bool lazyStart() const;
+	[[nodiscard]] bool lazyStart() const;
 		/// Returns true if lazy startup has been specified for
 		/// the bundle.
 
-	bool sealed() const;
+	[[nodiscard]] bool sealed() const;
 		/// Returns true if the bundle is sealed and cannot be
 		/// extended by an extension bundle.
 
-	bool preventUninstall() const;
+	[[nodiscard]] bool preventUninstall() const;
 		/// Returns true if the bundle must not be uninstalled
 		/// at run-time.
 		///
@@ -120,18 +119,18 @@ public:
 		/// contain third-party libraries that, once loaded,
 		/// cannot be unloaded cleanly.
 
-	const std::string& runLevel() const;
+	[[nodiscard]] const std::string& runLevel() const;
 		/// Returns the bundle's run level.
 		///
 		/// If the bundle does not specify a run level,
 		/// returns the default "999-user".
 
-	const std::string& extendedBundle() const;
+	[[nodiscard]] const std::string& extendedBundle() const;
 		/// Returns the name of the bundle this
 		/// bundle extends, or an empty string
 		/// if the bundle is not an extension bundle.
 
-	Poco::Util::AbstractConfiguration& rawManifest() const;
+	[[nodiscard]] Poco::Util::AbstractConfiguration& rawManifest() const;
 		/// Returns a reference to the configuration containing
 		/// the raw manifest data.
 
@@ -188,7 +187,7 @@ protected:
 		/// Parses the Required-Bundles or Required-Modules property and stored
 		/// result in dependencies.
 
-	~BundleManifest();
+	~BundleManifest() override;
 		/// Destroys the BundleManifest.
 
 private:
@@ -309,7 +308,7 @@ inline const std::string& BundleManifest::extendedBundle() const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleManifest_INCLUDED

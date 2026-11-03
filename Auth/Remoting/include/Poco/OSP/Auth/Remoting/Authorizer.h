@@ -26,10 +26,7 @@
 #include "Poco/AutoPtr.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace Remoting {
+namespace Poco::OSP::Auth::Remoting {
 
 
 class OSPAuthRemoting_API Authorizer: public Poco::RemotingNG::Authorizer
@@ -64,7 +61,7 @@ public:
 	~Authorizer() override;
 		/// Destroys the Authorizer.
 
-	bool authorize(const std::string& method, const std::string& permission) override;
+	[[nodiscard]] bool authorize(const std::string& method, const std::string& permission) override;
 		/// Returns true if the user identified by X-OSP-Authorized-User is
 		/// granted the given permission by the OSP AuthService, false
 		/// otherwise.
@@ -74,7 +71,7 @@ private:
 };
 
 
-} } } } // namespace Poco::OSP::Auth::Remoting
+} // namespace Poco::OSP::Auth::Remoting
 
 
 #endif // OSP_Auth_Remoting_Authorizer_INCLUDED

@@ -42,8 +42,7 @@
 #include <vector>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class CodeCache;
@@ -91,17 +90,21 @@ public:
 	~BundleLoader();
 		/// Destroys the BundleLoader.
 
-	Bundle::ConstPtr findBundle(const std::string& symbolicName) const;
+	BundleLoader() = delete;
+	BundleLoader(const BundleLoader&) = delete;
+	BundleLoader& operator = (const BundleLoader&) = delete;
+
+	[[nodiscard]] Bundle::ConstPtr findBundle(const std::string& symbolicName) const;
 		/// Returns the Bundle object for the bundle with
 		/// the given symbolic name, or NULL if the
 		/// bundle does not exist.
 
-	Bundle::ConstPtr findBundle(int id) const;
+	[[nodiscard]] Bundle::ConstPtr findBundle(int id) const;
 		/// Returns the Bundle object for the bundle with
 		/// the given ID, or NULL if the
 		/// bundle does not exist.
 
-	Bundle::Ptr createBundle(const std::string& path);
+	[[nodiscard]] Bundle::Ptr createBundle(const std::string& path);
 		/// Loads a bundle from the given path.
 		///
 		/// A new Bundle object is created for the bundle,
@@ -198,17 +201,17 @@ public:
 		///
 		/// Throws a BundleException if the bundle is not loaded.
 
-	BundleEvents& events();
+	[[nodiscard]] BundleEvents& events();
 		/// Returns a reference to the BundleEvents
 		/// object.
 
-	const std::string& osName() const;
+	[[nodiscard]] const std::string& osName() const;
 		/// Returns the name of the operating system.
 
-	const std::string& osArchitecture() const;
+	[[nodiscard]] const std::string& osArchitecture() const;
 		/// Returns the name of the hardware architecture.
 
-	std::string pathForLibrary(const std::string& libraryName);
+	[[nodiscard]] std::string pathForLibrary(const std::string& libraryName);
 		/// Returns the full path for the library with the given
 		/// libraryName. If libraryName is the empty string,
 		/// return the path to the code cache directory.
@@ -259,7 +262,7 @@ protected:
 		/// While resolveBundle() holds _mutex in the calling thread,
 		/// the event is collected and fired by resolveBundle().
 
-	Bundle::ModuleProviders resolveModules(Bundle* pBundle) const;
+	[[nodiscard]] Bundle::ModuleProviders resolveModules(Bundle* pBundle) const;
 		/// Determines the bundles providing the required modules.
 
 	void resolveDependencies(Bundle* pBundle, const BundleManifest::Dependencies& deps, Bundle::ResolvedDependencies* pResolved = nullptr);
@@ -288,7 +291,7 @@ protected:
 	{
 	public:
 		StartingBundle() = delete;
-		explicit StartingBundle(const Bundle& bundle);
+		POCO_NODISCARD_CTOR explicit StartingBundle(const Bundle& bundle);
 		StartingBundle(const StartingBundle&) = delete;
 		StartingBundle(StartingBundle&&) = delete;
 		~StartingBundle();
@@ -314,7 +317,7 @@ protected:
 		/// The resolved dependency is added to pResolved if given,
 		/// to the bundle otherwise.
 
-	bool isResolving(Bundle* pBundle) const;
+	[[nodiscard]] bool isResolving(Bundle* pBundle) const;
 		/// Returns true iff the given bundle
 		/// is currently being resolved.
 
@@ -322,7 +325,7 @@ protected:
 		/// Starts all bundles that the given
 		/// bundle requires to run.
 
-	bool hasStaleDependencies(const Bundle* pBundle) const;
+	[[nodiscard]] bool hasStaleDependencies(const Bundle* pBundle) const;
 		/// Returns true iff a bundle the given bundle has been
 		/// resolved against is no longer loaded, or has been
 		/// replaced by another bundle - be it a different version
@@ -378,12 +381,12 @@ protected:
 		/// Removes all shared libraries belonging
 		/// to the given bundle from the code cache.
 
-	void installLibrary(Bundle* pBundle, const Poco::Path& p, const Poco::Timestamp* pTS = 0);
+	void installLibrary(Bundle* pBundle, const Poco::Path& p, const Poco::Timestamp* pTS = nullptr);
 		/// Copies the library to the code cache.
 		/// If timestamp is provided, the file creation
 		/// date is modified to the given time.
 
-	const std::string& libraryNameFor(Bundle* pBundle);
+	[[nodiscard]] const std::string& libraryNameFor(Bundle* pBundle);
 		/// Returns the library name for the library
 		/// containing the activator for the given bundle.
 
@@ -399,7 +402,7 @@ protected:
 		/// bundles can be safely stopped in the resulting
 		/// order.
 
-	std::string libraryPathFor(Bundle* pBundle);
+	[[nodiscard]] std::string libraryPathFor(Bundle* pBundle);
 		/// Returns the library path for the library
 		/// containing the activator for the given bundle.
 
@@ -407,7 +410,7 @@ protected:
 		/// Replaces all non alphanumeric characters in name
 		/// with an underscore.
 
-	static bool isProvidingModule(Bundle::Ptr pBundle, const BundleManifest::Dependency& module);
+	[[nodiscard]] static bool isProvidingModule(Bundle::Ptr pBundle, const BundleManifest::Dependency& module);
 		/// Checks whether the given bundle provides the given module.
 
 	void handleStartError(Bundle::Ptr pBundle, const std::string& errorMsg, Poco::Exception& exc);
@@ -421,9 +424,6 @@ protected:
 		/// Logs a bundle stop error and fires the bundleError event.
 
 private:
-	BundleLoader();
-	BundleLoader(const BundleLoader&);
-	BundleLoader& operator = (const BundleLoader&);
 
 	using BundleIdMap = std::map<int, Bundle::Ptr>;
 
@@ -474,7 +474,7 @@ inline const std::string& BundleLoader::osArchitecture() const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleLoader_INCLUDED

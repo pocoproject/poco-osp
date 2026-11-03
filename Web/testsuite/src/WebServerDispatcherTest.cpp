@@ -122,22 +122,23 @@ namespace
 		/// Knows the user "alice" with the password "secret" and the permission "read".
 	{
 	public:
-		bool authenticate(const std::string& userName, const std::string& credentials) const override
+		[[nodiscard]] bool authenticate(const std::string& userName, const std::string& credentials) const override
 		{
 			return userName == "alice" && credentials == "secret";
 		}
 
-		bool authorize(const std::string& userName, const std::string& permission) const override
+		[[nodiscard]] bool authorize(const std::string& userName, const std::string& permission) const override
 		{
 			return userName == "alice" && permission == "read";
 		}
 
-		bool authorize(const std::string& userName, const std::string& scope, const std::string& permission) const override
+		[[nodiscard]] bool authorize(const std::string& userName, const std::string& /*scope*/,
+			const std::string& permission) const override
 		{
 			return authorize(userName, permission);
 		}
 
-		bool userExists(const std::string& userName) const override
+		[[nodiscard]] bool userExists(const std::string& userName) const override
 		{
 			return userName == "alice";
 		}
@@ -167,7 +168,7 @@ namespace
 		/// Accepts the token "alice-token" for the user "alice" in the scope "api".
 	{
 	public:
-		bool validateToken(const std::string& token, std::string& username, std::string& scope) override
+		[[nodiscard]] bool validateToken(const std::string& token, std::string& username, std::string& scope) override
 		{
 			if (token != "alice-token") return false;
 			username = "alice";
@@ -180,14 +181,14 @@ namespace
 		/// Blocks in authenticate() until released, to keep a request inside authorization.
 	{
 	public:
-		bool authenticate(const std::string& userName, const std::string& credentials) const override
+		[[nodiscard]] bool authenticate(const std::string& userName, const std::string& credentials) const override
 		{
 			_entered.set();
 			_released.tryWait(WAIT_TIMEOUT_MS);
 			return TestAuthService::authenticate(userName, credentials);
 		}
 
-		bool waitUntilEntered()
+		[[nodiscard]] bool waitUntilEntered()
 		{
 			return _entered.tryWait(WAIT_TIMEOUT_MS);
 		}
@@ -235,7 +236,7 @@ namespace
 	class TestHandlerFactory: public Poco::Net::HTTPRequestHandlerFactory
 	{
 	public:
-		Poco::Net::HTTPRequestHandler* createRequestHandler(const Poco::Net::HTTPServerRequest&) override
+		[[nodiscard]] Poco::Net::HTTPRequestHandler* createRequestHandler(const Poco::Net::HTTPServerRequest&) override
 		{
 			return new Handler;
 		}
@@ -277,7 +278,7 @@ namespace
 		{
 		}
 
-		Poco::Net::HTTPRequestHandler* createRequestHandler(const Poco::Net::HTTPServerRequest&) override
+		[[nodiscard]] Poco::Net::HTTPRequestHandler* createRequestHandler(const Poco::Net::HTTPServerRequest&) override
 		{
 			return new LoginHandler(_pSessionManager, _pContext);
 		}
@@ -314,7 +315,7 @@ namespace
 		{
 		}
 
-		WebFilter* createFilter(const WebFilter::Args&) override
+		[[nodiscard]] WebFilter* createFilter(const WebFilter::Args&) override
 		{
 			return new NamedFilter(_name);
 		}
@@ -323,7 +324,8 @@ namespace
 		std::string _name;
 	};
 
-	WebServerDispatcher::VirtualPath handlerPath(const std::string& path, const std::string& permission, const Bundle::Ptr& pOwner, int authMethods = 0)
+	[[nodiscard]] WebServerDispatcher::VirtualPath handlerPath(const std::string& path, const std::string& permission,
+		const Bundle::Ptr& pOwner, int authMethods = 0)
 		/// Returns a mapping of path to an AuthorizedUserHandler that requires the given permission.
 	{
 		WebServerDispatcher::VirtualPath vPath(path, new TestHandlerFactory<AuthorizedUserHandler>, WebServerDispatcher::PathSecurity(WebServerDispatcher::SM_OWNER, ""s, permission), pOwner);
@@ -355,7 +357,7 @@ namespace
 		TestServer& operator = (const TestServer&) = delete;
 		TestServer& operator = (TestServer&&) = delete;
 
-		Poco::UInt16 port() const
+		[[nodiscard]] Poco::UInt16 port() const
 		{
 			return _server.port();
 		}
@@ -383,7 +385,7 @@ namespace
 		std::string csrfToken;
 	};
 
-	Session loginSession(TestServer& server, const std::string& uri)
+	[[nodiscard]] Session loginSession(TestServer& server, const std::string& uri)
 		/// Sends a GET request for uri, which must be mapped to a LoginHandlerFactory.
 	{
 		HTTPRequest request(HTTPRequest::HTTP_GET, uri);
@@ -409,7 +411,7 @@ struct WebServerDispatcherTest::Fixture
 		pMediaTypeMapper->add("html"s, "text/html"s);
 	}
 
-	WebServerDispatcher::Ptr createDispatcher(int options = 0) const
+	[[nodiscard]] WebServerDispatcher::Ptr createDispatcher(int options = 0) const
 		/// Returns a dispatcher that maps /dir to www/ of the directory
 		/// bundle and /zip to www/ of the ZIP bundle.
 	{
@@ -429,7 +431,7 @@ struct WebServerDispatcherTest::Fixture
 		TemporaryBundle::writeFile(persistentDirectory, "index.html"s, "secret"s);
 	}
 
-	WebServerDispatcher::Config dispatcherConfig(int options = 0) const
+	[[nodiscard]] WebServerDispatcher::Config dispatcherConfig(int options = 0) const
 	{
 		WebServerDispatcher::Config config;
 		config.pContext = bundles.context();
@@ -451,9 +453,7 @@ WebServerDispatcherTest::WebServerDispatcherTest(const std::string& name): CppUn
 }
 
 
-WebServerDispatcherTest::~WebServerDispatcherTest()
-{
-}
+WebServerDispatcherTest::~WebServerDispatcherTest() = default;
 
 
 void WebServerDispatcherTest::testVirtualDirectoryRoot()

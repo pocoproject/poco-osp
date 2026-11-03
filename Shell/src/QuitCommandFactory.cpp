@@ -18,19 +18,13 @@
 #include "Poco/OSP/Shell/QuitCommand.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
-QuitCommandFactory::QuitCommandFactory()
-{
-}
+QuitCommandFactory::QuitCommandFactory() = default;
 
 
-QuitCommandFactory::~QuitCommandFactory()
-{
-}
+QuitCommandFactory::~QuitCommandFactory() = default;
 
 
 Command* QuitCommandFactory::createCommand()
@@ -39,4 +33,4 @@ Command* QuitCommandFactory::createCommand()
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

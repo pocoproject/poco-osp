@@ -21,9 +21,7 @@
 using Poco::NumberFormatter;
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 //
@@ -33,8 +31,7 @@ namespace Shell {
 
 ResponseStreamBuf::ResponseStreamBuf(std::ostream& ostr, int status):
 	_ostr(ostr),
-	_status(status),
-	_lineComplete(false)
+	_status(status)
 {
 }
 
@@ -108,9 +105,7 @@ ResponseIOS::ResponseIOS(std::ostream& ostr, int status):
 }
 
 	
-ResponseIOS::~ResponseIOS()
-{
-}
+ResponseIOS::~ResponseIOS() = default;
 
 	
 ResponseStreamBuf* ResponseIOS::rdbuf()
@@ -131,9 +126,7 @@ ResponseStream::ResponseStream(std::ostream& ostr, int status):
 }
 
 	
-ResponseStream::~ResponseStream()
-{
-}
+ResponseStream::~ResponseStream() = default;
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

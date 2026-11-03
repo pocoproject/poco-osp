@@ -33,7 +33,7 @@ using namespace std::string_literals;
 
 namespace
 {
-	std::string manifest(const std::string& symbolicName)
+	[[nodiscard]] std::string manifest(const std::string& symbolicName)
 	{
 		return
 			"Manifest-Version: 1.0\n"

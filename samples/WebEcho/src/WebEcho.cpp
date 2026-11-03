@@ -36,7 +36,7 @@ class EchoHandler: public HTTPRequestHandler
 	/// Return a HTML document with information about the HTTP request.
 {
 public:
-	void handleRequest(HTTPServerRequest& request, HTTPServerResponse& response)
+	void handleRequest(HTTPServerRequest& request, HTTPServerResponse& response) override
 	{
 		HTMLForm form;
 		URI requestURI;
@@ -169,7 +169,7 @@ public:
 class EchoHandlerFactory: public WebRequestHandlerFactory
 {
 public:
-	HTTPRequestHandler* createRequestHandler(const HTTPServerRequest& request)
+	[[nodiscard]] HTTPRequestHandler* createRequestHandler(const HTTPServerRequest& /*request*/) override
 	{
 		return new EchoHandler();
 	}

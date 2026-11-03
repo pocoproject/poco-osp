@@ -24,9 +24,7 @@
 #include "Poco/OSP/BundleContext.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class CommandProcessor;
@@ -52,11 +50,11 @@ public:
 	HelpCommand(Poco::OSP::BundleContext::Ptr pContext, CommandProcessor& commandProcessor);
 		/// Creates the HelpCommand, using the given command processor.
 		
-	~HelpCommand();
+	~HelpCommand() override;
 		/// Destroys the HelpCommand.
 		
 	// Command
-	virtual int execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr);
+	[[nodiscard]] int execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr) override;
 
 private:
 	Poco::OSP::BundleContext::Ptr _pContext;
@@ -64,7 +62,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_HelpCommand_INCLUDED

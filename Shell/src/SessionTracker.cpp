@@ -21,9 +21,7 @@
 #include <mutex>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 SessionTracker::SessionTracker() = default;
@@ -100,4 +98,4 @@ void SessionTracker::shutdown(Poco::Net::StreamSocket& socket)
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

@@ -18,9 +18,7 @@
 #include <cctype>
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 const std::string MediaTypeMapper::SERVICE_NAME("osp.web.mediatype");
@@ -32,9 +30,7 @@ MediaTypeMapper::MediaTypeMapper():
 }
 
 
-MediaTypeMapper::~MediaTypeMapper()
-{
-}
+MediaTypeMapper::~MediaTypeMapper() = default;
 
 
 void MediaTypeMapper::load(std::istream& istr)
@@ -55,7 +51,7 @@ void MediaTypeMapper::load(std::istream& istr)
 			std::string mediaType;
 			while (ch != eof && !std::isspace(ch))
 			{
-				mediaType += (char) ch;
+				mediaType += static_cast<char>(ch);
 				ch = istr.get();
 			}
 			while (ch != eof && ch != '\n')
@@ -64,7 +60,7 @@ void MediaTypeMapper::load(std::istream& istr)
 				std::string ext;
 				while (ch != eof && !std::isspace(ch))
 				{
-					ext += (char) ch;
+					ext += static_cast<char>(ch);
 					ch = istr.get();
 				}
 				if (!ext.empty())
@@ -130,4 +126,4 @@ bool MediaTypeMapper::isA(const std::type_info& otherType) const
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web

@@ -16,16 +16,13 @@
 #include "Poco/ClassLibrary.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace RemotingNG {
-namespace REST {
+namespace Poco::OSP::RemotingNG::REST {
 
 
 class BundleActivator: public Poco::OSP::BundleActivator
 {
 public:
-	void start(Poco::OSP::BundleContext::Ptr pContext)
+	void start(Poco::OSP::BundleContext::Ptr /*pContext*/) override
 	{
 		Poco::RemotingNG::REST::TransportFactory::registerFactory();
 		Poco::RemotingNG::REST::Transport::httpSessionFactory().registerProtocol(
@@ -34,7 +31,7 @@ public:
 		);
 	}
 
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 		Poco::RemotingNG::REST::TransportFactory::unregisterFactory();
 		Poco::RemotingNG::REST::Transport::httpSessionFactory().unregisterProtocol("https");
@@ -42,7 +39,7 @@ public:
 };
 
 
-} } } } // namespace Poco::OSP::RemotingNG::REST
+} // namespace Poco::OSP::RemotingNG::REST
 
 
 POCO_BEGIN_MANIFEST(Poco::OSP::BundleActivator)

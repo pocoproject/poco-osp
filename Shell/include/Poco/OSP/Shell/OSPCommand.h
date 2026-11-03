@@ -26,9 +26,7 @@
 #include <vector>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class OSPShell_API OSPCommand: public AbstractCommand
@@ -48,14 +46,14 @@ public:
 		/// and usage string from the bundle properties, using
 		/// the <name>.description and <name>.usage properties.
 		
-	~OSPCommand();
+	~OSPCommand() override;
 		/// Destroys the OSPCommand.
 
-	Poco::OSP::BundleContext::Ptr context() const;
+	[[nodiscard]] Poco::OSP::BundleContext::Ptr context() const;
 		/// Returns the bundle context.
 		
 protected:
-	Poco::OSP::Bundle::Ptr findBundle(const std::string& symbolicNameOrId) const;
+	[[nodiscard]] Poco::OSP::Bundle::Ptr findBundle(const std::string& symbolicNameOrId) const;
 		/// Finds a bundle, either by symbolic name or ID.
 		///
 		/// If the given argument is an integer, it is treated as bundle ID.
@@ -74,12 +72,12 @@ protected:
 		/// shell session: that would remove code that runs the command or the
 		/// session.
 
-	static bool match(const std::string& pattern, const std::string& subject);
+	[[nodiscard]] static bool match(const std::string& pattern, const std::string& subject);
 		/// Returns true if the given subject matches the given pattern.
 		///
 		/// Every subject matches an empty pattern.
 
-	static bool match(const std::vector<std::string>& patterns, const std::string& subject);
+	[[nodiscard]] static bool match(const std::vector<std::string>& patterns, const std::string& subject);
 		/// Returns true if the given subject matches at least one of the given pattern.
 		///
 		/// Every subject matches an empty pattern.
@@ -98,7 +96,7 @@ inline Poco::OSP::BundleContext::Ptr OSPCommand::context() const
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_OSPCommand_INCLUDED

@@ -22,8 +22,7 @@
 #include "Poco/OSP/ServiceRef.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API ServiceEvent
@@ -45,18 +44,19 @@ public:
 	
 	~ServiceEvent();
 		/// Destroys the ServiceEvent.
+
+	ServiceEvent() = delete;
 		
 	ServiceEvent& operator = (const ServiceEvent& event);
 		/// Assigns another ServiceEvent.
 	
-	ServiceRef::ConstPtr service() const;
+	[[nodiscard]] ServiceRef::ConstPtr service() const;
 		/// Returns the service that caused the event.
 		
-	EventKind what() const;
+	[[nodiscard]] EventKind what() const;
 		/// Returns the reason of the event.
 
 private:
-	ServiceEvent();
 	
 	ServiceRef::Ptr _pService;
 	EventKind       _what;
@@ -78,7 +78,7 @@ inline ServiceEvent::EventKind ServiceEvent::what() const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_ServiceEvent_INCLUDED

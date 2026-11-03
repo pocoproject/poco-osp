@@ -25,20 +25,16 @@ using Poco::OSP::Bundle;
 class PostgreSQLBundleActivator: public BundleActivator
 {
 public:
-	PostgreSQLBundleActivator()
-	{
-	}
+	PostgreSQLBundleActivator() = default;
 
-	~PostgreSQLBundleActivator()
-	{
-	}
+	~PostgreSQLBundleActivator() override = default;
 
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr /*pContext*/) override
 	{
 		Poco::Data::PostgreSQL::Connector::registerConnector();
 	}
 
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 		Poco::Data::PostgreSQL::Connector::unregisterConnector();
 	}

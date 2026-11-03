@@ -24,8 +24,7 @@
 #include <typeinfo>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API Service: public virtual Poco::RefCountedObject
@@ -39,7 +38,7 @@ public:
 	using Ptr = Poco::AutoPtr<Service>;
 	using ConstPtr = const Ptr;
 
-	virtual const std::type_info& type() const;
+	[[nodiscard]] virtual const std::type_info& type() const;
 		/// Returns the type information for the object's class.
 		///
 		/// Subclasses must override this member function.
@@ -58,7 +57,7 @@ public:
 		///         return typeid(MyService);
 		///     }
 
-	virtual bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] virtual bool isA(const std::type_info& otherType) const;
 		/// Returns true if the class is a subclass of the class
 		/// given by type. Comparison must always be done by
 		/// type name, not by simply comparing std::type_info object
@@ -77,12 +76,12 @@ protected:
 	Service();
 		/// Creates the Service.
 
-	~Service();
+	~Service() override;
 		/// Destroys the Service.
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_Service_INCLUDED

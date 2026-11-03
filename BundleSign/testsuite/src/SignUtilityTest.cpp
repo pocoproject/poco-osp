@@ -31,9 +31,7 @@ SignUtilityTest::SignUtilityTest(const std::string& name): CppUnit::TestCase(nam
 }
 
 
-SignUtilityTest::~SignUtilityTest()
-{
-}
+SignUtilityTest::~SignUtilityTest() = default;
 
 
 void SignUtilityTest::testSignUtility()

@@ -28,7 +28,7 @@ class AuthAdminServiceTest: public CppUnit::TestCase
 {
 public:
 	AuthAdminServiceTest(const std::string& name, bool testInlineAttributes = false);
-	~AuthAdminServiceTest();
+	~AuthAdminServiceTest() override;
 
 	void testUsers();
 	void testManyUsers();
@@ -120,8 +120,8 @@ public:
 	void testInvalidateCachesClearsPermissionsByDefault();
 	void testValidateUserEventIsInitialized();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 

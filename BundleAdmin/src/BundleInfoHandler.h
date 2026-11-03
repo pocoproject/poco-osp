@@ -23,7 +23,7 @@ public:
 	BundleInfoHandler(Poco::OSP::BundleContext::Ptr pContext);
 		/// Creates the BundleInfoHandler.
 
-	~BundleInfoHandler();
+	~BundleInfoHandler() override;
 		/// Destroys the BundleInfoHandler.
 
 	void handle() override;

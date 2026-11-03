@@ -23,7 +23,7 @@ class WebServerDispatcherTest: public CppUnit::TestCase
 {
 public:
 	WebServerDispatcherTest(const std::string& name);
-	~WebServerDispatcherTest();
+	~WebServerDispatcherTest() override;
 
 	void testVirtualDirectoryRoot();
 	void testVirtualDirectoryAllow();
@@ -68,8 +68,8 @@ public:
 	void testBundleLibraryStaysLoadedUntilBundleStopped();
 #endif
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 

@@ -26,9 +26,7 @@
 #include <vector>
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
 using ValueMap = std::map<std::string, std::string>;
@@ -47,7 +45,7 @@ using AttributesNameMap = std::vector<std::pair<std::string, std::string>>;
 	/// A vector of attribute name pairs (LDAP attribute name, local attribute name).
 
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth
 
 
 #endif // OSP_Auth_AuthTypes_INCLUDED

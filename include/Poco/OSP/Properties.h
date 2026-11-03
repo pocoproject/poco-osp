@@ -25,8 +25,7 @@
 #include <vector>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API Properties
@@ -48,7 +47,7 @@ public:
 	Properties& operator = (const Properties& props);
 		/// Assigns another Properties object.
 
-	void swap(Properties& props);
+	void swap(Properties& props) noexcept;
 		/// Exchanges the contents of the Properties object
 		/// with those from another one.
 
@@ -64,7 +63,7 @@ public:
 		/// Throws a Poco::NotFoundException if the given key
 		/// does not exist.
 
-	std::string get(const std::string& key, const std::string& deflt) const;
+	[[nodiscard]] std::string get(const std::string& key, const std::string& deflt) const;
 		/// Returns the value for the given key, or
 		/// deflt if the key does not exist.
 
@@ -76,7 +75,7 @@ public:
 		/// Throws a Poco::NotFoundException if the given key
 		/// does not exist.
 
-	bool getBool(const std::string& key, bool deflt) const;
+	[[nodiscard]] bool getBool(const std::string& key, bool deflt) const;
 		/// Returns the given value as a boolean.
 		/// To be true, the string value must be something
 		/// other than "false".
@@ -114,7 +113,7 @@ public:
 		/// does not exist and a Poco::SyntaxException if
 		/// the property value is not a valid floating point number.
 
-	double getFloat(const std::string& key, double deflt) const;
+	[[nodiscard]] double getFloat(const std::string& key, double deflt) const;
 		/// Returns the given value as a double.
 		///
 		/// Returns deflt if key does not exist.
@@ -137,13 +136,13 @@ public:
 	void set(const std::string& key, double value);
 		/// Adds a new or updates an existing property.
 
-	bool has(const std::string& key) const;
+	[[nodiscard]] bool has(const std::string& key) const;
 		/// Returns true iff a property with the given key exists.
 
 	void keys(std::vector<std::string>& keys) const;
 		/// Fills the given vector with all keys.
 
-	std::vector<std::string> keys() const;
+	[[nodiscard]] std::vector<std::string> keys() const;
 		/// Returns a vector containing all keys.
 
 protected:
@@ -175,7 +174,7 @@ inline std::string Properties::operator [] (const std::string& key) const
 }
 
 
-inline void swap(Properties& p1, Properties& p2)
+inline void swap(Properties& p1, Properties& p2) noexcept
 {
 	p1.swap(p2);
 }
@@ -189,7 +188,7 @@ inline std::vector<std::string> Properties::keys() const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_Properties_INCLUDED

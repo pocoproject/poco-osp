@@ -29,8 +29,7 @@
 #include <map>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API PreferencesService: public Service
@@ -50,22 +49,22 @@ public:
 		/// Creates the PreferencesService, usign the given global
 		/// configuration.
 
-	Preferences::Ptr preferences(const std::string& bundleOrServiceID);
+	[[nodiscard]] Preferences::Ptr preferences(const std::string& bundleOrServiceID);
 		/// Returns the preferences object for the given bundle or
 		/// service. A bundle should specify its symbolic name as
 		/// ID. A service should specify its service name.
 
-	Configuration::Ptr configuration();
+	[[nodiscard]] Configuration::Ptr configuration();
 		/// Returns the global application configuration.
 
 	static const std::string SERVICE_NAME;
 
 	// Service
-	const std::type_info& type() const;
-	bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 protected:
-	~PreferencesService();
+	~PreferencesService() override;
 		/// Destroys the PreferencesService.
 
 private:
@@ -78,7 +77,7 @@ private:
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_PreferencesService_INCLUDED

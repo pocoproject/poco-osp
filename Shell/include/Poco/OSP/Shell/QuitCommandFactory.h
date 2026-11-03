@@ -23,9 +23,7 @@
 #include "Poco/OSP/Shell/CommandFactory.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class OSPShell_API QuitCommandFactory: public CommandFactory
@@ -35,15 +33,15 @@ public:
 	QuitCommandFactory();
 		/// Creates the QuitCommandFactory.
 		
-	~QuitCommandFactory();
+	~QuitCommandFactory() override;
 		/// Destroys the QuitCommandFactory.
 		
 	// CommandFactory
-	Command* createCommand();
+	[[nodiscard]] Command* createCommand() override;
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_QuitCommandFactory_INCLUDED

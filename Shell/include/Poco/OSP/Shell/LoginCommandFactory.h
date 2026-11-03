@@ -23,9 +23,7 @@
 #include "Poco/OSP/Shell/CommandFactory.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class OSPShell_API LoginCommandFactory: public CommandFactory
@@ -35,15 +33,15 @@ public:
 	LoginCommandFactory();
 		/// Creates the LoginCommandFactory.
 		
-	~LoginCommandFactory();
+	~LoginCommandFactory() override;
 		/// Destroys the LoginCommandFactory.
 		
 	// CommandFactory
-	Command* createCommand();
+	[[nodiscard]] Command* createCommand() override;
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_LoginCommandFactory_INCLUDED

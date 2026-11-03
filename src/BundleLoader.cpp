@@ -46,8 +46,7 @@ using Poco::Environment;
 using Poco::Logger;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 namespace
@@ -204,7 +203,7 @@ void BundleLoader::unloadBundle(Bundle::Ptr pBundle)
 	if (pBundle->isExtensionBundle())
 	{
 		Bundle::Ptr pExtendedBundle = pBundle->extendedBundle();
-		if (pExtendedBundle)
+		if (pExtendedBundle != nullptr)
 		{
 			pExtendedBundle->removeExtensionBundle(pBundle);
 		}
@@ -481,7 +480,7 @@ void BundleLoader::unloadAllBundles(bool unloadLibraries)
 				if (itMap != _bundles.end())
 				{
 					pToRelease = itMap->second.pClassLoader;
-					itMap->second.pClassLoader = 0;
+					itMap->second.pClassLoader = nullptr;
 					if (!pToRelease.isNull()) itMap->second.pBundle->setActivator(nullptr);
 					_bundles.erase(itMap);
 				}
@@ -588,7 +587,7 @@ void BundleLoader::resolveBundleImpl(Bundle* pBundle)
 	if (pBundle->isExtensionBundle())
 	{
 		Bundle::Ptr pExtendedBundle = pBundle->extendedBundle();
-		if (pExtendedBundle)
+		if (pExtendedBundle != nullptr)
 		{
 			if (!pExtendedBundle->isResolved())
 			{
@@ -746,7 +745,7 @@ void BundleLoader::startBundle(Bundle* pBundle)
 	// Phase 4: invoke the activator outside _mutex. pBundle (kept alive by
 	// keepAlive) owns pActivator; pContext is refcounted by AutoPtr. Both
 	// outlive any concurrent map mutation.
-	if (pActivator)
+	if (pActivator != nullptr)
 	{
 		_logger.debug("Invoking BundleActivator::start()"s);
 		pActivator->start(pContext);
@@ -801,7 +800,7 @@ void BundleLoader::stopBundle(Bundle* pBundle)
 	// Invoke the activator outside _mutex so that bundleStopping/bundleStopped
 	// events (and any delegate callbacks into contextForBundle) cannot form
 	// a lock-order cycle.
-	if (pActivator)
+	if (pActivator != nullptr)
 	{
 		_logger.debug("Invoking BundleActivator::stop()"s);
 		pActivator->stop(pContext);
@@ -823,7 +822,7 @@ void BundleLoader::uninstallBundle(Bundle* pBundle)
 	if (pBundle->isExtensionBundle())
 	{
 		Bundle::Ptr pExtendedBundle = pBundle->extendedBundle();
-		if (pExtendedBundle)
+		if (pExtendedBundle != nullptr)
 		{
 			pExtendedBundle->removeExtensionBundle(pBundle);
 		}
@@ -897,7 +896,7 @@ BundleContext::Ptr BundleLoader::contextForBundle(Bundle::ConstPtr pBundle) cons
 void BundleLoader::resolveDependency(Bundle* pBundle, const BundleManifest::Dependency& dependency, Bundle::ResolvedDependencies* pResolved)
 {
 	Bundle::Ptr pDepBundle(findBundle(dependency.symbolicName));
-	if (pDepBundle)
+	if (pDepBundle != nullptr)
 	{
 		if (dependency.versions.isEmpty() || dependency.versions.isInRange(pDepBundle->version()))
 		{
@@ -921,7 +920,7 @@ void BundleLoader::resolveDependency(Bundle* pBundle, const BundleManifest::Depe
 			resolvedDep.symbolicName = pDepBundle->symbolicName();
 			resolvedDep.version = pDepBundle->version();
 			resolvedDep.id = pDepBundle->id();
-			if (pResolved)
+			if (pResolved != nullptr)
 			{
 				bool known = false;
 				for (Bundle::ResolvedDependencies::const_iterator it = pResolved->begin(); it != pResolved->end(); ++it)
@@ -968,7 +967,7 @@ bool BundleLoader::hasStaleDependencies(const Bundle* pBundle) const
 		// and however far it has come (another dependent may have resolved
 		// or started it already).
 		Bundle::ConstPtr pDepBundle(findBundle(it->symbolicName));
-		if (!pDepBundle || pDepBundle->id() != it->id) return true;
+		if (pDepBundle == nullptr || pDepBundle->id() != it->id) return true;
 	}
 	return false;
 }
@@ -983,7 +982,8 @@ void BundleLoader::unresolvedDependencies(Bundle* pBundle, std::vector<Bundle::P
 	for (BundleManifest::Dependencies::const_iterator it = deps.begin(); it != deps.end(); ++it)
 	{
 		Bundle::Ptr pDepBundle(findBundle(it->symbolicName));
-		if (pDepBundle && !pDepBundle->isResolved() && (it->versions.isEmpty() || it->versions.isInRange(pDepBundle->version())))
+		if (pDepBundle != nullptr && !pDepBundle->isResolved() &&
+			(it->versions.isEmpty() || it->versions.isInRange(pDepBundle->version())))
 		{
 			unresolved.push_back(pDepBundle);
 		}
@@ -995,7 +995,7 @@ void BundleLoader::unresolvedDependencies(Bundle* pBundle, std::vector<Bundle::P
 		for (Bundle::ResolvedDependencies::const_iterator itb = itp->bundles.begin(); itb != itp->bundles.end(); ++itb)
 		{
 			Bundle::Ptr pDepBundle(findBundle(itb->symbolicName));
-			if (pDepBundle && !pDepBundle->isResolved()) unresolved.push_back(pDepBundle);
+			if (pDepBundle != nullptr && !pDepBundle->isResolved()) unresolved.push_back(pDepBundle);
 		}
 	}
 }
@@ -1093,7 +1093,7 @@ void BundleLoader::startDependencies(Bundle* pBundle)
 	for (Bundle::ResolvedDependencies::const_iterator it = deps.begin(); it != deps.end(); ++it)
 	{
 		Bundle::Ptr pDepBundle(findBundle(it->symbolicName));
-		if (pDepBundle && pDepBundle->version() == it->version)
+		if (pDepBundle != nullptr && pDepBundle->version() == it->version)
 		{
 			// Waits for a thread that is starting the required bundle.
 			Poco::Mutex::ScopedLock lock(pDepBundle->_lifecycleMutex);
@@ -1109,10 +1109,10 @@ void BundleLoader::startDependencies(Bundle* pBundle)
 
 BundleActivator* BundleLoader::loadActivator(BundleInfo& bundleInfo)
 {
-	BundleActivator* pActivator(0);
+	BundleActivator* pActivator(nullptr);
 #if defined(POCO_OSP_STATIC)
 	pActivator = bundleInfo.pBundle->activator();
-	if (!pActivator)
+	if (pActivator == nullptr)
 	{
 		const std::string& activatorClass = bundleInfo.pBundle->activatorClass();
 		if (!activatorClass.empty())
@@ -1124,7 +1124,7 @@ BundleActivator* BundleLoader::loadActivator(BundleInfo& bundleInfo)
 		}
 	}
 #else
-	if (!bundleInfo.pClassLoader)
+	if (bundleInfo.pClassLoader == nullptr)
 	{
 		// kept unless loading the activator fails, so that a start that
 		// fails to load it fails again on the next start
@@ -1173,7 +1173,7 @@ BundleActivator* BundleLoader::loadActivator(BundleInfo& bundleInfo)
 void BundleLoader::unloadActivator(BundleInfo& bundleInfo)
 {
 #if !defined(POCO_OSP_STATIC)
-	if (bundleInfo.pClassLoader)
+	if (bundleInfo.pClassLoader != nullptr)
 	{
 		if (!bundleInfo.pBundle->activatorClass().empty())
 		{
@@ -1184,7 +1184,7 @@ void BundleLoader::unloadActivator(BundleInfo& bundleInfo)
 			}
 			bundleInfo.pClassLoader->unloadLibrary(libPath);
 		}
-		bundleInfo.pClassLoader = 0;
+		bundleInfo.pClassLoader = nullptr;
 		bundleInfo.pBundle->setActivator(nullptr);
 	}
 #endif
@@ -1247,10 +1247,10 @@ void BundleLoader::installLibrary(Bundle* pBundle, const Poco::Path& p, const Po
 		_logger.debug("Installing library %s."s, p.toString(Path::PATH_UNIX));
 	}
 	std::unique_ptr<std::istream> pStream(pBundle->storage().getResource(p.toString(Path::PATH_UNIX)));
-	if (pStream.get())
+	if (pStream != nullptr)
 	{
 		_codeCache.installLibrary(p.getFileName(), *pStream);
-		if (pTS)
+		if (pTS != nullptr)
 		{
 			File f(_codeCache.pathFor(p.getFileName(), false));
 			try
@@ -1423,4 +1423,4 @@ void BundleLoader::registerBundleActivator(const std::string& className, BundleA
 #endif
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

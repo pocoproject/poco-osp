@@ -47,9 +47,7 @@
 #include <set>
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 class OSPWeb_API WebServerDispatcher: public Service
@@ -83,10 +81,7 @@ public:
 		RESPONSE_FORMAT_JSON = 2  /// JSON-formatted error page
 	};
 
-	enum
-	{
-		BUFFER_SIZE = 8192
-	};
+	static constexpr std::size_t BUFFER_SIZE = 8192;
 
 	using RequestHandlerFactoryPtr = Poco::SharedPtr<Poco::Net::HTTPRequestHandlerFactory>;
 	using RegularExpressionPtr = Poco::SharedPtr<Poco::RegularExpression>;
@@ -126,16 +121,12 @@ public:
 
 	struct PathCORS
 	{
-		PathCORS():
-			enable(false),
-			allowCredentials(true)
-		{
-		}
+		PathCORS() = default;
 
-		bool               enable;           /// enable or disable CORS
+		bool               enable = false;   /// enable or disable CORS
 		std::string        allowOrigin;      /// CORS allowed origin(s), see enableCORS()
 		std::string        allowMethods;     /// CORS allowed methods
-		bool               allowCredentials; /// allow credentials with CORS requests
+		bool               allowCredentials = true; /// allow credentials with CORS requests
 		std::string        allowHeaders;     /// allowed headers in CORS requests
 	};
 
@@ -225,7 +216,7 @@ public:
 
 	struct Config
 	{
-		Config(): options(), authMethods(AUTH_ALL) { }
+		Config() = default;
 
 		BundleContext::Ptr pContext;
 		MediaTypeMapper::Ptr pMediaTypeMapper;
@@ -233,8 +224,8 @@ public:
 		std::string tokenValidatorName;
 		std::set<std::string> compressedMediaTypes;
 		Poco::Net::NameValueCollection customResponseHeaders;
-		int options;
-		int authMethods;
+		int options = 0;
+		int authMethods = AUTH_ALL;
 		std::string corsAllowedOrigin;
 	};
 
@@ -268,7 +259,7 @@ public:
 	explicit WebServerDispatcher(const Config& config);
 		/// Creates the WebServerDispatcher.
 
-	virtual ~WebServerDispatcher();
+	~WebServerDispatcher() override;
 		/// Destroys the WebServerDispatcher.
 
 	void addVirtualPath(const VirtualPath& virtualPath);
@@ -306,7 +297,7 @@ public:
 		/// a permission is answered with 503 Service Unavailable. For the permission "**",
 		/// only a request with credentials, or in a session that names a user, gets this answer.
 
-	Poco::ThreadPool& threadPool();
+	[[nodiscard]] Poco::ThreadPool& threadPool();
 		/// Returns the thread pool for use by Poco::Net::HTTPServer.
 
 	void addFilter(const std::string& mediaType, WebFilterFactoryPtr pFilterFactory, const WebFilter::Args& args);
@@ -317,17 +308,19 @@ public:
 	void removeFilter(const std::string& mediaType);
 		/// Removes the filter for the given mediaType.
 
-	static int parseAuthMethods(const std::string& methods);
+	[[nodiscard]] static int parseAuthMethods(const std::string& methods);
 		/// Parses a comma-separated list of authentication method names and
 		/// returns a value with the corresponding AuthMethod flags set.
 
-	static std::string canonicalPathWithQuery(const std::string& canonicalPath, const std::string& requestUri);
+	[[nodiscard]] static std::string canonicalPathWithQuery(const std::string& canonicalPath,
+		const std::string& requestUri);
 		/// Returns canonicalPath with the query string of requestUri appended
 		/// (separated by '?'), or canonicalPath unchanged if requestUri has
 		/// no query. Used to preserve query parameters across the trailing-
 		/// slash canonicalization redirect.
 
-	static std::string redirectLocationOn401(const std::string& loginTarget, const std::string& requestUri);
+	[[nodiscard]] static std::string redirectLocationOn401(const std::string& loginTarget,
+		const std::string& requestUri);
 		/// Returns the URL the client should be redirected to when a request
 		/// fails authorization on a vPath that has redirectOn401 set.
 		/// The path and query of requestUri (never its scheme and host),
@@ -349,7 +342,8 @@ public:
 		/// Behind a reverse proxy that terminates TLS, the scheme of the connection
 		/// is "http", so the "https" origin of the proxy is not the same origin.
 
-	static bool parseRange(const std::string& range, Poco::File::FileSize fileSize, Poco::File::FileSize& rangeStart, Poco::File::FileSize& rangeLength);
+	[[nodiscard]] static bool parseRange(const std::string& range, Poco::File::FileSize fileSize,
+		Poco::File::FileSize& rangeStart, Poco::File::FileSize& rangeLength);
 		/// Parses the "Range" HTTP header to determine the requested byte range, and
 		/// assigns the result based on fileSize to rangeStart and rangeLength.
 		///
@@ -359,8 +353,8 @@ public:
 		/// satisfiable one is returned.
 
 	// Service
-	virtual const std::type_info& type() const;
-	virtual bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 	static const std::string SERVICE_NAME;
 
@@ -373,11 +367,11 @@ protected:
 		/// Releases the request handler factories of the mappings of the stopped bundle,
 		/// which can unload the libraries of the bundle.
 
-	static std::string normalizePath(const std::string& path);
+	[[nodiscard]] static std::string normalizePath(const std::string& path);
 		/// Creates normalized path for internal storage.
 		/// The normalized path always starts and ends with a slash.
 
-	const VirtualPath& mapPath(const std::string& path, const std::string& method) const;
+	[[nodiscard]] const VirtualPath& mapPath(const std::string& path, const std::string& method) const;
 		/// Maps a URI to a VirtualPath.
 		///
 		/// Throws a NotFoundException if no suitable mapping can be found.
@@ -398,7 +392,7 @@ protected:
 		/// if no matching resource exists. If caching is enabled both globally
 		/// and for the specific resource, attempts to cache the resource.
 
-	static bool cleanPath(std::string& path);
+	[[nodiscard]] static bool cleanPath(std::string& path);
 		/// Removes unnecessary characters (such as trailing dots)
 		/// from the path and checks for illegal or dangerous
 		/// characters. A path with a dot segment ("." or "..")
@@ -417,7 +411,8 @@ protected:
 		/// 403 Forbidden; GET and HEAD requests from such an origin are handled
 		/// normally, without CORS headers.
 
-	bool enableCORS(const Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response, const VirtualPath& vPath) const;
+	[[nodiscard]] bool enableCORS(const Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response,
+		const VirtualPath& vPath) const;
 		/// Adds CORS headers to the response if the origin of the request is allowed,
 		/// and returns whether it is.
 		///
@@ -426,7 +421,8 @@ protected:
 		/// credentials; "**" allows every origin by sending back the request's
 		/// origin; any other value is a comma-separated list of allowed origins.
 
-	bool authorize(Poco::Net::HTTPServerRequest& request, const VirtualPath& vPath, std::string& username, bool& authenticated) const;
+	[[nodiscard]] bool authorize(Poco::Net::HTTPServerRequest& request, const VirtualPath& vPath, std::string& username,
+		bool& authenticated) const;
 		/// Authorizes the request.
 		///
 		/// Sets authenticated to true if the request carries a valid, logged-in
@@ -435,7 +431,8 @@ protected:
 		/// This lets the caller distinguish "not logged in" from "logged in but
 		/// forbidden" and react accordingly.
 
-	bool authorizeSession(Poco::Net::HTTPServerRequest& request, const VirtualPath& vPath, std::string& username, bool& authenticated) const;
+	[[nodiscard]] bool authorizeSession(Poco::Net::HTTPServerRequest& request, const VirtualPath& vPath,
+		std::string& username, bool& authenticated) const;
 		/// Authorizes the request using a session-based authentication.
 		///
 		/// Sets authenticated to true when a valid session for an existing user
@@ -456,13 +453,15 @@ protected:
 		/// Sets authenticated to true if the token is valid and names an existing
 		/// user, regardless of whether the permission check succeeds.
 
-	bool hasPermission(Poco::OSP::Auth::AuthService::Ptr pAuthService, const std::string& username, const std::string& permission) const;
+	[[nodiscard]] bool hasPermission(Poco::OSP::Auth::AuthService::Ptr pAuthService, const std::string& username,
+		const std::string& permission) const;
 		/// Checks if the user has the required permission.
 		/// Supports comma-separated permissions (OR logic):
 		/// "perm1,perm2" means the user needs at least one.
 		/// Special values: "*" (any authenticated user), "**" (optional auth).
 
-	bool hasPermission(Poco::OSP::Auth::AuthService::Ptr pAuthService, const std::string& username, const std::string& scope, const std::string& permission) const;
+	[[nodiscard]] bool hasPermission(Poco::OSP::Auth::AuthService::Ptr pAuthService, const std::string& username,
+		const std::string& scope, const std::string& permission) const;
 		/// Checks if the user has the required permission within the given scope.
 		/// Supports comma-separated permissions (OR logic).
 
@@ -496,29 +495,30 @@ protected:
 	void sendJSONResponse(Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPResponse::HTTPStatus status, const std::string& message);
 		/// Sends a standard status/error response in JSON format.
 
-	static std::string htmlize(const std::string& str);
+	[[nodiscard]] static std::string htmlize(const std::string& str);
 		/// Returns a HTML-ized version of the given string.
 
-	Poco::OSP::Auth::AuthService::Ptr authService() const;
+	[[nodiscard]] Poco::OSP::Auth::AuthService::Ptr authService() const;
 		/// Returns a pointer to the auth service, if it is registered,
 		/// or null otherwise.
 
-	TokenValidator::Ptr tokenValidator() const;
+	[[nodiscard]] TokenValidator::Ptr tokenValidator() const;
 		/// Returns a pointer to the token validator, if it is registered,
 		/// or null otherwise.
 
-	WebSessionManager::Ptr sessionManager() const;
+	[[nodiscard]] WebSessionManager::Ptr sessionManager() const;
 		/// Returns a pointer to the WebSessionManager, if it is registered,
 		/// or null otherwise.
 
-	std::string formatMessage(const std::string& messageId, const std::string& arg1 = std::string(), const std::string& arg2 = std::string());
+	[[nodiscard]] std::string formatMessage(const std::string& messageId, const std::string& arg1 = std::string(),
+		const std::string& arg2 = std::string());
 		/// Reads a message from the bundle.properties resource and replaces
 		/// placeholders $1 and $2 with arg1 and arg2, respectively.
 
-	bool shouldCompressMediaType(const std::string& mediaType) const;
+	[[nodiscard]] bool shouldCompressMediaType(const std::string& mediaType) const;
 		/// Returns true iff content with the given media type should be compressed.
 
-	WebFilterPtr findFilter(const std::string& mediaType);
+	[[nodiscard]] WebFilterPtr findFilter(const std::string& mediaType);
 		/// Returns a WebFilter instance for the given mediaType, or a null
 		/// pointer if no WebFilterFactory has been registered for the given
 		/// mediaType.
@@ -533,7 +533,7 @@ protected:
 		/// Configures response to return partial content defined with rangeStart and rangeLength
 		/// from resourceStream with status 206 Partial Content.
 
-	Poco::Net::SocketAddress realClientAddress(const Poco::Net::HTTPServerRequest& request) const;
+	[[nodiscard]] Poco::Net::SocketAddress realClientAddress(const Poco::Net::HTTPServerRequest& request) const;
 		/// Returns the client address obtained from the first entry of the X-Forwarded-For
 		/// header, if that is an IP address, otherwise the client address from the request.
 		///
@@ -619,7 +619,7 @@ inline Poco::ThreadPool& WebServerDispatcher::threadPool()
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web
 
 
 #endif // OSP_Web_WebServerDispatcher_INCLUDED

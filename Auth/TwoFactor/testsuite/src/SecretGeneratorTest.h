@@ -24,7 +24,7 @@ class SecretGeneratorTest: public CppUnit::TestCase
 {
 public:
 	SecretGeneratorTest(const std::string& name);
-	~SecretGeneratorTest();
+	~SecretGeneratorTest() override;
 
 	void testGenerate();
 	void testInvalidLengthIsRejected();
@@ -33,8 +33,8 @@ public:
 	void testDecode();
 	void testURI();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 };

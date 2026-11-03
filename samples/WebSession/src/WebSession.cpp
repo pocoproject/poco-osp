@@ -65,7 +65,7 @@ public:
 	{
 	}
 	
-	void handleRequest(HTTPServerRequest& request, HTTPServerResponse& response)
+	void handleRequest(HTTPServerRequest& request, HTTPServerResponse& response) override
 	{
 		// See if we already have a session
 		WebSession::Ptr pSession = _pWebSessionManager->find("sample", request);
@@ -219,12 +219,9 @@ Poco::FastMutex SessionHandler::_entriesMutex;
 class SessionHandlerFactory: public WebRequestHandlerFactory
 {
 public:
-	SessionHandlerFactory():
-		_timeout(0)
-	{
-	}
+	SessionHandlerFactory() = default;
 
-	HTTPRequestHandler* createRequestHandler(const HTTPServerRequest& request)
+	[[nodiscard]] HTTPRequestHandler* createRequestHandler(const HTTPServerRequest& /*request*/) override
 	{
 		if (_pWebSessionManager == nullptr)
 		{
@@ -234,11 +231,11 @@ public:
 	}
 	
 protected:
-	void initImpl()
+	void initImpl() override
 	{
 		_timeout = context()->thisBundle()->properties().getInt("timeout", 30);
 		ServiceRef::Ptr pWebSessionManagerRef = context()->registry().findByName(WebSessionManager::SERVICE_NAME);
-		if (pWebSessionManagerRef)
+		if (pWebSessionManagerRef != nullptr)
 		{
 			 _pWebSessionManager = pWebSessionManagerRef->castedInstance<WebSessionManager>();
 		}
@@ -250,7 +247,7 @@ protected:
 	
 private:
 	WebSessionManager::Ptr _pWebSessionManager;
-	int _timeout;
+	int _timeout = 0;
 };
 
 

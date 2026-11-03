@@ -17,9 +17,7 @@
 #include <sstream>
 
 
-namespace Poco {
-namespace OSP {
-namespace Prometheus {
+namespace Poco::OSP::Prometheus {
 
 
 class StringExporter: public Poco::Prometheus::Exporter
@@ -32,13 +30,13 @@ public:
 	StringExporter() = default;
 		/// Creates the StringExporter for the given output stream.
 
-	std::string toString() const;
+	[[nodiscard]] std::string toString() const;
 		/// Returns a string containing all metrics.
 
 	StringExporter(const StringExporter&) = delete;
 	StringExporter& operator = (const StringExporter&) = delete;
 
-	~StringExporter() = default;
+	~StringExporter() override = default;
 
 	// Exporter
 	void writeHeader(const Poco::Prometheus::Metric& metric) override;
@@ -64,7 +62,7 @@ inline std::string StringExporter::toString() const
 }
 
 
-} } } // namespace Poco::OSP::Prometheus
+} // namespace Poco::OSP::Prometheus
 
 
 #endif // OSP_Prometheus_StringExporter_INCLUDED

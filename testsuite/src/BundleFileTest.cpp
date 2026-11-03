@@ -34,9 +34,7 @@ BundleFileTest::BundleFileTest(const std::string& name): CppUnit::TestCase(name)
 }
 
 
-BundleFileTest::~BundleFileTest()
-{
-}
+BundleFileTest::~BundleFileTest() = default;
 
 
 void BundleFileTest::testGetResourceOpensEntry()
@@ -45,17 +43,17 @@ void BundleFileTest::testGetResourceOpensEntry()
 	BundleStorage::Ptr pBF(new BundleFile(_bundlePath));
 
 	std::unique_ptr<std::istream> istr1(pBF->getResource("META-INF/manifest.mf"));
-	assert (istr1.get() != 0);
+	assert (istr1 != nullptr);
 	std::getline(*istr1, s);
 	assert (s == "Manifest-Version: 1.0");
 
 	std::unique_ptr<std::istream> istr2(pBF->getResource("bundle.properties"));
-	assert (istr2.get() != 0);
+	assert (istr2 != nullptr);
 	std::getline(*istr2, s);
 	assert (s == "foo: bar");
 
 	std::istream* istr3(pBF->getResource("nonexistent"));
-	assert (istr3 == 0);
+	assert (istr3 == nullptr);
 }
 
 

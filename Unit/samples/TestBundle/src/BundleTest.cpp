@@ -21,16 +21,12 @@ using Poco::UnhandledException;
 using Poco::format;
 
 
-BundleTest::BundleTest(const std::string& name): Poco::OSP::Unit::TestCase(name),
-	_setUp(false),
-	_tornDown(false)
+BundleTest::BundleTest(const std::string& name): Poco::OSP::Unit::TestCase(name)
 {
 }
 
 
-BundleTest::~BundleTest()
-{
-}
+BundleTest::~BundleTest() = default;
 
 
 void BundleTest::testSuccess()

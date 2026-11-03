@@ -84,23 +84,23 @@ namespace
 		BlockingAuthService& operator = (const BlockingAuthService&) = delete;
 		BlockingAuthService& operator = (BlockingAuthService&&) = delete;
 
-		bool authenticate(const std::string&, const std::string&) const override
+		[[nodiscard]] bool authenticate(const std::string&, const std::string&) const override
 		{
 			_entered.set();
 			return _released.tryWait(WAIT_MS);
 		}
 
-		bool authorize(const std::string&, const std::string&) const override
+		[[nodiscard]] bool authorize(const std::string&, const std::string&) const override
 		{
 			return true;
 		}
 
-		bool authorize(const std::string&, const std::string&, const std::string&) const override
+		[[nodiscard]] bool authorize(const std::string&, const std::string&, const std::string&) const override
 		{
 			return true;
 		}
 
-		bool userExists(const std::string&) const override
+		[[nodiscard]] bool userExists(const std::string&) const override
 		{
 			return true;
 		}

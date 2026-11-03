@@ -22,7 +22,7 @@ class VersionRangeTest: public CppUnit::TestCase
 {
 public:
 	VersionRangeTest(const std::string& name);
-	~VersionRangeTest();
+	~VersionRangeTest() override;
 
 	void testClosedRangeIncludesBounds();
 	void testOpenRangeExcludesBounds();
@@ -31,8 +31,8 @@ public:
 	void testToString();
 	void testAssignAndSwap();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 

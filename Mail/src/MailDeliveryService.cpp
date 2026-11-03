@@ -18,9 +18,7 @@
 #include "Poco/Mutex.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Mail {
+namespace Poco::OSP::Mail {
 
 
 //
@@ -35,9 +33,7 @@ MailDeliveryHandle::MailDeliveryHandle(MailMessagePtr pMessage):
 }
 
 	
-MailDeliveryHandle::~MailDeliveryHandle()
-{
-}
+MailDeliveryHandle::~MailDeliveryHandle() = default;
 
 	
 void MailDeliveryHandle::wait()
@@ -132,4 +128,4 @@ bool MailDeliveryService::isA(const std::type_info& otherType) const
 }
 
 
-} } } // namespace Poco::OSP::Mail
+} // namespace Poco::OSP::Mail

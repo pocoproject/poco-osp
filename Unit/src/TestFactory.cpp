@@ -22,19 +22,13 @@
 using CppUnit::Test;
 
 
-namespace Poco {
-namespace OSP {
-namespace Unit {
+namespace Poco::OSP::Unit {
 
 
-TestFactory::TestFactory()
-{
-}
+TestFactory::TestFactory() = default;
 
 
-TestFactory::~TestFactory()
-{
-}
+TestFactory::~TestFactory() = default;
 
 
 namespace
@@ -74,4 +68,4 @@ TestFactory::TestVec TestFactory::get(const std::string& symbolicName)
 }
 
 
-} } } // namespace Poco::OSP::Unit
+} // namespace Poco::OSP::Unit

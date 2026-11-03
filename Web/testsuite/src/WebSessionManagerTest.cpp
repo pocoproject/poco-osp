@@ -46,7 +46,7 @@ namespace
 	const std::string CLIENT_ADDRESS("127.0.0.1:50000");
 	const std::string CSRF_COOKIE("XSRF-TOKEN");
 
-	HTTPCookie responseCookie(const Poco::Net::HTTPServerRequest& request, const std::string& name)
+	[[nodiscard]] HTTPCookie responseCookie(const Poco::Net::HTTPServerRequest& request, const std::string& name)
 		/// Returns the cookie with the given name from the
 		/// Set-Cookie headers of the request's response.
 	{

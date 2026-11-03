@@ -17,19 +17,13 @@
 #include "Poco/OSP/Shell/CommandFactory.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
-CommandFactory::CommandFactory()
-{
-}
+CommandFactory::CommandFactory() = default;
 
 	
-CommandFactory::~CommandFactory()
-{
-}
+CommandFactory::~CommandFactory() = default;
 
 
 void CommandFactory::init(Poco::OSP::BundleContext::Ptr pContext)
@@ -44,4 +38,4 @@ void CommandFactory::initImpl()
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

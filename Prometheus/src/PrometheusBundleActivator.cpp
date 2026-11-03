@@ -51,15 +51,13 @@ using Poco::OSP::Properties;
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
-namespace Prometheus {
+namespace Poco::OSP::Prometheus {
 
 
 class LogMetricsTask: public Poco::Util::TimerTask
 {
 public:
-	void run()
+	void run() override
 	{
 		StringExporter exporter;
 		Poco::Prometheus::Registry::defaultRegistry().exportTo(exporter);
@@ -92,7 +90,7 @@ using CollectorPtr = std::unique_ptr<C, CollectorDeleter>;
 class BundleActivator: public Poco::OSP::BundleActivator
 {
 public:
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		_pContext = pContext;
 		Poco::OSP::PreferencesService::Ptr pPrefs = Poco::OSP::ServiceFinder::find<Poco::OSP::PreferencesService>(pContext);
@@ -143,7 +141,7 @@ public:
 		}
 	}
 
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 		cleanup();
 	}
@@ -160,12 +158,12 @@ protected:
 		// destroying this activator. Otherwise, an in-flight HTTP request can
 		// fire the event after the counters are gone (or this is destroyed)
 		// and crash the worker thread.
-		if (_pWebServerDispatcher)
+		if (_pWebServerDispatcher != nullptr)
 		{
 			_pWebServerDispatcher->requestHandled -= Poco::delegate(this, &BundleActivator::onWebServerDispatcherRequestHandled);
 		}
 
-		if (_pMetricsServer)
+		if (_pMetricsServer != nullptr)
 		{
 			_pMetricsServer->stopAll();
 			_pMetricsServer.reset();
@@ -211,7 +209,7 @@ protected:
 	void onWebServerDispatcherRegistered(const Poco::OSP::ServiceRef::Ptr& pServiceRef)
 	{
 		_pWebServerDispatcher = pServiceRef->castedInstance<Poco::OSP::Web::WebServerDispatcher>();
-		if (_pWebServerDispatcher)
+		if (_pWebServerDispatcher != nullptr)
 		{
 			_pContext->logger().information("Creating ThreadPoolCollector for WebServerDispatcher thread pool."s);
 			_webServerDispatcherCollector.reset(new Poco::Prometheus::ThreadPoolCollector(_pWebServerDispatcher->threadPool()));
@@ -236,10 +234,10 @@ protected:
 		}
 	}
 
-	void onWebServerDispatcherUnregistered(const Poco::OSP::ServiceRef::Ptr& pServiceRef)
+	void onWebServerDispatcherUnregistered(const Poco::OSP::ServiceRef::Ptr& /*pServiceRef*/)
 	{
 		// stop() may have already unsubscribed; guard against double -=.
-		if (_pWebServerDispatcher)
+		if (_pWebServerDispatcher != nullptr)
 		{
 			_pWebServerDispatcher->requestHandled -= Poco::delegate(this, &BundleActivator::onWebServerDispatcherRequestHandled);
 		}
@@ -251,14 +249,14 @@ protected:
 	void onWebSessionManagerRegistered(const Poco::OSP::ServiceRef::Ptr& pServiceRef)
 	{
 		Poco::AutoPtr<Poco::OSP::Web::WebSessionManager> pWSM = pServiceRef->castedInstance<Poco::OSP::Web::WebSessionManager>();
-		if (pWSM)
+		if (pWSM != nullptr)
 		{
 			_pContext->logger().information("Creating WebSessionCollector for WebSessionManager."s);
 			_webSessionManagerCollector.reset(new WebSessionCollector(pWSM));
 		}
 	}
 
-	void onWebSessionManagerUnregistered(const Poco::OSP::ServiceRef::Ptr& pServiceRef)
+	void onWebSessionManagerUnregistered(const Poco::OSP::ServiceRef::Ptr& /*pServiceRef*/)
 	{
 		_webSessionManagerCollector.reset();
 	}
@@ -266,7 +264,7 @@ protected:
 	void onWebServerRegistered(const Poco::OSP::ServiceRef::Ptr& pServiceRef)
 	{
 		Poco::AutoPtr<Poco::OSP::Web::WebServerService> pWSS = pServiceRef->castedInstance<Poco::OSP::Web::WebServerService>();
-		if (pWSS)
+		if (pWSS != nullptr)
 		{
 			_pContext->logger().information("Collecting the metrics of the web server at %s:%hu."s, pWSS->host(), pWSS->port());
 			_pWebServerCollector->addServer(pWSS);
@@ -303,7 +301,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Prometheus
+} // namespace Poco::OSP::Prometheus
 
 
 POCO_BEGIN_MANIFEST(Poco::OSP::BundleActivator)

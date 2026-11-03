@@ -21,8 +21,7 @@
 #include "Poco/OSP/OSP.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API LanguageTag
@@ -59,15 +58,15 @@ public:
 	~LanguageTag();
 		/// Destroys the LanguageTag.
 
-	const std::string& primaryTag() const;
+	[[nodiscard]] const std::string& primaryTag() const;
 		/// Returns the primary tag.
 		
-	const std::string& subTags() const;
+	[[nodiscard]] const std::string& subTags() const;
 		/// Returns the first sub tag (the region, such as "AT"
 		/// in "de-AT"), in upper case. Further sub tags are
 		/// not kept.
 		
-	std::string toString() const;
+	[[nodiscard]] std::string toString() const;
 		/// Returns a string representation of the language tag:
 		/// the primary tag and, if there is one, the sub tag,
 		/// separated by '-'.
@@ -96,7 +95,7 @@ inline const std::string& LanguageTag::subTags() const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_LanguageTag_INCLUDED

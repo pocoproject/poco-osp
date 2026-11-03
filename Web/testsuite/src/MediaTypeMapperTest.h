@@ -22,7 +22,7 @@ class MediaTypeMapperTest: public CppUnit::TestCase
 {
 public:
 	MediaTypeMapperTest(const std::string& name);
-	~MediaTypeMapperTest();
+	~MediaTypeMapperTest() override;
 
 	void testLoad();
 	void testMapIgnoresCase();
@@ -30,8 +30,8 @@ public:
 	void testAddReplacesMapping();
 	void testMapWhileAdding();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 

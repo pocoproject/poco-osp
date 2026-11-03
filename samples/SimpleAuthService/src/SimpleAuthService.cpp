@@ -61,12 +61,10 @@ public:
 	{
 	}
 
-	~SimpleAuthService()
-	{
-	}
+	~SimpleAuthService() override = default;
 
 	// AuthService
-	bool authenticate(const std::string& userName, const std::string& credentials) const
+	[[nodiscard]] bool authenticate(const std::string& userName, const std::string& credentials) const override
 	{
 		if (userName == "admin")
 		{
@@ -79,28 +77,29 @@ public:
 		return false;
 	}
 
-	bool authorize(const std::string& userName, const std::string& permission) const
+	[[nodiscard]] bool authorize(const std::string& userName, const std::string& permission) const override
 	{
 		return userName == "admin" || (userName == "user" && _userPermissions.find(permission) != _userPermissions.end());
 	}
 
-	bool authorize(const std::string& userName, const std::string& roleOrScope, const std::string& permission) const
+	[[nodiscard]] bool authorize(const std::string& userName, const std::string& roleOrScope,
+		const std::string& permission) const override
 	{
 		return authorize(userName, permission);
 	}
 
-	bool userExists(const std::string& userName) const
+	[[nodiscard]] bool userExists(const std::string& userName) const override
 	{
 		return userName == "admin" || userName == "user";
 	}
 
 	// Service
-	const std::type_info& type() const
+	[[nodiscard]] const std::type_info& type() const override
 	{
 		return typeid(SimpleAuthService);
 	}
 
-	bool isA(const std::type_info& otherType) const
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override
 	{
 		std::string name(typeid(SimpleAuthService).name());
 		return name == otherType.name() || Poco::OSP::Auth::AuthService::isA(otherType);
@@ -125,15 +124,11 @@ class SimpleAuthServiceBundleActivator: public BundleActivator
 	/// Registers the SimpleAuthService with the Service Registry.
 {
 public:
-	SimpleAuthServiceBundleActivator()
-	{
-	}
+	SimpleAuthServiceBundleActivator() = default;
 
-	~SimpleAuthServiceBundleActivator()
-	{
-	}
+	~SimpleAuthServiceBundleActivator() override = default;
 
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		std::string adminPassword = pContext->thisBundle()->properties().getString("adminPassword", "");
 		std::string userPassword = pContext->thisBundle()->properties().getString("userPassword", "");
@@ -165,7 +160,7 @@ public:
 		_pService = pContext->registry().registerService("osp.auth", pService, Properties());
 	}
 
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr pContext) override
 	{
 		// Unregister the SimpleAuthService
 		pContext->registry().unregisterService(_pService);

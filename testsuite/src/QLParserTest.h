@@ -22,7 +22,7 @@ class QLParserTest: public CppUnit::TestCase
 {
 public:
 	QLParserTest(const std::string& name);
-	~QLParserTest();
+	~QLParserTest() override;
 
 	void testPropertyPresence();
 	void testStringComparison();
@@ -42,8 +42,8 @@ public:
 	void testGlobPatternWithTooManyWildcardsIsSyntaxError();
 	void testIncompleteTokenAtEndIsReportedAsEndOfExpression();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 

@@ -22,8 +22,7 @@
 #include "Poco/Exception.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 POCO_DECLARE_EXCEPTION(OSP_API, OSPException, Poco::RuntimeException)
@@ -38,7 +37,7 @@ POCO_DECLARE_EXCEPTION(OSP_API, BundleUninstallException, BundleException)
 POCO_DECLARE_EXCEPTION(OSP_API, BundleSealedException, BundleException)
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_OSPException_INCLUDED

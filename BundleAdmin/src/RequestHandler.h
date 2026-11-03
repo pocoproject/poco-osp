@@ -27,7 +27,7 @@ protected:
 	RequestHandler(Poco::OSP::BundleContext::Ptr pContext);
 		/// Creates the RequestHandler.
 
-	~RequestHandler();
+	~RequestHandler() override;
 		/// Destroys the RequestHandler.
 
 	void run() override;
@@ -39,10 +39,10 @@ protected:
 	virtual void handle() = 0;
 		/// Handles the request.
 	
-	Poco::OSP::BundleContext::Ptr context() const;
+	[[nodiscard]] Poco::OSP::BundleContext::Ptr context() const;
 		/// Returns the bundle context.
 	
-	Poco::OSP::Bundle::ConstPtr bundle() const;
+	[[nodiscard]] Poco::OSP::Bundle::ConstPtr bundle() const;
 		/// Returns the bundle.
 		
 	Poco::Util::MapConfiguration& templat();
@@ -173,7 +173,7 @@ protected:
 		/// bundle property web.session, or an empty string if the request has no
 		/// such session.
 
-	std::string text(const std::string& id);
+	[[nodiscard]] std::string text(const std::string& id);
 		/// Returns a text fragment from the resources, with the template
 		/// arguments inserted (see expandArgs()).
 
@@ -182,7 +182,7 @@ protected:
 		/// with the value of the argument. The values, which can contain text from
 		/// bundle manifests, are inserted as they are, without expanding them again.
 
-	static std::string htmlize(const std::string& str);
+	[[nodiscard]] static std::string htmlize(const std::string& str);
 		/// Escapes characters in str to make it valid HTML, also in attribute values.
 
 	[[nodiscard]] static std::string encodeQueryValue(const std::string& str);
@@ -199,7 +199,7 @@ private:
 		/// had been sent.
 
 	Poco::OSP::BundleContext::Ptr _pContext;
-	std::ostream* _pStream;
+	std::ostream* _pStream = nullptr;
 	Poco::AutoPtr<Poco::Util::MapConfiguration> _pTemplateArgs;
 };
 

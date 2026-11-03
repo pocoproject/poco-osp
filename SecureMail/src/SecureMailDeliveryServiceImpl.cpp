@@ -30,9 +30,7 @@
 #include <string>
 
 
-namespace Poco {
-namespace OSP {
-namespace Mail {
+namespace Poco::OSP::Mail {
 
 
 namespace
@@ -178,7 +176,7 @@ MailDeliveryServiceImpl::SMTPClientSessionPtr SecureMailDeliveryServiceImpl::cre
 	_logger.debug(Poco::format("Connecting to SMTP server %s, port %hu over TLS...", config.host, config.port));
 
 	Poco::Net::Context::Ptr pContext = _pContext;
-	if (!pContext) pContext = Poco::Net::SSLManager::instance().defaultClientContext();
+	if (pContext == nullptr) pContext = Poco::Net::SSLManager::instance().defaultClientContext();
 	// The timeout of connect() also applies to the TLS handshake.
 	Poco::Net::SecureStreamSocket sss(config.host, pContext);
 	sss.connect(Poco::Net::SocketAddress(config.host, config.port), config.socketTimeout);
@@ -198,4 +196,4 @@ MailDeliveryServiceImpl::SMTPClientSessionPtr SecureMailDeliveryServiceImpl::cre
 }
 
 
-} } } // namespace Poco::OSP::Mail
+} // namespace Poco::OSP::Mail

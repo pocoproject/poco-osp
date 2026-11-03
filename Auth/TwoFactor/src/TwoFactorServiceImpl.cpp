@@ -101,10 +101,7 @@ namespace {
 }
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace TwoFactor {
+namespace Poco::OSP::Auth::TwoFactor {
 
 
 const std::string TwoFactorServiceImpl::ATTR_SECRET("auth_tfa_secret");
@@ -357,4 +354,4 @@ std::string TwoFactorServiceImpl::decryptSecret(const std::string& username, con
 }
 
 
-} } } } // namespace Poco::OSP::Auth::TwoFactor
+} // namespace Poco::OSP::Auth::TwoFactor

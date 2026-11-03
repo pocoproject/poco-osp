@@ -50,21 +50,21 @@ public:
 
 	~ManifestInfo();
 
-	const std::string& name() const;
-	const std::string& symbolicName() const;
-	Poco::OSP::Version version() const;
-	const std::string& vendor() const;
-	const std::string& copyright() const;
-	const std::string& activatorClass() const;
-	const std::string& activatorLibrary() const;
-	const Dependencies& requiredBundles() const;
-	const Dependencies& requiredModules() const;
-	const ProvidedModules& providedModules() const;
-	bool lazyStart() const;
-	bool sealed() const;
-	bool preventUninstall() const;
-	const std::string& runLevel() const;
-	const std::string& extendsBundle() const;
+	[[nodiscard]] const std::string& name() const;
+	[[nodiscard]] const std::string& symbolicName() const;
+	[[nodiscard]] Poco::OSP::Version version() const;
+	[[nodiscard]] const std::string& vendor() const;
+	[[nodiscard]] const std::string& copyright() const;
+	[[nodiscard]] const std::string& activatorClass() const;
+	[[nodiscard]] const std::string& activatorLibrary() const;
+	[[nodiscard]] const Dependencies& requiredBundles() const;
+	[[nodiscard]] const Dependencies& requiredModules() const;
+	[[nodiscard]] const ProvidedModules& providedModules() const;
+	[[nodiscard]] bool lazyStart() const;
+	[[nodiscard]] bool sealed() const;
+	[[nodiscard]] bool preventUninstall() const;
+	[[nodiscard]] const std::string& runLevel() const;
+	[[nodiscard]] const std::string& extendsBundle() const;
 
 private:
 	std::string  _name;

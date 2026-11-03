@@ -42,7 +42,7 @@ class InfoHandler: public HTTPRequestHandler
 	/// Return a HTML document with information about the process.
 {
 public:
-	void handleRequest(HTTPServerRequest& request, HTTPServerResponse& response)
+	void handleRequest(HTTPServerRequest& request, HTTPServerResponse& response) override
 	{
 		response.setContentType("text/html");
 		response.setChunkedTransferEncoding(true);
@@ -85,7 +85,7 @@ public:
 	}
 	
 protected:
-	std::string getHostAddresses()
+	[[nodiscard]] std::string getHostAddresses()
 	{
 		std::string result;
 		for (const auto& networkInterface: Poco::Net::NetworkInterface::list())
@@ -106,7 +106,7 @@ protected:
 class InfoHandlerFactory: public WebRequestHandlerFactory
 {
 public:
-	HTTPRequestHandler* createRequestHandler(const HTTPServerRequest& request)
+	[[nodiscard]] HTTPRequestHandler* createRequestHandler(const HTTPServerRequest& /*request*/) override
 	{
 		return new InfoHandler;
 	}

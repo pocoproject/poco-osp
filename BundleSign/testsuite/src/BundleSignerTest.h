@@ -24,7 +24,7 @@ class BundleSignerTest: public CppUnit::TestCase
 {
 public:
 	BundleSignerTest(const std::string& name);
-	~BundleSignerTest();
+	~BundleSignerTest() override;
 
 	void testSignFile();
 	void testSignFileSHA1();
@@ -33,8 +33,8 @@ public:
 	void testUnsupportedDigestAlgorithmIsRejected();
 	void testLongPathIsRejected();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 

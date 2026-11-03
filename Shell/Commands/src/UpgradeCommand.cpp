@@ -27,24 +27,19 @@ using Poco::OSP::ServiceRef;
 using Poco::OSP::BundleInstallerService;
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 UpgradeCommand::UpgradeCommand(Poco::OSP::BundleContext::Ptr pContext):
-	OSPCommand(pContext, "upgrade"),
-	_force(false)
+	OSPCommand(pContext, "upgrade")
 {
 }
 
 
-UpgradeCommand::~UpgradeCommand()
-{
-}
+UpgradeCommand::~UpgradeCommand() = default;
 
 
-int UpgradeCommand::executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr)
+int UpgradeCommand::executeImpl(Session& /*session*/, const std::vector<std::string>& args, std::ostream& ostr)
 {
 	if (args.size() == 2)
 	{
@@ -52,12 +47,12 @@ int UpgradeCommand::executeImpl(Session& session, const std::vector<std::string>
 		const std::string& uri(args[1]);
 		
 		ServiceRef::Ptr pInstallerRef = context()->registry().findByName(BundleInstallerService::SERVICE_NAME);
-		if (pInstallerRef)
+		if (pInstallerRef != nullptr)
 		{
 			Poco::AutoPtr<BundleInstallerService> pInstaller = pInstallerRef->castedInstance<BundleInstallerService>();
 	
 			Poco::OSP::Bundle::Ptr pBundle = findBundle(symbolicNameOrId);
-			if (pBundle)
+			if (pBundle != nullptr)
 			{
 				if (isRequiredByShell(pBundle))
 				{
@@ -113,10 +108,10 @@ void UpgradeCommand::defineOptions(Poco::Util::OptionSet& options)
 }
 
 
-void UpgradeCommand::handleForce(const std::string& name, const std::string& value)
+void UpgradeCommand::handleForce(const std::string& /*name*/, const std::string& /*value*/)
 {
 	_force = true;
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

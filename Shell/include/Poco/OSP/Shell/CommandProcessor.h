@@ -29,9 +29,7 @@
 #include <set>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class Session;
@@ -85,11 +83,11 @@ public:
 	void aliases(const std::string& command, std::set<std::string>& aliases) const;
 		/// Fills the given set with all aliases for the given command.
 
-	Poco::OSP::BundleContext::Ptr context() const;
+	[[nodiscard]] Poco::OSP::BundleContext::Ptr context() const;
 		/// Returns the BundleContext used by the CommandProcessor.
 
 protected:
-	Command* createCommand(const Session& session, const std::string& command);
+	[[nodiscard]] Command* createCommand(const Session& session, const std::string& command);
 		/// Creates a Command object for the given command name.
 		///
 		/// Throws a Poco::NotFoundException if the given command is unknown.
@@ -129,7 +127,7 @@ inline Poco::OSP::BundleContext::Ptr CommandProcessor::context() const
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_CommandProcessor_INCLUDED

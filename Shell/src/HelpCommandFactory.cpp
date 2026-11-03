@@ -18,9 +18,7 @@
 #include "Poco/OSP/Shell/HelpCommand.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 HelpCommandFactory::HelpCommandFactory(CommandProcessor& commandProcessor):
@@ -29,9 +27,7 @@ HelpCommandFactory::HelpCommandFactory(CommandProcessor& commandProcessor):
 }
 
 
-HelpCommandFactory::~HelpCommandFactory()
-{
-}
+HelpCommandFactory::~HelpCommandFactory() = default;
 
 
 Command* HelpCommandFactory::createCommand()
@@ -40,4 +36,4 @@ Command* HelpCommandFactory::createCommand()
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

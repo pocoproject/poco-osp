@@ -17,19 +17,13 @@
 #include "Poco/OSP/Shell/Command.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
-Command::Command()
-{
-}
+Command::Command() = default;
 
 
-Command::~Command()
-{
-}
+Command::~Command() = default;
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

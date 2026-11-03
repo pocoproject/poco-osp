@@ -25,20 +25,16 @@ using Poco::OSP::Bundle;
 class MySQLBundleActivator: public BundleActivator
 {
 public:
-	MySQLBundleActivator()
-	{
-	}
+	MySQLBundleActivator() = default;
 	
-	~MySQLBundleActivator()
-	{
-	}
+	~MySQLBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr /*pContext*/) override
 	{
 		Poco::Data::MySQL::Connector::registerConnector();
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 		Poco::Data::MySQL::Connector::unregisterConnector();
 	}

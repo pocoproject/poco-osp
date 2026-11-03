@@ -23,8 +23,7 @@
 using Poco::NumberFormatter;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 Version::Version():
@@ -35,13 +34,7 @@ Version::Version():
 }
 
 
-Version::Version(const Version& version):
-	_major(version._major),
-	_minor(version._minor),
-	_revision(version._revision),
-	_designation(version._designation)
-{
-}
+Version::Version(const Version& version) = default;
 
 	
 Version::Version(int major, int minor, int revision):
@@ -67,9 +60,7 @@ Version::Version(const std::string& version)
 }
 
 
-Version::~Version()
-{
-}
+Version::~Version() = default;
 
 
 Version& Version::operator = (const Version& version)
@@ -87,7 +78,7 @@ Version& Version::operator = (const std::string& version)
 }
 
 
-void Version::swap(Version& version)
+void Version::swap(Version& version) noexcept
 {
 	using std::swap;
 	swap(_major, version._major);
@@ -263,4 +254,4 @@ bool Version::operator >= (const Version& version) const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

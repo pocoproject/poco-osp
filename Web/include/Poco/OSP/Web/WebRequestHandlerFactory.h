@@ -23,9 +23,7 @@
 #include "Poco/OSP/BundleContext.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 class OSPWeb_API WebRequestHandlerFactory: public Poco::Net::HTTPRequestHandlerFactory
@@ -37,14 +35,14 @@ public:
 		/// Creates the unintialized WebRequestHandlerFactory. The default constructor is called
 		/// by the classloader (which requires a default constructor) followed by a call to init.
 
-	~WebRequestHandlerFactory();
+	~WebRequestHandlerFactory() override;
 		/// Destroys the WebRequestHandlerFactory.
 
 	void init(BundleContext::Ptr pContext);
 		/// Initializes the object with the given BundleContext.
 
 protected:
-	BundleContext::Ptr context() const;
+	[[nodiscard]] BundleContext::Ptr context() const;
 		/// Returns the context. The pointer is guaranteed to be valid.
 
 	virtual void initImpl();
@@ -64,7 +62,7 @@ inline BundleContext::Ptr WebRequestHandlerFactory::context() const
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web
 
 
 #endif // OSP_Web_WebRequestHandlerFactory_INCLUDED

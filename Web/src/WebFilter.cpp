@@ -15,14 +15,10 @@
 #include "Poco/OSP/Web/WebFilter.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
-WebFilter::~WebFilter()
-{
-}
+WebFilter::~WebFilter() = default;
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web

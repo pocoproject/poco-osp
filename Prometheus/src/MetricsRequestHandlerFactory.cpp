@@ -28,9 +28,7 @@
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
-namespace Prometheus {
+namespace Poco::OSP::Prometheus {
 
 
 namespace
@@ -53,7 +51,7 @@ namespace
 		StatusRequestHandler& operator = (const StatusRequestHandler&) = delete;
 		StatusRequestHandler& operator = (StatusRequestHandler&&) = delete;
 
-		void handleRequest(Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response) override
+		void handleRequest(Poco::Net::HTTPServerRequest& /*request*/, Poco::Net::HTTPServerResponse& response) override
 		{
 			response.setStatusAndReason(_status);
 			if (_status == Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED)
@@ -135,4 +133,4 @@ Poco::Net::HTTPResponse::HTTPStatus MetricsRequestHandlerFactory::authorize(cons
 }
 
 
-} } } // namespace Poco::OSP::Prometheus
+} // namespace Poco::OSP::Prometheus

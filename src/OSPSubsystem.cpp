@@ -33,8 +33,7 @@
 #include <vector>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 namespace {
@@ -71,11 +70,7 @@ private:
 } // anonymous namespace
 
 
-OSPSubsystem::OSPSubsystem():
-	_clearCache(false),
-	_cancelInit(false)
-{
-}
+OSPSubsystem::OSPSubsystem() = default;
 
 
 OSPSubsystem::~OSPSubsystem()
@@ -151,7 +146,7 @@ void OSPSubsystem::initialize(Poco::Util::Application& app)
 	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(*_pServiceRegistry, _systemEvents, dataPath));
 	_pBundleLoader     = std::make_unique<BundleLoader>(*_pCodeCache, pBundleFactory, pBundleContextFactory, autoUpdateCodeCache);
 
-	if (!_pBundleFilter)
+	if (_pBundleFilter == nullptr)
 	{
 		std::string skipBundles = app.config().getString("osp.skipBundles", "");
 		if (!skipBundles.empty())
@@ -182,7 +177,7 @@ void OSPSubsystem::loadBundles(Poco::Util::Application& app)
 
 	// Set osp.version if osp.core bundle exists
 	Bundle::Ptr pCoreBundle = _pBundleLoader->findBundle("osp.core");
-	if (pCoreBundle)
+	if (pCoreBundle != nullptr)
 	{
 		app.config().setString("osp.version", pCoreBundle->version().toString());
 	}
@@ -251,16 +246,16 @@ const char* OSPSubsystem::name() const
 }
 
 
-void OSPSubsystem::handleClear(const std::string& name, const std::string& value)
+void OSPSubsystem::handleClear(const std::string& /*name*/, const std::string& /*value*/)
 {
 	_clearCache = true;
 }
 
 
-void OSPSubsystem::handleBundles(const std::string& name, const std::string& value)
+void OSPSubsystem::handleBundles(const std::string& /*name*/, const std::string& value)
 {
 	_bundles = value;
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

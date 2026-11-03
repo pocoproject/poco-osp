@@ -34,9 +34,7 @@
 #include <atomic>
 
 
-namespace Poco {
-namespace OSP {
-namespace Mail {
+namespace Poco::OSP::Mail {
 
 
 using MailMessagePtr = Poco::SharedPtr<Poco::Net::MailMessage>;
@@ -69,19 +67,21 @@ public:
 	Poco::BasicEvent<const Ptr> messageFailed;
 		/// Fired when sending the message has failed.
 
+	MailDeliveryHandle() = delete;
+
 	explicit MailDeliveryHandle(MailMessagePtr pMessage);
 		/// Creates the MailDeliveryHandle.
 
-	~MailDeliveryHandle();
+	~MailDeliveryHandle() override;
 		/// Destroys the MailDeliveryHandle.
 
-	MailMessagePtr message() const;
+	[[nodiscard]] MailMessagePtr message() const;
 		/// Returns the mail message.
 
-	MailStatus status() const;
+	[[nodiscard]] MailStatus status() const;
 		/// Returns the current status.
 
-	ExceptionPtr exception() const;
+	[[nodiscard]] ExceptionPtr exception() const;
 		/// Returns the exception if mail delivery failed, or a null pointer otherwise.
 
 	void wait();
@@ -99,7 +99,7 @@ public:
 		/// After this method returns, call status() to check whether delivery
 		/// was successful.
 
-	bool tryWait(long milliseconds);
+	[[nodiscard]] bool tryWait(long milliseconds);
 		/// Waits for the mail message to be delivered to the SMTP server.
 		///
 		/// Returns true if the mail message was delivered (or delivery failed), false otherwise.
@@ -116,8 +116,6 @@ protected:
 		/// Sets the status to MAIL_FAILED and stores a copy of the exception.
 
 private:
-	MailDeliveryHandle();
-
 	MailMessagePtr _pMessage;
 	Poco::Event _event;
 	std::atomic<MailStatus> _status;
@@ -146,8 +144,8 @@ public:
 		/// to monitor the progress of sending the mail message.
 
 	// Service
-	const std::type_info& type() const;
-	bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 	static const std::string SERVICE_NAME;
 };
@@ -175,7 +173,7 @@ inline ExceptionPtr MailDeliveryHandle::exception() const
 }
 
 
-} } } // namespace Poco::OSP::Mail
+} // namespace Poco::OSP::Mail
 
 
 #endif // OSP_Mail_MailDeliveryService_INCLUDED

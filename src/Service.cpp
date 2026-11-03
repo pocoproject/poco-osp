@@ -15,18 +15,13 @@
 #include "Poco/OSP/Service.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
-Service::Service()
-{
-}
+Service::Service() = default;
 
 
-Service::~Service()
-{
-}
+Service::~Service() = default;
 
 
 const std::type_info& Service::type() const
@@ -42,4 +37,4 @@ bool Service::isA(const std::type_info& otherType) const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

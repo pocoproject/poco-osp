@@ -47,6 +47,4 @@ ManifestInfo::ManifestInfo(const std::string& name,
 }
 
 
-ManifestInfo::~ManifestInfo()
-{
-}
+ManifestInfo::~ManifestInfo() = default;

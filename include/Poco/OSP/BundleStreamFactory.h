@@ -22,8 +22,7 @@
 #include "Poco/URIStreamFactory.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class BundleLoader;
@@ -44,10 +43,12 @@ public:
 		/// Creates the BundleStreamFactory, using
 		/// the given bundle loader.
 
-	~BundleStreamFactory();
+	~BundleStreamFactory() override;
 		/// Destroys the BundleStreamFactory.
 
-	virtual std::istream* open(const Poco::URI& uri);
+	BundleStreamFactory() = delete;
+
+	[[nodiscard]] std::istream* open(const Poco::URI& uri) override;
 		/// Creates and opens a stream for the given bndl URI.
 		
 	static void registerFactory(BundleLoader& loader);
@@ -59,13 +60,12 @@ public:
 		/// default URIStreamOpener instance.	
 
 private:
-	BundleStreamFactory();
 
 	BundleLoader& _loader;
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleStreamFactory_INCLUDED

@@ -28,9 +28,7 @@
 #include "Poco/Mutex.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Mail {
+namespace Poco::OSP::Mail {
 
 
 class OSPMail_API MailDeliveryServiceImpl: public MailDeliveryService, public Poco::Runnable
@@ -66,7 +64,7 @@ public:
 		///
 		/// Messages are delivered after start() has been called.
 
-	~MailDeliveryServiceImpl();
+	~MailDeliveryServiceImpl() override;
 		/// Destroys the MailDeliveryServiceImpl and calls stop().
 		///
 		/// The delivery thread calls createSMTPClientSession(), so a subclass that
@@ -82,7 +80,7 @@ public:
 		/// and sendMessage() throws one from then on.
 
 	// MailDeliveryService
-	MailDeliveryHandle::Ptr sendMessage(MailMessagePtr pMessage);
+	MailDeliveryHandle::Ptr sendMessage(MailMessagePtr pMessage) override;
 		/// Queues the message for delivery.
 		///
 		/// The message is not changed: a message without a sender is sent with the
@@ -100,14 +98,14 @@ public:
 		/// and replaced by none.
 
 	// Service
-	const std::type_info& type() const;
-	bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 protected:
-	virtual SMTPClientSessionPtr createSMTPClientSession(const Configuration& config);
+	[[nodiscard]] virtual SMTPClientSessionPtr createSMTPClientSession(const Configuration& config);
 	void closeSMTPClientSession();
-	std::string generateMID(const std::string& clientHost) const;
-	void run();
+	[[nodiscard]] std::string generateMID(const std::string& clientHost) const;
+	void run() override;
 
 private:
 	void deliver(const Poco::Net::MailMessage& message);
@@ -129,7 +127,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Mail
+} // namespace Poco::OSP::Mail
 
 
 #endif // OSP_Mail_MailDeliveryServiceImpl_INCLUDED

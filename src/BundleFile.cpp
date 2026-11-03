@@ -29,8 +29,7 @@ using Poco::Zip::ZipIOS;
 using Poco::Zip::ZipLocalFileHeader;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 namespace
@@ -59,16 +58,14 @@ namespace
 		{
 		}
 		
-		~BundleFileInputStream()
-		{
-		}
+		~BundleFileInputStream() override = default;
 	};
 }
 
 
 BundleFile::BundleFile(const std::string& path):
 	_path(path),
-	_pArchive(0)
+	_pArchive(nullptr)
 {
 	Poco::FileInputStream istr(path);
 	if (istr.good())
@@ -86,19 +83,19 @@ BundleFile::~BundleFile()
 
 std::istream* BundleFile::getResource(const std::string& path) const
 {
-	poco_assert (_pArchive);
+	poco_assert (_pArchive != nullptr);
 	
 	ZipArchive::FileHeaders::const_iterator it = _pArchive->findHeader(path);
 	if (it != _pArchive->headerEnd() && it->second.isFile())
 		return new BundleFileInputStream(_path, it->second);
 	else
-		return 0;
+		return nullptr;
 }
 
 
 void BundleFile::list(const std::string& path, std::vector<std::string>& files) const	
 {
-	poco_assert (_pArchive);
+	poco_assert (_pArchive != nullptr);
 	
 	files.clear();
 	std::string parent;
@@ -131,7 +128,7 @@ void BundleFile::list(const std::string& path, std::vector<std::string>& files) 
 
 Poco::Timestamp BundleFile::lastModified(const std::string& path) const
 {
-	poco_assert (_pArchive);
+	poco_assert (_pArchive != nullptr);
 
 	ZipArchive::FileHeaders::const_iterator it = _pArchive->findHeader(path);
 	if (it != _pArchive->headerEnd())
@@ -156,4 +153,4 @@ bool BundleFile::isSubdirectoryOf(const std::string& dir, const std::string& par
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

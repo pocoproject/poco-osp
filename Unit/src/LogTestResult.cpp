@@ -21,9 +21,7 @@
 using CppUnit::TextTestResult;
 
 
-namespace Poco {
-namespace OSP {
-namespace Unit {
+namespace Poco::OSP::Unit {
 
 
 LogTestResult::LogTestResult(std::ostream& ostr): 
@@ -33,9 +31,7 @@ LogTestResult::LogTestResult(std::ostream& ostr):
 }
 
 
-LogTestResult::~LogTestResult()
-{
-}
+LogTestResult::~LogTestResult() = default;
 
 
 void LogTestResult::startTest(CppUnit::Test* test)
@@ -73,4 +69,4 @@ void LogTestResult::printHeader(std::ostream& stream)
 }
 
 
-} } } // namespace Poco::OSP::Unit
+} // namespace Poco::OSP::Unit

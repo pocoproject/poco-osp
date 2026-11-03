@@ -28,7 +28,7 @@ CallbackDelegate::CallbackDelegate(const CallbackDelegate& other) = default;
 CallbackDelegate::~CallbackDelegate() = default;
 
 
-bool CallbackDelegate::notify(const void* sender, Poco::OSP::BundleEvent& event)
+bool CallbackDelegate::notify(const void* /*sender*/, Poco::OSP::BundleEvent& event)
 {
 	_callback(event);
 	return true;

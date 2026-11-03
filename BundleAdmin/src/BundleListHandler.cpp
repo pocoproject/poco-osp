@@ -24,9 +24,7 @@ BundleListHandler::BundleListHandler(Poco::OSP::BundleContext::Ptr pContext):
 }
 
 
-BundleListHandler::~BundleListHandler()
-{
-}
+BundleListHandler::~BundleListHandler() = default;
 
 	
 void BundleListHandler::handle()

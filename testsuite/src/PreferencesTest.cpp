@@ -126,7 +126,7 @@ void PreferencesTest::testServiceKeepsPreferencesUnderItsDirectory()
 }
 
 
-void PreferencesTest::onPropertyChanged(const void* pSender, PreferencesEvent& event)
+void PreferencesTest::onPropertyChanged(const void* /*pSender*/, PreferencesEvent& event)
 {
 	_valueSeen = _pPrefs->getString(event.name());
 }

@@ -21,10 +21,7 @@
 #include "Poco/Net/HTTPServerRequest.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace Remoting {
+namespace Poco::OSP::Auth::Remoting {
 
 
 using namespace std::string_literals;
@@ -52,17 +49,17 @@ bool Authorizer::authorize(const std::string& /*method*/, const std::string& per
 	// credentials and set the header. For endpoints without URL-level permissions,
 	// trusting the Basic username would bypass password verification.
 	auto pContext = Poco::RemotingNG::Context::get();
-	if (!pContext || !pContext->has("httpRequest"s)) return false;
+	if (pContext == nullptr || !pContext->has("httpRequest"s)) return false;
 
 	auto* pRequest = pContext->getValue<Poco::Net::HTTPServerRequest*>("httpRequest"s);
-	if (!pRequest) return false;
+	if (pRequest == nullptr) return false;
 
 	const std::string username = pRequest->get("X-OSP-Authorized-User"s, ""s);
 	if (username.empty()) return false;
 
 	auto pAuth = Poco::OSP::ServiceFinder::findByName<Poco::OSP::Auth::AuthService>(
 		_pContext, "osp.auth"s);
-	if (!pAuth) return false;
+	if (pAuth == nullptr) return false;
 
 	// Scope is set by WebServerDispatcher for Bearer JWT auth. When present, the
 	// permission must be granted by both the user AND the scope (the JWT audience
@@ -76,4 +73,4 @@ bool Authorizer::authorize(const std::string& /*method*/, const std::string& per
 }
 
 
-} } } } // namespace Poco::OSP::Auth::Remoting
+} // namespace Poco::OSP::Auth::Remoting

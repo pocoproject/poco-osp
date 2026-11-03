@@ -41,9 +41,7 @@
 #include <utility>
 
 
-namespace Poco {
-namespace OSP {
-namespace BundleSign {
+namespace Poco::OSP::BundleSign {
 
 
 const std::string BundleVerifier::META_INF("META-INF");
@@ -64,9 +62,7 @@ BundleVerifier::BundleVerifier(Poco::OSP::BundleStorage::Ptr pBundleStorage):
 }
 
 
-BundleVerifier::~BundleVerifier()
-{
-}
+BundleVerifier::~BundleVerifier() = default;
 
 
 void BundleVerifier::setAllowSHA1(bool allow)
@@ -447,4 +443,4 @@ int BundleVerifier::nibble(char ch)
 }
 
 
-} } } // namespace Poco::OSP::BundleSign
+} // namespace Poco::OSP::BundleSign

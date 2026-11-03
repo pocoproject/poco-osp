@@ -19,9 +19,7 @@
 #include "Poco/String.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 HelpCommand::HelpCommand(Poco::OSP::BundleContext::Ptr pContext, CommandProcessor& commandProcessor):
@@ -31,9 +29,7 @@ HelpCommand::HelpCommand(Poco::OSP::BundleContext::Ptr pContext, CommandProcesso
 }
 
 
-HelpCommand::~HelpCommand()
-{
-}
+HelpCommand::~HelpCommand() = default;
 
 
 int HelpCommand::execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr)
@@ -71,4 +67,4 @@ int HelpCommand::execute(Session& session, const std::vector<std::string>& args,
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

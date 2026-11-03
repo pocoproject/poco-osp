@@ -78,7 +78,7 @@ public:
 
 	~CountingFilter() override = default;
 
-	bool accept(Bundle::Ptr pBundle) override
+	[[nodiscard]] bool accept(Bundle::Ptr /*pBundle*/) override
 	{
 		++_calls;
 		return _acceptAll;
@@ -98,7 +98,7 @@ private:
 class AcceptOneFilter: public Poco::OSP::BundleFilter
 {
 public:
-	bool accept(Bundle::Ptr pBundle)
+	[[nodiscard]] bool accept(Bundle::Ptr pBundle) override
 	{
 		return pBundle->symbolicName() == "com.appinf.osp.bundle5";
 	}
@@ -120,9 +120,7 @@ BundleRepositoryTest::BundleRepositoryTest(const std::string& name): CppUnit::Te
 }
 
 
-BundleRepositoryTest::~BundleRepositoryTest()
-{
-}
+BundleRepositoryTest::~BundleRepositoryTest() = default;
 
 
 void BundleRepositoryTest::testLoadFindsNewestVersionOfEachBundle()
@@ -1073,21 +1071,22 @@ void BundleRepositoryTest::testInstallerServiceInstallsFromUriAndReplaces()
 }
 
 
-void BundleRepositoryTest::handleLoadedFailsForVersion2(const void* sender, Poco::OSP::BundleEvent& event)
+void BundleRepositoryTest::handleLoadedFailsForVersion2(const void* /*sender*/, Poco::OSP::BundleEvent& event)
 {
 	if (event.bundle()->version() == Version(2, 0, 0))
 		throw Poco::IOException("bundle cannot be loaded", event.bundle()->symbolicName());
 }
 
 
-void BundleRepositoryTest::handleLoadedFailsWithStdExceptionForVersion2(const void* sender, Poco::OSP::BundleEvent& event)
+void BundleRepositoryTest::handleLoadedFailsWithStdExceptionForVersion2(const void* /*sender*/,
+	Poco::OSP::BundleEvent& event)
 {
 	if (event.bundle()->version() == Version(2, 0, 0))
 		throw std::runtime_error("bundle cannot be loaded");
 }
 
 
-void BundleRepositoryTest::handleInstalled(const void* sender, Poco::OSP::BundleEvent& event)
+void BundleRepositoryTest::handleInstalled(const void* /*sender*/, Poco::OSP::BundleEvent& event)
 {
 	_installedBundles.push_back(event.bundle()->symbolicName());
 }

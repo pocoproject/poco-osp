@@ -27,10 +27,7 @@
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace TwoFactor {
+namespace Poco::OSP::Auth::TwoFactor {
 
 
 SecretGenerator::SecretGenerator(std::size_t secretLengthBits):
@@ -56,7 +53,7 @@ std::string SecretGenerator::generate() const
 std::string SecretGenerator::toBase32(const std::string& secret)
 {
 	std::stringstream sstr;
-	Poco::Base32Encoder encoder(sstr, false);
+	Poco::Base32Encoder encoder(sstr, Poco::BASE32_NO_PADDING);
 	encoder << secret;
 	encoder.close();
 	return sstr.str();
@@ -87,5 +84,5 @@ std::string SecretGenerator::toURI(const std::string& secret, const std::string&
 }
 
 
-} } } } // namespace Poco::OSP::Auth::TwoFactor
+} // namespace Poco::OSP::Auth::TwoFactor
 

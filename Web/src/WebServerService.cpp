@@ -15,19 +15,13 @@
 #include "Poco/OSP/Web/WebServerService.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
-WebServerService::WebServerService()
-{
-}
+WebServerService::WebServerService() = default;
 
 
-WebServerService::~WebServerService()
-{
-}
+WebServerService::~WebServerService() = default;
 
 
 const std::type_info& WebServerService::type() const
@@ -43,4 +37,4 @@ bool WebServerService::isA(const std::type_info& otherType) const
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web

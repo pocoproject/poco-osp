@@ -30,23 +30,17 @@ using Poco::OSP::ServiceFinder;
 using Poco::OSP::PreferencesService;
 
 
-namespace Poco {
-namespace OSP {
-namespace Mail {
+namespace Poco::OSP::Mail {
 
 
 class BundleActivator: public Poco::OSP::BundleActivator
 {
 public:
-	BundleActivator()
-	{
-	}
+	BundleActivator() = default;
 
-	~BundleActivator()
-	{
-	}
+	~BundleActivator() override = default;
 
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		_pPrefs = ServiceFinder::find<PreferencesService>(pContext);
 
@@ -66,13 +60,13 @@ public:
 		}
 	}
 
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr pContext) override
 	{
 		if (_pMailDeliveryService != nullptr) _pMailDeliveryService->stop();
-		if (_pMailDeliveryServiceRef) pContext->registry().unregisterService(_pMailDeliveryServiceRef);
-		_pMailDeliveryServiceRef = 0;
+		if (_pMailDeliveryServiceRef != nullptr) pContext->registry().unregisterService(_pMailDeliveryServiceRef);
+		_pMailDeliveryServiceRef = nullptr;
 		_pMailDeliveryService = nullptr;
-		_pPrefs = 0;
+		_pPrefs = nullptr;
 	}
 
 private:
@@ -82,7 +76,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Mail
+} // namespace Poco::OSP::Mail
 
 
 POCO_BEGIN_MANIFEST(Poco::OSP::BundleActivator)

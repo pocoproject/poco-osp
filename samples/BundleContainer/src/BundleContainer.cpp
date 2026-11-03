@@ -40,13 +40,13 @@ public:
 		addSubsystem(_pOSP);
 	}
 
-	ServiceRegistry& serviceRegistry()
+	[[nodiscard]] ServiceRegistry& serviceRegistry()
 	{
 		return _pOSP->serviceRegistry();
 	}
 
 protected:
-	void initialize(Application& self)
+	void initialize(Application& self) override
 	{
 		// The following is a workaround for Windows so that DLLs
 		// loaded from bundles will also look for DLLs in the
@@ -57,7 +57,7 @@ protected:
 		Application::initialize(self);
 	}
 
-	void defineOptions(OptionSet& options)
+	void defineOptions(OptionSet& options) override
 	{
 		Application::defineOptions(options);
 
@@ -75,14 +75,14 @@ protected:
 				.callback(OptionCallback<BundleContainerApplication>(this, &BundleContainerApplication::handleConfig)));
 	}
 
-	void handleHelp(const std::string& name, const std::string& value)
+	void handleHelp(const std::string& /*name*/, const std::string& /*value*/)
 	{
 		displayHelp();
 		stopOptionsProcessing();
 		_pOSP->cancelInit();
 	}
 
-	void handleConfig(const std::string& name, const std::string& value)
+	void handleConfig(const std::string& /*name*/, const std::string& value)
 	{
 		// Above the default configuration file that initialize() loads.
 		loadConfiguration(value, PRIO_APPLICATION);
@@ -97,7 +97,7 @@ protected:
 		helpFormatter.format(std::cout);
 	}
 
-	int main(const std::vector<std::string>& args)
+	int main(const std::vector<std::string>& /*args*/) override
 	{
 		return Application::EXIT_OK;
 	}

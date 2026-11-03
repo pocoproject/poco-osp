@@ -22,7 +22,7 @@ public:
 	BundleListHandler(Poco::OSP::BundleContext::Ptr pContext);
 		/// Creates the BundleListHandler.
 
-	~BundleListHandler();
+	~BundleListHandler() override;
 		/// Destroys the BundleListHandler.
 		
 	void handle() override;

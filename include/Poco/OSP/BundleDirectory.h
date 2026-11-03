@@ -23,8 +23,7 @@
 #include "Poco/Path.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API BundleDirectory: public BundleStorage
@@ -37,32 +36,33 @@ public:
 		/// given path which must specify the root
 		/// directory of the bundle.
 
+	BundleDirectory() = delete;
+	BundleDirectory(const BundleDirectory&) = delete;
+	BundleDirectory& operator = (const BundleDirectory&) = delete;
+
 	// BundleStorage
-	std::istream* getResource(const std::string& path) const;
-	void list(const std::string& path, std::vector<std::string>& files) const;	
-	Poco::Timestamp lastModified(const std::string& path) const;	
-	std::string path() const;
+	[[nodiscard]] std::istream* getResource(const std::string& path) const override;
+	void list(const std::string& path, std::vector<std::string>& files) const override;
+	Poco::Timestamp lastModified(const std::string& path) const override;
+	[[nodiscard]] std::string path() const override;
 
 protected:
-	Poco::Path buildPath(const std::string& path) const;
+	[[nodiscard]] Poco::Path buildPath(const std::string& path) const;
 		/// Builds a path to a file or directory inside the
 		/// bundle by concatenating the bundle's path with
 		/// the given path, and doing various sanity checks
 		/// along the way.
 
-	~BundleDirectory();
+	~BundleDirectory() override;
 		/// Destroys the BundleDirectory.
 
 private:
-	BundleDirectory();
-	BundleDirectory(const BundleDirectory&);
-	BundleDirectory& operator = (const BundleDirectory&);
 	
 	Poco::Path _path;
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleDirectory_INCLUDED

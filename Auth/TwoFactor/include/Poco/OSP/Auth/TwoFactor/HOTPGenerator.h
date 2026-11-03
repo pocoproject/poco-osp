@@ -27,10 +27,7 @@
 #include "Poco/NumberFormatter.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace TwoFactor {
+namespace Poco::OSP::Auth::TwoFactor {
 
 
 template <typename Engine>
@@ -51,7 +48,11 @@ public:
 		poco_assert (codeDigits > 0 && codeDigits <= 8);
 	}
 
-	std::string generate(Poco::UInt64 movingFactor)
+	HOTPGenerator() = delete;
+	HOTPGenerator(const HOTPGenerator&) = delete;
+	HOTPGenerator& operator = (const HOTPGenerator&) = delete;
+
+	[[nodiscard]] std::string generate(Poco::UInt64 movingFactor)
 		/// Returns a HOTP string based on the secret and the given movingFactor.
 	{
 		Poco::UInt64 movingFactorBE = Poco::ByteOrder::toBigEndian(movingFactor);
@@ -71,7 +72,7 @@ public:
 	}
 
 protected:
-	Poco::UInt32 digitsPower() const
+	[[nodiscard]] Poco::UInt32 digitsPower() const
 	{
 		static const Poco::UInt32 DIGITS_POWER[] = {1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000};
 
@@ -85,14 +86,10 @@ private:
 
 	Poco::HMACEngine<Engine> _hmacEngine;
 	std::size_t _codeDigits;
-
-	HOTPGenerator() = delete;
-	HOTPGenerator(const HOTPGenerator&) = delete;
-	HOTPGenerator& operator = (const HOTPGenerator&) = delete;
 };
 
 
-} } } } // namespace Poco::OSP::Auth::TwoFactor
+} // namespace Poco::OSP::Auth::TwoFactor
 
 
 #endif // OSP_Auth_TwoFactor_HOTPGenerator_INCLUDED

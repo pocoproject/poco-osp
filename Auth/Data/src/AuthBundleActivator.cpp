@@ -32,10 +32,7 @@ using Poco::OSP::Auth::AuthAdminService;
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace Data {
+namespace Poco::OSP::Auth::Data {
 
 
 class AuthBundleActivator: public BundleActivator
@@ -44,15 +41,11 @@ class AuthBundleActivator: public BundleActivator
 	/// Registers the AuthAdminServiceImpl service.
 {
 public:
-	AuthBundleActivator()
-	{
-	}
+	AuthBundleActivator() = default;
 
-	~AuthBundleActivator()
-	{
-	}
+	~AuthBundleActivator() override = default;
 
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		AuthAdminServiceImpl::AuthParams authParams;
 		AuthAdminServiceImpl::LDAPParams ldapParams;
@@ -61,7 +54,7 @@ public:
 		ServiceRef::Ptr pPrefsSvcRef = pContext->registry().findByName("osp.core.preferences"s);
 		int databaseStartupTimeout = 10;
 		int poolSize = 1;
-		if (pPrefsSvcRef)
+		if (pPrefsSvcRef != nullptr)
 		{
 			PreferencesService::Ptr pPrefsSvc = pPrefsSvcRef->castedInstance<PreferencesService>();
 
@@ -168,12 +161,12 @@ public:
 		}
 	}
 
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr pContext) override
 	{
-		if (_pAuthAdminServiceRef)
+		if (_pAuthAdminServiceRef != nullptr)
 		{
 			pContext->registry().unregisterService(_pAuthAdminServiceRef);
-			_pAuthAdminServiceRef = 0;
+			_pAuthAdminServiceRef = nullptr;
 		}
 	}
 
@@ -182,7 +175,7 @@ private:
 };
 
 
-} } } } // namespace Poco::OSP::Auth::Data
+} // namespace Poco::OSP::Auth::Data
 
 
 POCO_BEGIN_MANIFEST(BundleActivator)

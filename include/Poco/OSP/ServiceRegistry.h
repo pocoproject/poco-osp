@@ -31,8 +31,7 @@
 #include <cstddef>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class Properties;
@@ -71,6 +70,9 @@ public:
 	~ServiceRegistry();
 		/// Destroys the ServiceRegistry.
 
+	ServiceRegistry(const ServiceRegistry&) = delete;
+	ServiceRegistry& operator = (const ServiceRegistry&) = delete;
+
 	Poco::BasicEvent<ServiceEvent> serviceRegistered;
 		/// Fired whenever a new service has been registered.
 
@@ -100,7 +102,7 @@ public:
 		/// registered, also if another service of the same name has
 		/// been registered after it was unregistered.
 
-	ServiceRef::ConstPtr findByName(const std::string& name) const;
+	[[nodiscard]] ServiceRef::ConstPtr findByName(const std::string& name) const;
 		/// Looks up a service with the given name.
 		///
 		/// Returns a ServiceRef for the given service,
@@ -143,11 +145,12 @@ public:
 		/// An overload of find() that takes a parsed query in the form of a QLExpr
 		/// object instead of a query string.
 
-	std::vector<ServiceRef::Ptr> find(const std::string& query) const;
+	[[nodiscard]] std::vector<ServiceRef::Ptr> find(const std::string& query) const;
 		/// A convenience overload of find() that directly returns a vector of ServiceRef objects.
 
 	template <typename Delegate>
-	ServiceListener::Ptr createListener(const std::string& query, const Delegate& registeredDelegate, const Delegate& unregisteredDelegate);
+	[[nodiscard]] ServiceListener::Ptr createListener(const std::string& query, const Delegate& registeredDelegate,
+		const Delegate& unregisteredDelegate);
 		/// Returns a new ServiceListener instance that will listen for services matching
 		/// the given query.
 		///
@@ -175,8 +178,6 @@ public:
 	static const std::string PROP_DEMANGLED_TYPE;
 
 private:
-	ServiceRegistry(const ServiceRegistry&);
-	ServiceRegistry& operator = (const ServiceRegistry&);
 
 	void removeService(const std::string& name, const ServiceRef* pServiceRef);
 		/// Unregisters the service with the given name, if pServiceRef
@@ -208,7 +209,7 @@ inline std::vector<ServiceRef::Ptr> ServiceRegistry::find(const std::string& que
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_ServiceRegistry_INCLUDED

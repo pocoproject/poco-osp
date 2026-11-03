@@ -41,9 +41,7 @@
 #include <memory>
 
 
-namespace Poco {
-namespace OSP {
-namespace WebEvent {
+namespace Poco::OSP::WebEvent {
 
 
 class OSPWebEvent_API WebEventServiceImpl;
@@ -62,9 +60,7 @@ public:
 	{
 	}
 
-	virtual ~WebEventTaskNotification()
-	{
-	}
+	~WebEventTaskNotification() override = default;
 
 	virtual void execute() = 0;
 
@@ -84,7 +80,7 @@ public:
 		/// The largest number of worker threads; a larger workerCount is
 		/// reduced to it.
 
-	static int defaultWorkerCount();
+	[[nodiscard]] static int defaultWorkerCount();
 
 	struct Config
 		/// The settings of a WebEventServiceImpl.
@@ -131,7 +127,7 @@ public:
 	WebEventServiceImpl(Poco::OSP::BundleContext::Ptr pContext, const Config& config);
 		/// Creates the WebEventServiceImpl with the given Config.
 
-	~WebEventServiceImpl();
+	~WebEventServiceImpl() override;
 		/// Destroys the WebEventServiceImpl, stopping it first.
 
 	void stop();
@@ -142,25 +138,25 @@ public:
 		/// Must not be called from a delegate of the service's events or
 		/// from one of its own threads, which would join themselves.
 
-	bool stopped() const;
+	[[nodiscard]] bool stopped() const;
 		/// Returns true once stop() has begun.
 
 	// WebEventService
-	Poco::BasicEvent<const NotificationEvent>& subjectNotified(const std::string& subject);
-	void notify(const std::string& subjectName, const std::string& data);
-	void notifyUser(const std::string& username, const std::string& subjectName, const std::string& data);
-	void setUserResolver(UserResolver resolver);
-	int subscriberCount(const std::string& subject);
-	SubscriberInfoVec listSubscribers();
+	Poco::BasicEvent<const NotificationEvent>& subjectNotified(const std::string& subject) override;
+	void notify(const std::string& subjectName, const std::string& data) override;
+	void notifyUser(const std::string& username, const std::string& subjectName, const std::string& data) override;
+	void setUserResolver(UserResolver resolver) override;
+	[[nodiscard]] int subscriberCount(const std::string& subject) override;
+	SubscriberInfoVec listSubscribers() override;
 
-	std::string resolveUser(const Poco::Net::HTTPServerRequest& request) const;
+	[[nodiscard]] std::string resolveUser(const Poco::Net::HTTPServerRequest& request) const;
 		/// Invokes the installed user resolver for the given WebSocket
 		/// upgrade request; returns an empty string if no resolver is
 		/// installed or the resolver throws.
 
 	// Service
-	const std::type_info& type() const;
-	bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 protected:
 	// The protected members are the interface for subclasses that inspect or
@@ -246,14 +242,14 @@ protected:
 	void enqueueMain(const WebEventTaskNotification::Ptr& pTask);
 		/// Queues the task for the main thread and wakes the thread up.
 
-	SocketMap& socketMap();
+	[[nodiscard]] SocketMap& socketMap();
 		/// Returns the subscribers by socket. Main thread only.
 
-	Poco::NotificationQueue& mainQueue();
+	[[nodiscard]] Poco::NotificationQueue& mainQueue();
 		/// Returns the queue of the main thread. Tasks are queued with
 		/// enqueueMain(), which also wakes the thread up.
 
-	Poco::NotificationQueue& workerQueue();
+	[[nodiscard]] Poco::NotificationQueue& workerQueue();
 		/// Returns the queue the worker threads take their tasks from.
 
 private:
@@ -275,7 +271,8 @@ private:
 
 	void notifyImpl(const std::string& subjectName, const std::string& data);
 	void notifyUserImpl(const std::string& username, const std::string& subjectName, const std::string& data);
-	std::vector<Subscriber::Ptr> collectSubscribers(const std::string& subjectName, const std::string& username = std::string());
+	[[nodiscard]] std::vector<Subscriber::Ptr> collectSubscribers(const std::string& subjectName,
+		const std::string& username = std::string());
 		/// Returns, once each, the subscribers of subjectName and of every
 		/// ancestor subject, restricted to username when it is not empty.
 		/// Must run on the main thread.
@@ -292,7 +289,7 @@ private:
 		/// within WEBEVENT_SEND_TIMEOUT, or from which a frame has not been
 		/// received within WEBEVENT_FRAME_RECEIVE_TIMEOUT, ending the send
 		/// or receive that holds a worker. Must run on the main thread.
-	bool pingSweepDueImpl() const;
+	[[nodiscard]] bool pingSweepDueImpl() const;
 		/// Returns true if a keepalive sweep is due. Read by the main
 		/// thread between notifications, so that a queue which stays busy
 		/// cannot hold off the sweep indefinitely.
@@ -320,13 +317,10 @@ private:
 	static const std::string SYSTEM_PING;
 	static const std::string SYSTEM_PONG;
 
-	enum
-	{
-		WEBEVENT_LIST_SUBSCRIBERS_TIMEOUT = 5,
-		WEBEVENT_LIST_SUBSCRIBERS_POLL_MS = 50,
-		WEBEVENT_DROP_WARNING_INTERVAL = 5,
-		WEBEVENT_QUEUE_WAIT_MS = 1000
-	};
+	static constexpr Poco::Clock::ClockDiff WEBEVENT_LIST_SUBSCRIBERS_TIMEOUT = 5;
+	static constexpr long WEBEVENT_LIST_SUBSCRIBERS_POLL_MS = 50;
+	static constexpr Poco::Clock::ClockDiff WEBEVENT_DROP_WARNING_INTERVAL = 5;
+	static constexpr long WEBEVENT_QUEUE_WAIT_MS = 1000;
 
 	static constexpr int WEBEVENT_MAX_FRAME_PAYLOAD = 4096;
 		/// Largest frame accepted from a client; a larger one is a
@@ -430,11 +424,11 @@ private:
 		/// Returns the client address of the subscriber, and its user if it
 		/// has one, for log messages.
 
-	Poco::Logger& logger() const;
+	[[nodiscard]] Poco::Logger& logger() const;
 };
 
 
-} } } // namespace Poco::OSP::WebEvent
+} // namespace Poco::OSP::WebEvent
 
 
 #endif // OSP_WebEvent_WebEventServiceImpl_INCLUDED

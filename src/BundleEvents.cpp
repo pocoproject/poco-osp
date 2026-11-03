@@ -15,18 +15,13 @@
 #include "Poco/OSP/BundleEvents.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
-BundleEvents::BundleEvents()
-{
-}
+BundleEvents::BundleEvents() = default;
 
 
-BundleEvents::~BundleEvents()
-{
-}
+BundleEvents::~BundleEvents() = default;
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

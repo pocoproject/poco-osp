@@ -24,13 +24,13 @@ class HOTPGeneratorTest: public CppUnit::TestCase
 {
 public:
 	HOTPGeneratorTest(const std::string& name);
-	~HOTPGeneratorTest();
+	~HOTPGeneratorTest() override;
 
 	void testGenerate();
 	void testGenerateTOTPTestVectors();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 };

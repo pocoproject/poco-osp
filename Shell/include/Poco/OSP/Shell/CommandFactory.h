@@ -24,9 +24,7 @@
 #include "Poco/OSP/BundleContext.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class Command;
@@ -41,14 +39,17 @@ public:
 		
 	virtual ~CommandFactory();
 		/// Destroys the CommandFactory.
+
+	CommandFactory(const CommandFactory&) = delete;
+	CommandFactory& operator = (const CommandFactory&) = delete;
 		
-	virtual Command* createCommand() = 0;
+	[[nodiscard]] virtual Command* createCommand() = 0;
 		/// Create a Command object.
 
 	void init(Poco::OSP::BundleContext::Ptr pContext);
 		/// Initializes the factory with the given BundleContext.
 
-	Poco::OSP::BundleContext::Ptr context() const;
+	[[nodiscard]] Poco::OSP::BundleContext::Ptr context() const;
 		/// Returns the context. The pointer is guaranteed to be valid.
 
 protected:	
@@ -56,9 +57,6 @@ protected:
 		/// Add extra initialization code by overriding this method in your subclass.
 
 private:
-	CommandFactory(const CommandFactory&);
-	CommandFactory& operator = (const CommandFactory&);
-	
 	BundleContext::Ptr _pContext;
 };
 
@@ -72,7 +70,7 @@ inline Poco::OSP::BundleContext::Ptr CommandFactory::context() const
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_CommandFactory_INCLUDED

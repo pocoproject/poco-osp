@@ -28,7 +28,7 @@ class BundleTest: public CppUnit::TestCase
 {
 public:
 	BundleTest(const std::string& name);
-	~BundleTest();
+	~BundleTest() override;
 
 	void testLoadOne();
 	void testVersionConflict();
@@ -81,13 +81,13 @@ public:
 	void testSubsystemStartsBundlesOfConfiguredRepository();
 	void testConcurrentStartsAndStopsOfDependencyChain();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 
 protected:
-	std::string findBundle(const std::string& name);
+	[[nodiscard]] std::string findBundle(const std::string& name);
 
 	[[nodiscard]] std::string codeCachePath() const;
 		/// Returns the path of the code cache in the directory

@@ -55,21 +55,17 @@ class WebBundleActivator: public BundleActivator
 	/// and the WebServerDispatcher service and installs the WebServerExtensionPoint.
 {
 public:
-	WebBundleActivator()
-	{
-	}
+	WebBundleActivator() = default;
 
-	~WebBundleActivator()
-	{
-	}
+	~WebBundleActivator() override = default;
 
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		_pContext = pContext;
 
 		MediaTypeMapper::Ptr pMediaTypeMapper = new MediaTypeMapper;
 		std::unique_ptr<std::istream> pStream(pContext->thisBundle()->getResource("mime.types"));
-		if (pStream.get())
+		if (pStream != nullptr)
 		{
 			pMediaTypeMapper->load(*pStream);
 		}
@@ -103,7 +99,7 @@ public:
 		bool corsEnable = true;
 		std::string defaultDomain;
 		std::string corsAllowedOrigin;
-		if (pPrefsSvcRef)
+		if (pPrefsSvcRef != nullptr)
 		{
 			Poco::AutoPtr<PreferencesService> pPrefsSvc = pPrefsSvcRef->castedInstance<PreferencesService>();
 			authServiceName = pPrefsSvc->configuration()->getString("osp.web.authServiceName"s, authServiceName);
@@ -209,7 +205,7 @@ public:
 		_pWebSessionManagerSvc = pContext->registry().registerService(WebSessionManager::SERVICE_NAME, _pWebSessionManager, Properties());
 
 		ServiceRef::Ptr pXPSRef = pContext->registry().findByName("osp.core.xp"s);
-		if (pXPSRef)
+		if (pXPSRef != nullptr)
 		{
 			Poco::AutoPtr<ExtensionPointService> pXPS = pXPSRef->castedInstance<ExtensionPointService>();
 			_pWebServerExtensionPoint = new WebServerExtensionPoint(pContext, pWebServerDispatcher);
@@ -231,11 +227,11 @@ public:
 		}
 	}
 
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr pContext) override
 	{
-		_pContext = 0;
-		_pStoreListener = 0;
-		if (_pWebServerDispatcherSvc)
+		_pContext = nullptr;
+		_pStoreListener = nullptr;
+		if (_pWebServerDispatcherSvc != nullptr)
 		{
 			Poco::AutoPtr<WebServerDispatcher> pDispatcher = _pWebServerDispatcherSvc->castedInstance<WebServerDispatcher>();
 			pDispatcher->threadPool().stopAll();
@@ -243,12 +239,12 @@ public:
 		pContext->registry().unregisterService(_pWebSessionManagerSvc);
 		pContext->registry().unregisterService(_pWebServerDispatcherSvc);
 		pContext->registry().unregisterService(_pMediaTypeMapperSvc);
-		_pWebSessionManager = 0;
-		_pWebSessionManagerSvc = 0;
-		_pWebServerDispatcherSvc = 0;
-		_pMediaTypeMapperSvc = 0;
-		_pWebServerExtensionPoint = 0;
-		_pWebFilterExtensionPoint = 0;
+		_pWebSessionManager = nullptr;
+		_pWebSessionManagerSvc = nullptr;
+		_pWebServerDispatcherSvc = nullptr;
+		_pMediaTypeMapperSvc = nullptr;
+		_pWebServerExtensionPoint = nullptr;
+		_pWebFilterExtensionPoint = nullptr;
 	}
 
 protected:
@@ -262,9 +258,9 @@ protected:
 	void onStoreUnregistered(const Poco::OSP::ServiceRef::Ptr& pStoreRef)
 	{
 		_pContext->logger().information("WebSessionStore unregistered: %s"s, pStoreRef->name());
-		if (_pWebSessionManager)
+		if (_pWebSessionManager != nullptr)
 		{
-			_pWebSessionManager->setSessionStore(0);
+			_pWebSessionManager->setSessionStore(nullptr);
 		}
 	}
 

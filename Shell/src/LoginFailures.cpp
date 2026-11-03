@@ -19,9 +19,7 @@
 #include <chrono>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 LoginFailures::LoginFailures(std::chrono::milliseconds firstDelay):
@@ -55,4 +53,4 @@ std::chrono::milliseconds LoginFailures::recordFailure(const Poco::Net::IPAddres
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

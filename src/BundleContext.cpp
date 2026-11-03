@@ -24,8 +24,7 @@ using Poco::Path;
 using Poco::Logger;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 BundleContext::BundleContext(BundleLoader& loader, Bundle::ConstPtr pBundle, BundleEvents& events, SystemEvents& systemEvents, ServiceRegistry& registry, const Path& persistencyDir):
@@ -127,4 +126,4 @@ std::string BundleContext::loggerName(const Bundle* pBundle)
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

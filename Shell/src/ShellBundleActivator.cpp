@@ -58,9 +58,7 @@ using Poco::AutoPtr;
 using Poco::SharedPtr;
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class ShellBundleActivator: public BundleActivator
@@ -69,15 +67,11 @@ class ShellBundleActivator: public BundleActivator
 	/// Installs the CommandExtensionPoint.
 {
 public:
-	ShellBundleActivator()
-	{
-	}
+	ShellBundleActivator() = default;
 	
-	~ShellBundleActivator()
-	{
-	}
+	~ShellBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		ServiceRef::Ptr pPrefsSvcRef = pContext->registry().findByName("osp.core.preferences");
 		std::string authServiceName  = pContext->thisBundle()->properties().getString("authServiceName");
@@ -88,7 +82,7 @@ public:
 			static_cast<int>(DEFAULT_SESSION_TIMEOUT.count()));
 		int stopTimeout              = pContext->thisBundle()->properties().getInt("stopTimeout",
 			static_cast<int>(DEFAULT_STOP_TIMEOUT.count()));
-		if (pPrefsSvcRef)
+		if (pPrefsSvcRef != nullptr)
 		{
 			Poco::AutoPtr<PreferencesService> pPrefsSvc = pPrefsSvcRef->castedInstance<PreferencesService>();
 			authServiceName = pPrefsSvc->configuration()->getString("com.appinf.osp.shell.authServiceName", authServiceName);
@@ -111,7 +105,7 @@ public:
 		_pCommandProcessor->addCommand("help", helpAliases, pHelpCommandFactory, "");
 
 		ServiceRef::Ptr pXPSRef = pContext->registry().findByName("osp.core.xp");
-		if (pXPSRef)
+		if (pXPSRef != nullptr)
 		{
 			AutoPtr<ExtensionPointService> pXPS = pXPSRef->castedInstance<ExtensionPointService>();
 			_pCommandExtensionPoint = new CommandExtensionPoint(*_pCommandProcessor);
@@ -119,7 +113,7 @@ public:
 
 #if defined(OSP_SHELL_ENABLE_SSH)
 			bool sshEnabled = false;
-			if (pPrefsSvcRef)
+			if (pPrefsSvcRef != nullptr)
 			{
 				Poco::AutoPtr<PreferencesService> pPrefsSvc = pPrefsSvcRef->castedInstance<PreferencesService>();
 				sshEnabled = pPrefsSvc->configuration()->getBool("openSSH.server.enabled", false);
@@ -175,11 +169,11 @@ public:
 		}		
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr pContext) override
 	{
 		bool sessionsEnded = true;
 #if defined(OSP_SHELL_ENABLE_SSH)
-		if (_pSSHServer)
+		if (_pSSHServer != nullptr)
 		{
 			auto pStopper = std::make_unique<Poco::Thread>();
 			if (SSHShellConnection::stopServer(*_pSSHServer, *_pSSHSessions, *pStopper, _stopTimeout))
@@ -266,7 +260,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 POCO_BEGIN_NAMED_MANIFEST(Shell, Poco::OSP::Shell::CommandFactory)

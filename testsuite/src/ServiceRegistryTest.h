@@ -24,7 +24,7 @@ class ServiceRegistryTest: public CppUnit::TestCase
 {
 public:
 	ServiceRegistryTest(const std::string& name);
-	~ServiceRegistryTest();
+	~ServiceRegistryTest() override;
 
 	void testRegisterFindAndUnregisterServices();
 	void testServicesReturnsCopy();
@@ -32,8 +32,8 @@ public:
 	void testUnregisterOfStaleRefKeepsServiceOfSameName();
 	void testFindWithSyntaxErrorKeepsResults();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 

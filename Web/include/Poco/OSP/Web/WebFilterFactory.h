@@ -24,9 +24,7 @@
 #include <istream>
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 class OSPWeb_API WebFilterFactory
@@ -40,14 +38,14 @@ public:
 	virtual ~WebFilterFactory();
 		/// Destroys the WebFilterFactory.
 
-	virtual WebFilter* createFilter(const WebFilter::Args& args) = 0;
+	[[nodiscard]] virtual WebFilter* createFilter(const WebFilter::Args& args) = 0;
 		/// Creates a WebFilter using the given arguments.
 
 	void init(BundleContext::Ptr pContext);
 		/// Initializes the object with the given BundleContext.
 
 protected:
-	BundleContext::Ptr context() const;
+	[[nodiscard]] BundleContext::Ptr context() const;
 		/// Returns the context. The pointer is guaranteed to be valid.
 
 	virtual void initImpl();
@@ -67,7 +65,7 @@ inline BundleContext::Ptr WebFilterFactory::context() const
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web
 
 
 #endif // OSP_Web_WebFilterFactory_INCLUDED

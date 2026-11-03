@@ -61,6 +61,11 @@ namespace
 		return result;
 	}
 
+	[[noreturn]] int throwIOException(Session&, const std::vector<std::string>&, std::ostream&)
+	{
+		throw Poco::IOException("test failure"s);
+	}
+
 	class CountingErrorHandler: public Poco::ErrorHandler
 		/// Counts the exceptions that reach it, while it is the error handler.
 	{
@@ -167,10 +172,7 @@ void ShellConnectionTest::testQuitEndsSession()
 
 void ShellConnectionTest::testExceptionFromCommandIsServerError()
 {
-	_pFixture->addCommand("fail"s, ""s, [](Session&, const std::vector<std::string>&, std::ostream&) -> int
-	{
-		throw Poco::IOException("test failure"s);
-	});
+	_pFixture->addCommand("fail"s, ""s, throwIOException);
 	ShellClient client(_pFixture->startServer());
 	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
 	assertEqual (static_cast<int>(ShellConnection::STATUS_SERVER_ERROR), client.send("fail"s).status);

@@ -28,9 +28,7 @@ PropertiesTest::PropertiesTest(const std::string& name): CppUnit::TestCase(name)
 }
 
 
-PropertiesTest::~PropertiesTest()
-{
-}
+PropertiesTest::~PropertiesTest() = default;
 
 
 void PropertiesTest::testGettersAreCaseInsensitiveAndUseDefaults()

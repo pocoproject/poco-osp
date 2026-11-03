@@ -96,33 +96,33 @@ public:
 	SimpleAuthService& operator = (SimpleAuthService&&) = delete;
 
 	// AuthService
-	bool authenticate(const std::string& userName, const std::string& credentials) const override
+	[[nodiscard]] bool authenticate(const std::string& userName, const std::string& credentials) const override
 	{
 		return (userName == _userName && checkCredentials(userName, credentials, _userPasswordHash))
 		    || (userName == _adminName && checkCredentials(userName, credentials, _adminPasswordHash));
 	}
 
-	bool authorize(const std::string& userName, const std::string& permission) const override
+	[[nodiscard]] bool authorize(const std::string& userName, const std::string& permission) const override
 	{
 		return userName == _adminName
 		    || (userName == _userName && _userPermissions.find(permission) != _userPermissions.end());
 	}
 
-	bool authorize(const std::string& userName, const std::string& roleOrScope,
+	[[nodiscard]] bool authorize(const std::string& userName, const std::string& roleOrScope,
 		const std::string& permission) const override;
 
-	bool userExists(const std::string& userName) const override
+	[[nodiscard]] bool userExists(const std::string& userName) const override
 	{
 		return userName == _adminName || userName == _userName;
 	}
 
 	// Service
-	const std::type_info& type() const override
+	[[nodiscard]] const std::type_info& type() const override
 	{
 		return typeid(SimpleAuthService);
 	}
 
-	bool isA(const std::type_info& otherType) const override
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override
 	{
 		std::string name(typeid(SimpleAuthService).name());
 		return name == otherType.name() || Poco::OSP::Auth::AuthService::isA(otherType);
@@ -132,7 +132,7 @@ protected:
 	[[nodiscard]] bool checkCredentials(const std::string& userName, const std::string& credentials,
 		const std::string& passwordHash) const;
 
-	std::string hashCredentials(const std::string& credentials) const
+	[[nodiscard]] std::string hashCredentials(const std::string& credentials) const
 	{
 		Poco::MD5Engine md5;
 		md5.update(_salt);

@@ -25,9 +25,7 @@
 #include "Poco/Crypto/X509Certificate.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace BundleSign {
+namespace Poco::OSP::BundleSign {
 
 
 class OSPBundleSign_API BundleSigner
@@ -47,6 +45,10 @@ class OSPBundleSign_API BundleSigner
 	///     the integrity of the signed bundle.
 {
 public:	
+	BundleSigner() = delete;
+	BundleSigner(const BundleSigner&) = delete;
+	BundleSigner& operator = (const BundleSigner&) = delete;
+
 	BundleSigner(const std::string& signer, const Poco::Crypto::RSAKey& rsaKey);
 		/// Creates a BundleSigner for signing bundles using the given
 		/// RSA private/public key pair and the SHA256 digest algorithm.
@@ -106,10 +108,6 @@ protected:
 	void signBundleDirectory(const std::string& bundlePath, const std::string& sfPath, const std::string& rsaPath);
 
 private:
-	BundleSigner();
-	BundleSigner(const BundleSigner&);
-	BundleSigner& operator = (const BundleSigner&);
-	
 	static const std::string CREATOR;
 	static const std::string SIGNATURE_VERSION;
 	static const std::string META_INF;
@@ -122,7 +120,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::BundleSign
+} // namespace Poco::OSP::BundleSign
 
 
 #endif // OSP_BundleSign_BundleSigner_INCLUDED

@@ -24,8 +24,7 @@
 #include "Poco/AutoPtr.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class Bundle;
@@ -43,23 +42,24 @@ public:
 	BundleFactory(const LanguageTag& language);
 		/// Creates the BundleFactory.
 
-	virtual Bundle* createBundle(BundleLoader& loader, const std::string& path);
+	BundleFactory() = delete;
+
+	[[nodiscard]] virtual Bundle* createBundle(BundleLoader& loader, const std::string& path);
 		/// Creates and returns a new Bundle object for
 		/// the bundle stored in the given path, using
 		/// the given BundleLoader.
 
 protected:
-	~BundleFactory();
+	~BundleFactory() override;
 		/// Destroys the BundleFactory.
 
 private:
-	BundleFactory();
 
 	LanguageTag _language;
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleFactory_INCLUDED

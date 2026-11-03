@@ -141,12 +141,12 @@ namespace
 		OtherService& operator = (const OtherService&) = delete;
 		OtherService& operator = (OtherService&&) = delete;
 
-		const std::type_info& type() const override
+		[[nodiscard]] const std::type_info& type() const override
 		{
 			return typeid(OtherService);
 		}
 
-		bool isA(const std::type_info& otherType) const override
+		[[nodiscard]] bool isA(const std::type_info& otherType) const override
 		{
 			return otherType == typeid(OtherService) || Poco::OSP::Service::isA(otherType);
 		}

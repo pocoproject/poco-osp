@@ -47,7 +47,7 @@ public:
 	{
 	}
 	
-	void handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem)
+	void handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* /*pExtensionElem*/) override
 	{
 		std::string name = pBundle->name();
 		std::string symbolicName = pBundle->symbolicName();
@@ -116,19 +116,15 @@ class TestRunnerBundleActivator: public BundleActivator
 	/// which runs the tests of every bundle that extends it.
 {
 public:
-	TestRunnerBundleActivator()
-	{
-	}
+	TestRunnerBundleActivator() = default;
 	
-	~TestRunnerBundleActivator()
-	{
-	}
+	~TestRunnerBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		// find ExtensionPointService using the Service Registry
 		ServiceRef::Ptr pXPSRef = pContext->registry().findByName("osp.core.xp");
-		if (pXPSRef)
+		if (pXPSRef != nullptr)
 		{
 			// ExtensionPointService is available
 			AutoPtr<ExtensionPointService> pXPS = pXPSRef->castedInstance<ExtensionPointService>();
@@ -146,7 +142,7 @@ public:
 		}
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 		// Nothing to do here.
 		// The ExtensionPointService will automatically unregister our

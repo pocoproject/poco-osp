@@ -27,8 +27,7 @@
 #include <set>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class ServiceRegistry;
@@ -69,7 +68,7 @@ public:
 		/// Fired when a previously registered service
 		/// matching the query string has been unregistered.
 
-	~ServiceListener();
+	~ServiceListener() override;
 		/// Destroys the ServiceListener.
 
 protected:
@@ -107,7 +106,7 @@ ServiceListener::ServiceListener(ServiceRegistry& registry, const std::string& q
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_ServiceListener_INCLUDED

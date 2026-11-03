@@ -45,7 +45,7 @@ namespace
 	class StatusRequestHandler: public HTTPRequestHandler
 	{
 	public:
-		void handleRequest(HTTPServerRequest& request, HTTPServerResponse& response) override
+		void handleRequest(HTTPServerRequest& /*request*/, HTTPServerResponse& response) override
 		{
 			response.setStatusAndReason(HTTPServerResponse::HTTP_ACCEPTED);
 		}
@@ -60,7 +60,7 @@ namespace
 		{
 		}
 
-		HTTPRequestHandler* createRequestHandler(const HTTPServerRequest& request) override
+		[[nodiscard]] HTTPRequestHandler* createRequestHandler(const HTTPServerRequest& /*request*/) override
 		{
 			return _createHandlers ? new StatusRequestHandler : nullptr;
 		}
@@ -72,7 +72,8 @@ namespace
 	class StatusFilter: public WebFilter
 	{
 	public:
-		void process(HTTPServerRequest& request, HTTPServerResponse& response, const std::string& path, std::istream& resourceStream, Poco::OSP::Bundle::ConstPtr pBundle) override
+		void process(HTTPServerRequest& /*request*/, HTTPServerResponse& response, const std::string& /*path*/,
+			std::istream& /*resourceStream*/, Poco::OSP::Bundle::ConstPtr /*pBundle*/) override
 		{
 			response.setStatusAndReason(HTTPServerResponse::HTTP_ACCEPTED);
 		}
@@ -87,7 +88,7 @@ namespace
 		{
 		}
 
-		WebFilter* createFilter(const WebFilter::Args& args) override
+		[[nodiscard]] WebFilter* createFilter(const WebFilter::Args& /*args*/) override
 		{
 			return _createFilters ? new StatusFilter : nullptr;
 		}

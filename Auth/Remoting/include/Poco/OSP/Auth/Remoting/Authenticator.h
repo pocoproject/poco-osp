@@ -25,10 +25,7 @@
 #include "Poco/AutoPtr.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace Remoting {
+namespace Poco::OSP::Auth::Remoting {
 
 
 class OSPAuthRemoting_API Authenticator: public Poco::RemotingNG::Authenticator
@@ -62,7 +59,7 @@ public:
 	~Authenticator() override;
 		/// Destroys the Authenticator.
 
-	Poco::RemotingNG::AuthenticateResult authenticate(
+	[[nodiscard]] Poco::RemotingNG::AuthenticateResult authenticate(
 		const Poco::RemotingNG::Credentials& credentials,
 		Poco::UInt32 conversationID = 0) override;
 		/// Returns AUTH_DONE with the username from X-OSP-Authorized-User if
@@ -70,7 +67,7 @@ public:
 };
 
 
-} } } } // namespace Poco::OSP::Auth::Remoting
+} // namespace Poco::OSP::Auth::Remoting
 
 
 #endif // OSP_Auth_Remoting_Authenticator_INCLUDED

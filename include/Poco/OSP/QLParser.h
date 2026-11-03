@@ -24,8 +24,7 @@
 #include <sstream>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API QLParser
@@ -40,8 +39,12 @@ public:
 
 	~QLParser();
 		/// Destroys the QLParser.
+
+	QLParser() = delete;
+	QLParser(const QLParser&) = delete;
+	QLParser& operator = (const QLParser&) = delete;
 		
-	QLExpr::Ptr parse();
+	[[nodiscard]] QLExpr::Ptr parse();
 		/// Parses the expression.
 		///
 		/// Throws a Poco::SyntaxException if the expression
@@ -85,13 +88,10 @@ protected:
 	void countLogicalOperator();
 		/// Counts an "&&" or "||" operator. Throws a Poco::SyntaxException
 		/// if there are more than MAX_LOGICAL_OPERATORS.
-	bool isRelOp(const Poco::Token* token);
-	Poco::Any token2value(const Poco::Token* token);
+	[[nodiscard]] bool isRelOp(const Poco::Token* token);
+	[[nodiscard]] Poco::Any token2value(const Poco::Token* token);
 
 private:
-	QLParser();
-	QLParser(const QLParser&);
-	QLParser& operator = (const QLParser&);
 	
 	std::istringstream    _istr;
 	Poco::StreamTokenizer _tokenizer;
@@ -100,7 +100,7 @@ private:
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_QLParser_INCLUDED

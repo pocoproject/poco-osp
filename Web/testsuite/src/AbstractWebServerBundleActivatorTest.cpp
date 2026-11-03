@@ -50,7 +50,7 @@ namespace
 		}
 
 	protected:
-		Poco::Net::ServerSocket createServerSocket(const Poco::Net::SocketAddress& address) override
+		[[nodiscard]] Poco::Net::ServerSocket createServerSocket(const Poco::Net::SocketAddress& /*address*/) override
 		{
 			return Poco::Net::ServerSocket(Poco::Net::SocketAddress("127.0.0.1", 0));
 		}
@@ -59,7 +59,7 @@ namespace
 	const std::string SERVER_PROPERTIES("port = 1\nsecurePort = 1\nmaxThreads = 2\n");
 	constexpr int MAX_THREADS = 2;
 
-	Poco::AutoPtr<WebServerDispatcher> registerDispatcher(TemporaryBundle& bundle)
+	[[nodiscard]] Poco::AutoPtr<WebServerDispatcher> registerDispatcher(TemporaryBundle& bundle)
 	{
 		WebServerDispatcher::Config config;
 		config.pContext = bundle.context();

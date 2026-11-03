@@ -49,12 +49,12 @@ class ActivatedService: public Service
 public:
 	ActivatedService() = default;
 
-	const std::type_info& type() const override
+	[[nodiscard]] const std::type_info& type() const override
 	{
 		return typeid(ActivatedService);
 	}
 
-	bool isA(const std::type_info& otherType) const override
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override
 	{
 		std::string name(typeid(ActivatedService).name());
 		return name == otherType.name() || Service::isA(otherType);
@@ -68,15 +68,11 @@ protected:
 class MyBundleActivator: public BundleActivator
 {
 public:
-	MyBundleActivator()
-	{
-	}
+	MyBundleActivator() = default;
 	
-	~MyBundleActivator()
-	{
-	}
+	~MyBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		std::string msg("MyBundleActivator::start() for ");
 		msg.append(pContext->thisBundle()->name());
@@ -84,7 +80,7 @@ public:
 		_pServiceRef = pContext->registry().registerService(pContext->thisBundle()->symbolicName() + ".activated", new ActivatedService, Poco::OSP::Properties());
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr pContext) override
 	{
 		std::string msg("MyBundleActivator::stop() for ");
 		msg.append(pContext->thisBundle()->name());
@@ -110,7 +106,7 @@ public:
 		throw Poco::IllegalStateException("The activator cannot be started", pContext->thisBundle()->symbolicName());
 	}
 
-	void stop(BundleContext::Ptr pContext) override
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 	}
 };

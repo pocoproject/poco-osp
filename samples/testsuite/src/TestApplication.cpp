@@ -29,7 +29,7 @@ using namespace std::string_literals;
 
 namespace
 {
-	Poco::Path processDirectory()
+	[[nodiscard]] Poco::Path processDirectory()
 		/// Returns the temporary directory of the process, which holds the code
 		/// caches. OSP does not unload the libraries of the bundles when an
 		/// application ends, and Windows does not remove a library that is still

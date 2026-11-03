@@ -27,9 +27,7 @@ BundleInfoHandler::BundleInfoHandler(Poco::OSP::BundleContext::Ptr pContext):
 }
 
 
-BundleInfoHandler::~BundleInfoHandler()
-{
-}
+BundleInfoHandler::~BundleInfoHandler() = default;
 
 	
 void BundleInfoHandler::handle()
@@ -37,7 +35,7 @@ void BundleInfoHandler::handle()
 	std::string symbolicName = form().get("symbolicName");
 	
 	Bundle::Ptr pBundle = context()->findBundle(symbolicName);
-	if (pBundle)
+	if (pBundle != nullptr)
 	{
 		if (form().has("action"))
 		{

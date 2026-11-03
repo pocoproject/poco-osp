@@ -29,9 +29,7 @@ MediaTypeMapperTest::MediaTypeMapperTest(const std::string& name): CppUnit::Test
 }
 
 
-MediaTypeMapperTest::~MediaTypeMapperTest()
-{
-}
+MediaTypeMapperTest::~MediaTypeMapperTest() = default;
 
 
 void MediaTypeMapperTest::testLoad()

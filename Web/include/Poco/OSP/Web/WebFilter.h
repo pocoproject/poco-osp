@@ -26,9 +26,7 @@
 #include <map>
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 class OSPWeb_API WebFilter
@@ -52,7 +50,7 @@ public:
 };
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web
 
 
 #endif // OSP_Web_WebFilter_INCLUDED

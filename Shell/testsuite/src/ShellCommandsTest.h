@@ -51,7 +51,7 @@ private:
 		std::string output;
 	};
 
-	Result execute(const std::string& commandLine);
+	[[nodiscard]] Result execute(const std::string& commandLine);
 		/// Executes the command line in a session of the administrator.
 
 	std::unique_ptr<ShellFixture> _pFixture;

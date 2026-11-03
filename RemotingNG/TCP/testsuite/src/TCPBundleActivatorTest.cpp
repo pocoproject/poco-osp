@@ -99,12 +99,12 @@ namespace
 			return _typeId;
 		}
 
-		const std::type_info& type() const override
+		[[nodiscard]] const std::type_info& type() const override
 		{
 			return typeid(StubRemoteService);
 		}
 
-		bool isA(const std::type_info& otherType) const override
+		[[nodiscard]] bool isA(const std::type_info& otherType) const override
 		{
 			return otherType == typeid(StubRemoteService) || Poco::OSP::Service::isA(otherType);
 		}
@@ -229,7 +229,7 @@ namespace
 		RegisteringFactory& operator = (const RegisteringFactory&) = delete;
 		RegisteringFactory& operator = (RegisteringFactory&&) = delete;
 
-		Poco::OSP::Service::Ptr createService() override
+		[[nodiscard]] Poco::OSP::Service::Ptr createService() override
 		{
 			if (_pCreated == nullptr) _pCreated = registerRemoteService(_registry, "osp.test.created"s);
 			return new StubRemoteService(EXPORTED_TYPE, "factory"s);
@@ -427,7 +427,7 @@ namespace
 			_pService = pService;
 		}
 
-		Poco::OSP::Service::Ptr createService() override
+		[[nodiscard]] Poco::OSP::Service::Ptr createService() override
 		{
 			if (_pService != nullptr)
 			{
@@ -556,7 +556,7 @@ namespace
 		ThrowingFactory& operator = (const ThrowingFactory&) = delete;
 		ThrowingFactory& operator = (ThrowingFactory&&) = delete;
 
-		Poco::OSP::Service::Ptr createService() override
+		[[nodiscard]] Poco::OSP::Service::Ptr createService() override
 		{
 			throw std::runtime_error("no service");
 		}

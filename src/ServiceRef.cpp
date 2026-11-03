@@ -23,8 +23,7 @@
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 ServiceRef::ServiceRef(const std::string& name, const Properties& props, Service::Ptr pService):
@@ -35,15 +34,13 @@ ServiceRef::ServiceRef(const std::string& name, const Properties& props, Service
 }
 
 
-ServiceRef::~ServiceRef()
-{
-}
+ServiceRef::~ServiceRef() = default;
 
 
 Service::Ptr ServiceRef::instance() const
 {
 	Poco::AutoPtr<ServiceFactory> pFactory = _pService.cast<ServiceFactory>();
-	if (pFactory)
+	if (pFactory != nullptr)
 	{	
 		return pFactory->createService();
 	}
@@ -60,7 +57,7 @@ std::string ServiceRef::demangle(const char* typeName)
 #ifdef POCO_HAVE_CXXABI_H
 	int status;
 	char* demangled = abi::__cxa_demangle(typeName, nullptr, nullptr, &status);
-	if (demangled)
+	if (demangled != nullptr)
 	{
 		result = demangled;
 		std::free(demangled);
@@ -76,4 +73,4 @@ std::string ServiceRef::demangle(const char* typeName)
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

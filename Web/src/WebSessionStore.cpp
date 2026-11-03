@@ -15,9 +15,7 @@
 #include "Poco/OSP/Web/WebSessionStore.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 const std::type_info& WebSessionStore::type() const
@@ -33,4 +31,4 @@ bool WebSessionStore::isA(const std::type_info& otherType) const
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web

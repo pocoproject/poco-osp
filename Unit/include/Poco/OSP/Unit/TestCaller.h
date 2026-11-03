@@ -25,9 +25,7 @@
 #include <memory>
 
 
-namespace Poco {
-namespace OSP {
-namespace Unit {
+namespace Poco::OSP::Unit {
 
 
 template <class Fixture>
@@ -37,7 +35,10 @@ class TestCaller: public Poco::OSP::Unit::TestCase
 	/// OSP Unit's TestCase class.
 {
 public:
-	typedef void (Fixture::*TestMethod)();
+	TestCaller(const TestCaller& other) = delete;
+	TestCaller& operator = (const TestCaller& other) = delete;
+
+	using TestMethod = void (Fixture::*)();
 
 	TestCaller(const std::string& name, TestMethod test):
 		TestCase(name),
@@ -47,31 +48,28 @@ public:
 	}
 
 protected:
-	void runTest()
+	void runTest() override
 	{
 		(_fixture.get()->*_test)();
 	}
 
-	void setUp()
+	void setUp() override
 	{
 		_fixture.get()->setUp();
 	}
 
-	void tearDown()
+	void tearDown() override
 	{
 		_fixture.get()->tearDown();
 	}
 
 private:
-	TestCaller(const TestCaller& other);
-	TestCaller& operator = (const TestCaller& other);
-
 	TestMethod             _test;
 	std::unique_ptr<Fixture> _fixture;
 };
 
 
-} } } // namespace Poco::OSP::Unit
+} // namespace Poco::OSP::Unit
 
 
 #define OSPUnit_addTest(suite, cls, mth) \

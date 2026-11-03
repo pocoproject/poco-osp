@@ -42,13 +42,13 @@ public:
 	TestAuthService& operator = (TestAuthService&&) = delete;
 
 	// AuthService
-	bool authenticate(const std::string& userName, const std::string& credentials) const override;
+	[[nodiscard]] bool authenticate(const std::string& userName, const std::string& credentials) const override;
 	[[nodiscard]] bool authenticateAccount(const std::string& userName, const std::string& credentials,
 		std::string& accountName) const override;
-	bool authorize(const std::string& userName, const std::string& permission) const override;
-	bool authorize(const std::string& userName, const std::string& roleOrScope,
+	[[nodiscard]] bool authorize(const std::string& userName, const std::string& permission) const override;
+	[[nodiscard]] bool authorize(const std::string& userName, const std::string& roleOrScope,
 		const std::string& permission) const override;
-	bool userExists(const std::string& userName) const override;
+	[[nodiscard]] bool userExists(const std::string& userName) const override;
 
 	static const std::string ADMIN;
 	static const std::string ADMIN_PASSWORD;

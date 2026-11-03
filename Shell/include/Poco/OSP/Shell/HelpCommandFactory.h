@@ -23,9 +23,7 @@
 #include "Poco/OSP/Shell/CommandFactory.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class CommandProcessor;
@@ -38,18 +36,18 @@ public:
 	HelpCommandFactory(CommandProcessor& commandProcessor);
 		/// Creates the HelpCommandFactory, using the given command processor.
 		
-	~HelpCommandFactory();
+	~HelpCommandFactory() override;
 		/// Destroys the HelpCommandFactory.
 		
 	// CommandFactory
-	Command* createCommand();
+	[[nodiscard]] Command* createCommand() override;
 
 private:
 	CommandProcessor& _commandProcessor;
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_HelpCommandFactory_INCLUDED

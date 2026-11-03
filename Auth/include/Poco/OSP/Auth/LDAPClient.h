@@ -28,9 +28,7 @@
 #include <memory>
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
 class LDAPClientImpl;
@@ -83,12 +81,12 @@ public:
 	LDAPClient& operator = (const LDAPClient&) = delete;
 	LDAPClient& operator = (LDAPClient&&) = delete;
 
-	static std::string escapeLDAP(const std::string& str);
+	[[nodiscard]] static std::string escapeLDAP(const std::string& str);
 		/// Escapes the given string for use as an attribute value
 		/// in a distinguished name according to RFC 4514, including
 		/// a leading or trailing space and the NUL character.
 
-	static std::string escapeFilterValue(const std::string& str);
+	[[nodiscard]] static std::string escapeFilterValue(const std::string& str);
 		/// Escapes the given string for use as an LDAP search filter
 		/// value according to RFC 4515.
 
@@ -145,23 +143,23 @@ public:
 		/// Credentials that are not a valid bind value (see isValidBindValue())
 		/// are rejected with Result::WRONG_CREDENTIALS without contacting the server.
 
-	bool isBound() const;
+	[[nodiscard]] bool isBound() const;
 		/// Did the client successfully bound already?
 
 	virtual void unbind();
 		/// Unbinds and disconnects from the server
 
 	void setMode(Mode mode);
-	Mode mode() const;
+	[[nodiscard]] Mode mode() const;
 
 	void setBindDN(const std::string& bindDN);
 		/// Sets the template of the user DN for DIST_NAME mode, with a "%s"
 		/// placeholder for the username.
 
-	const std::string& bindDN() const;
+	[[nodiscard]] const std::string& bindDN() const;
 
 	void setSearchBase(const std::string& base);
-	const std::string& searchBase() const;
+	[[nodiscard]] const std::string& searchBase() const;
 
 	void setUserObjectClass(const std::string& userObjectClass);
 		/// LDAP attribute user object class
@@ -217,7 +215,7 @@ public:
 		/// when using memberOf. It does not read and role attributes otherwise
 		/// because the LDAP entry is not found.
 
-	const std::string& fullName() const;
+	[[nodiscard]] const std::string& fullName() const;
 		/// Full user name (if it is available) obtained with last query
 
 	[[nodiscard]] const std::string& accountName() const;
@@ -240,16 +238,16 @@ public:
 		/// constructs. Empty if the entry has none or more than one, in
 		/// DIST_NAME mode, or if the entry was not read.
 
-	const Roles& roles() const;
+	[[nodiscard]] const Roles& roles() const;
 		/// Roles obtained with last query
 
-	const Permissions& permissions() const;
+	[[nodiscard]] const Permissions& permissions() const;
 		/// Permissions obtained with last query
 
-	const Attributes& attributes() const;
+	[[nodiscard]] const Attributes& attributes() const;
 		/// Attributes obtained with last query
 
-	int lastReturnCode() const;
+	[[nodiscard]] int lastReturnCode() const;
 		/// Return code of the last LDAP operation.
 
 protected:
@@ -370,7 +368,7 @@ inline const LDAPClient::Attributes& LDAPClient::attributes() const
 }
 
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth
 
 
 #endif // OSP_Auth_LDAPClient_INCLUDED

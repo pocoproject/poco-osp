@@ -27,8 +27,7 @@ using Poco::AnyCast;
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 //
@@ -36,14 +35,10 @@ namespace OSP {
 //
 
 
-QLExpr::QLExpr()
-{
-}
+QLExpr::QLExpr() = default;
 
 
-QLExpr::~QLExpr()
-{
-}
+QLExpr::~QLExpr() = default;
 
 
 //
@@ -58,9 +53,7 @@ QLAndExpr::QLAndExpr(QLExpr::Ptr pLeft, QLExpr::Ptr pRight):
 }
 
 
-QLAndExpr::~QLAndExpr()
-{
-}
+QLAndExpr::~QLAndExpr() = default;
 
 
 bool QLAndExpr::evaluate(const Properties& props) const
@@ -81,9 +74,7 @@ QLOrExpr::QLOrExpr(QLExpr::Ptr pLeft, QLExpr::Ptr pRight):
 }
 
 
-QLOrExpr::~QLOrExpr()
-{
-}
+QLOrExpr::~QLOrExpr() = default;
 
 
 bool QLOrExpr::evaluate(const Properties& props) const
@@ -103,9 +94,7 @@ QLNotExpr::QLNotExpr(QLExpr::Ptr pExpr):
 }
 
 
-QLNotExpr::~QLNotExpr()
-{
-}
+QLNotExpr::~QLNotExpr() = default;
 
 
 bool QLNotExpr::evaluate(const Properties& props) const
@@ -125,9 +114,7 @@ QLExistsExpr::QLExistsExpr(const std::string& prop):
 }
 
 
-QLExistsExpr::~QLExistsExpr()
-{
-}
+QLExistsExpr::~QLExistsExpr() = default;
 
 
 bool QLExistsExpr::evaluate(const Properties& props) const
@@ -166,9 +153,7 @@ QLEqExpr::QLEqExpr(const std::string& prop, const Poco::Any& value):
 }
 
 
-QLEqExpr::~QLEqExpr()
-{
-}
+QLEqExpr::~QLEqExpr() = default;
 
 
 bool QLEqExpr::evaluateImpl(const Properties& props) const
@@ -198,9 +183,7 @@ QLNeExpr::QLNeExpr(const std::string& prop, const Poco::Any& value):
 }
 
 
-QLNeExpr::~QLNeExpr()
-{
-}
+QLNeExpr::~QLNeExpr() = default;
 
 
 bool QLNeExpr::evaluateImpl(const Properties& props) const
@@ -230,9 +213,7 @@ QLLtExpr::QLLtExpr(const std::string& prop, const Poco::Any& value):
 }
 
 
-QLLtExpr::~QLLtExpr()
-{
-}
+QLLtExpr::~QLLtExpr() = default;
 
 
 bool QLLtExpr::evaluateImpl(const Properties& props) const
@@ -262,9 +243,7 @@ QLLeExpr::QLLeExpr(const std::string& prop, const Poco::Any& value):
 }
 
 
-QLLeExpr::~QLLeExpr()
-{
-}
+QLLeExpr::~QLLeExpr() = default;
 
 
 bool QLLeExpr::evaluateImpl(const Properties& props) const
@@ -294,9 +273,7 @@ QLGtExpr::QLGtExpr(const std::string& prop, const Poco::Any& value):
 }
 
 
-QLGtExpr::~QLGtExpr()
-{
-}
+QLGtExpr::~QLGtExpr() = default;
 
 
 bool QLGtExpr::evaluateImpl(const Properties& props) const
@@ -326,9 +303,7 @@ QLGeExpr::QLGeExpr(const std::string& prop, const Poco::Any& value):
 }
 
 
-QLGeExpr::~QLGeExpr()
-{
-}
+QLGeExpr::~QLGeExpr() = default;
 
 
 bool QLGeExpr::evaluateImpl(const Properties& props) const
@@ -361,9 +336,7 @@ QLMatchExpr::QLMatchExpr(const std::string& prop, const std::string& expr):
 }
 
 
-QLMatchExpr::~QLMatchExpr()
-{
-}
+QLMatchExpr::~QLMatchExpr() = default;
 
 
 bool QLMatchExpr::evaluate(const Properties& props) const
@@ -385,9 +358,7 @@ QLMatchRegExpr::QLMatchRegExpr(const std::string& prop, const std::string& expr)
 }
 
 
-QLMatchRegExpr::~QLMatchRegExpr()
-{
-}
+QLMatchRegExpr::~QLMatchRegExpr() = default;
 
 
 bool QLMatchRegExpr::evaluate(const Properties& props) const
@@ -402,15 +373,13 @@ bool QLMatchRegExpr::evaluate(const Properties& props) const
 //
 
 
-QLTrueExpr::QLTrueExpr()
-{
-}
+QLTrueExpr::QLTrueExpr() = default;
 
 
-bool QLTrueExpr::evaluate(const Properties& props) const
+bool QLTrueExpr::evaluate(const Properties& /*props*/) const
 {
 	return true;
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

@@ -23,9 +23,7 @@
 #include "Poco/OSP/Service.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 class OSPWeb_API TokenValidator: public Poco::OSP::Service
@@ -36,7 +34,7 @@ class OSPWeb_API TokenValidator: public Poco::OSP::Service
 public:
 	using Ptr = Poco::AutoPtr<TokenValidator>;
 
-	virtual bool validateToken(const std::string& token, std::string& username, std::string& scope) = 0;
+	[[nodiscard]] virtual bool validateToken(const std::string& token, std::string& username, std::string& scope) = 0;
 		/// Validates the given bearer token.
 		///
 		/// If valid, returns true and the associated username and scope.
@@ -46,12 +44,12 @@ public:
 		/// is left to the implementation.
 
 	// Service
-	const std::type_info& type() const;
-	bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 };
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web
 
 
 #endif // OSP_Web_TokenValidator_INCLUDED

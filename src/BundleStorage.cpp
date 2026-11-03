@@ -20,13 +20,10 @@
 #include <string>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
-BundleStorage::~BundleStorage()
-{
-}
+BundleStorage::~BundleStorage() = default;
 
 
 BundleStorage::Ptr BundleStorage::open(const std::string& path)
@@ -41,4 +38,4 @@ BundleStorage::Ptr BundleStorage::open(const std::string& path)
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

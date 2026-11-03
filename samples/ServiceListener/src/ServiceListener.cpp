@@ -29,15 +29,11 @@ class ServiceListenerBundleActivator: public BundleActivator
 	/// and prints these events.
 {
 public:
-	ServiceListenerBundleActivator()
-	{
-	}
+	ServiceListenerBundleActivator() = default;
 	
-	~ServiceListenerBundleActivator()
-	{
-	}
+	~ServiceListenerBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		// save BundleContext for later use
 		_pContext = pContext;
@@ -53,7 +49,7 @@ public:
 		pContext->registry().serviceUnregistered += Delegate<ServiceListenerBundleActivator, ServiceEvent>(this, &ServiceListenerBundleActivator::handleServiceUnregistered);
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr pContext) override
 	{
 		// write a shutdown message to the log
 		std::string msg("Bundle ");
@@ -67,14 +63,14 @@ public:
 	}
 	
 protected:
-	void handleServiceRegistered(const void* sender, ServiceEvent& event)
+	void handleServiceRegistered(const void* /*sender*/, ServiceEvent& event)
 	{
 		std::string msg("Service registered: ");
 		msg.append(event.service()->name());
 		_pContext->logger().information(msg);
 	}
 
-	void handleServiceUnregistered(const void* sender, ServiceEvent& event)
+	void handleServiceUnregistered(const void* /*sender*/, ServiceEvent& event)
 	{
 		std::string msg("Service unregistered: ");
 		msg.append(event.service()->name());

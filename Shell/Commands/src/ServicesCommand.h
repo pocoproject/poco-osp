@@ -25,9 +25,7 @@
 #include "Poco/OSP/Bundle.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class ServicesCommand: public OSPCommand
@@ -43,24 +41,24 @@ public:
 		/// Creates the ServicesCommand, using the given
 		/// bundle context.
 		
-	~ServicesCommand();
+	~ServicesCommand() override;
 		/// Destroys the ServicesCommand.
 
 protected:
 	// AbstractCommand
-	virtual int executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr);
-	virtual void defineOptions(Poco::Util::OptionSet& options);
+	[[nodiscard]] int executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr) override;
+	void defineOptions(Poco::Util::OptionSet& options) override;
 	
 	void handleQuery(const std::string& name, const std::string& value);
 	void handleProperties(const std::string& name, const std::string& value);
 	
 private:
 	std::string _query;
-	bool _properties;
+	bool _properties = false;
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_ServicesCommand_INCLUDED

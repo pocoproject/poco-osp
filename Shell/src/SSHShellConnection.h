@@ -30,9 +30,7 @@
 #include <string>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class SessionTracker;
@@ -71,7 +69,7 @@ public:
 		///
 		/// A login grace time of zero disables the limit.
 
-	~SSHShellConnection();
+	~SSHShellConnection() override;
 
 	[[nodiscard]] static bool stopServer(Poco::SSH::SSHServer& server, SessionTracker& sessions, Poco::Thread& stopper,
 		std::chrono::milliseconds timeout);
@@ -159,7 +157,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_SSHShellConnection_INCLUDED

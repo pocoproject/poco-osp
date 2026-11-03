@@ -21,8 +21,7 @@
 using Poco::URIStreamOpener;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 const std::string BundleInstallerService::SERVICE_NAME("osp.core.installer");
@@ -34,9 +33,7 @@ BundleInstallerService::BundleInstallerService(BundleRepository& repository):
 }
 
 
-BundleInstallerService::~BundleInstallerService()
-{
-}
+BundleInstallerService::~BundleInstallerService() = default;
 
 
 Bundle::Ptr BundleInstallerService::installBundle(const std::string& uri)
@@ -78,4 +75,4 @@ bool BundleInstallerService::isA(const std::type_info& otherType) const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

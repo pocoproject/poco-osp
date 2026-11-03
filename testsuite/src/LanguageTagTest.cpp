@@ -13,7 +13,7 @@
 #include "CppUnit/TestSuite.h"
 #include "Poco/OSP/LanguageTag.h"
 #include "Poco/Environment.h"
-#include <stdlib.h>
+#include <cstdlib>
 #include <string>
 #include <vector>
 

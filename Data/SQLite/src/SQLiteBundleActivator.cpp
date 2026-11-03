@@ -29,20 +29,16 @@ using Poco::OSP::ServiceFinder;
 class SQLiteBundleActivator: public BundleActivator
 {
 public:
-	SQLiteBundleActivator()
-	{
-	}
+	SQLiteBundleActivator() = default;
 	
-	~SQLiteBundleActivator()
-	{
-	}
+	~SQLiteBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		Poco::Data::SQLite::Connector::registerConnector();
 
 		PreferencesService::Ptr pPrefs = ServiceFinder::find<PreferencesService>(pContext);
-		if (pPrefs)
+		if (pPrefs != nullptr)
 		{
 			bool sharedCache = pPrefs->configuration()->getBool("data.sqlite.sharedCache", false);
 			if (sharedCache)
@@ -58,7 +54,7 @@ public:
 		}
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 		Poco::Data::SQLite::Connector::unregisterConnector();
 	}

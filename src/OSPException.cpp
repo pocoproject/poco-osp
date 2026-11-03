@@ -16,8 +16,7 @@
 #include <typeinfo>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 POCO_IMPLEMENT_EXCEPTION(OSPException, Poco::RuntimeException, "OSP Exception")
@@ -32,4 +31,4 @@ POCO_IMPLEMENT_EXCEPTION(BundleUninstallException, BundleException, "Cannot unin
 POCO_IMPLEMENT_EXCEPTION(BundleSealedException, BundleException, "Bundle is sealed")
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

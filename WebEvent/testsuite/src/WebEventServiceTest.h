@@ -90,7 +90,7 @@ private:
 	Poco::AutoPtr<Poco::OSP::WebEvent::WebEventServiceImpl> _pService;
 	Poco::ThreadPool _pool;
 	std::unique_ptr<Poco::Net::HTTPServer> _pServer;
-	Poco::UInt16 _port;
+	Poco::UInt16 _port = 0;
 	Poco::Event _notificationEvent;
 	Poco::Event _childEvent;
 	Poco::Event _parentEvent;
@@ -106,11 +106,11 @@ private:
 	Poco::OSP::WebEvent::WebEventService::NotificationEvent _lastChildNotification;
 	Poco::OSP::WebEvent::WebEventService::NotificationEvent _lastParentNotification;
 	Poco::OSP::WebEvent::WebEventService::NotificationEvent _lastSiblingNotification;
-	bool _notificationHandlerAdded;
-	bool _childHandlerAdded;
-	bool _parentHandlerAdded;
-	bool _subscriptionHandlerAdded;
-	bool _siblingHandlerAdded;
+	bool _notificationHandlerAdded = false;
+	bool _childHandlerAdded = false;
+	bool _parentHandlerAdded = false;
+	bool _subscriptionHandlerAdded = false;
+	bool _siblingHandlerAdded = false;
 };
 
 

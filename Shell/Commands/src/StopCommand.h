@@ -24,9 +24,7 @@
 #include "Poco/OSP/Bundle.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class StopCommand: public BundleActionCommand
@@ -42,12 +40,12 @@ public:
 		/// Creates the StopCommand, using the given
 		/// bundle context.
 
-	~StopCommand();
+	~StopCommand() override;
 		/// Destroys the StopCommand.
 
 protected:
 	// BundleActionCommand
-	int doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr) override;
+	[[nodiscard]] int doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr) override;
 	void defineOptions(Poco::Util::OptionSet& options) override;
 
 	using BundleVec = std::vector<Poco::OSP::Bundle::Ptr>;
@@ -59,12 +57,12 @@ protected:
 	void handleAll(const std::string& name, const std::string& value);
 
 private:
-	bool _force;
-	bool _all;
+	bool _force = false;
+	bool _all = false;
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_StopCommand_INCLUDED

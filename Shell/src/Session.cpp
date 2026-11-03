@@ -25,9 +25,7 @@
 #include <utility>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 namespace
@@ -59,15 +57,12 @@ namespace
 
 Session::Session(Poco::OSP::BundleContext::Ptr pContext, const std::string& authServiceName):
 	_pContext(pContext),
-	_authServiceName(authServiceName),
-	_authenticated(false)
+	_authServiceName(authServiceName)
 {
 }
 
 
-Session::~Session()
-{
-}
+Session::~Session() = default;
 
 
 bool Session::login(const std::string& userName, const std::string& credentials)
@@ -152,4 +147,4 @@ Poco::OSP::Auth::AuthService::Ptr Session::authService() const
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

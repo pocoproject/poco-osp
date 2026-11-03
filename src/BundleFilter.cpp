@@ -17,13 +17,10 @@
 #include "Poco/OSP/BundleFilter.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
-BundleFilter::~BundleFilter()
-{
-}
+BundleFilter::~BundleFilter() = default;
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

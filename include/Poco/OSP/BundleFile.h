@@ -23,14 +23,12 @@
 #include "Poco/OSP/BundleStorage.h"
 
 
-namespace Poco {
-namespace Zip {
+namespace Poco::Zip {
 class ZipArchive;
-} } // namespace Poco::Zip
+} // namespace Poco::Zip
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API BundleFile: public BundleStorage
@@ -42,30 +40,31 @@ public:
 		/// Creates the BundleFile, using the
 		/// given path which must specify a Zip file.
 
+	BundleFile() = delete;
+	BundleFile(const BundleFile&) = delete;
+	BundleFile& operator = (const BundleFile&) = delete;
+
 	// BundleStorage
-	std::istream* getResource(const std::string& path) const;
-	void list(const std::string& path, std::vector<std::string>& files) const;		
-	Poco::Timestamp lastModified(const std::string& path) const;	
-	std::string path() const;
+	[[nodiscard]] std::istream* getResource(const std::string& path) const override;
+	void list(const std::string& path, std::vector<std::string>& files) const override;
+	Poco::Timestamp lastModified(const std::string& path) const override;
+	[[nodiscard]] std::string path() const override;
 
 protected:
-	bool isSubdirectoryOf(const std::string& dir, const std::string& parent) const;
+	[[nodiscard]] bool isSubdirectoryOf(const std::string& dir, const std::string& parent) const;
 		/// Returns true iff dir is a subdirectory of parent.
 
-	~BundleFile();
+	~BundleFile() override;
 		/// Destroys the BundleDirectory.
 
 private:
-	BundleFile();
-	BundleFile(const BundleFile&);
-	BundleFile& operator = (const BundleFile&);
 	
 	std::string _path;
 	Poco::Zip::ZipArchive* _pArchive;
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleFile_INCLUDED

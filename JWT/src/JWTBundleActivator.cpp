@@ -27,26 +27,20 @@ using Poco::OSP::PreferencesService;
 using Poco::OSP::Properties;
 
 
-namespace Poco {
-namespace OSP {
-namespace JWT {
+namespace Poco::OSP::JWT {
 
 
 class BundleActivator: public Poco::OSP::BundleActivator
 {
 public:
-	BundleActivator()
-	{
-	}
+	BundleActivator() = default;
 
-	~BundleActivator()
-	{
-	}
+	~BundleActivator() override = default;
 
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		Poco::OSP::PreferencesService::Ptr pPrefs = Poco::OSP::ServiceFinder::find<Poco::OSP::PreferencesService>(pContext);
-		if (pPrefs)
+		if (pPrefs != nullptr)
 		{
 			std::string algos = pPrefs->configuration()->getString("jwt.validator.algorithms", "HS256");
 			Poco::StringTokenizer algosTok(algos, ",;", Poco::StringTokenizer::TOK_TRIM | Poco::StringTokenizer::TOK_IGNORE_EMPTY);
@@ -69,7 +63,7 @@ public:
 		}
 	}
 
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr pContext) override
 	{
 		// The registry unregisters by name: a reference left from an earlier start
 		// would remove a validator that another bundle has registered since.
@@ -82,7 +76,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::JWT
+} // namespace Poco::OSP::JWT
 
 
 POCO_BEGIN_MANIFEST(Poco::OSP::BundleActivator)

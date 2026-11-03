@@ -24,9 +24,7 @@
 #include "Poco/OSP/Bundle.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class InfoCommand: public BundleActionCommand
@@ -43,12 +41,12 @@ public:
 		/// Creates the InfoCommand, using the given
 		/// bundle context.
 		
-	~InfoCommand();
+	~InfoCommand() override;
 		/// Destroys the InfoCommand.
 
 protected:
 	// BundleActionCommand
-	int doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr) override;
+	[[nodiscard]] int doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr) override;
 	void defineOptions(Poco::Util::OptionSet& options) override;
 
 	void handleDependencies(const std::string& name, const std::string& value);
@@ -58,12 +56,12 @@ protected:
 	void doClients(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr);
 	
 private:
-	bool _dependencies;
-	bool _clients;
+	bool _dependencies = false;
+	bool _clients = false;
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_InfoCommand_INCLUDED

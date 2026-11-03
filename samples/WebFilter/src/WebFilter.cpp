@@ -22,7 +22,8 @@
 class DateTimeFilter: public Poco::OSP::Web::WebFilter
 {
 public:
-	void process(Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response, const std::string& path, std::istream& resourceStream, Poco::OSP::Bundle::ConstPtr pBundle)
+	void process(Poco::Net::HTTPServerRequest& /*request*/, Poco::Net::HTTPServerResponse& response,
+		const std::string& /*path*/, std::istream& resourceStream, Poco::OSP::Bundle::ConstPtr /*pBundle*/) override
 	{
 		std::string content;
 		Poco::StreamCopier::copyToString(resourceStream, content);
@@ -37,7 +38,7 @@ public:
 class DateTimeFilterFactory: public Poco::OSP::Web::WebFilterFactory
 {
 public:
-	Poco::OSP::Web::WebFilter* createFilter(const Poco::OSP::Web::WebFilter::Args& args)
+	[[nodiscard]] Poco::OSP::Web::WebFilter* createFilter(const Poco::OSP::Web::WebFilter::Args& /*args*/) override
 	{
 		return new DateTimeFilter;
 	}

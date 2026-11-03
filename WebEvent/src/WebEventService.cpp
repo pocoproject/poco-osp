@@ -15,22 +15,16 @@
 #include "Poco/OSP/WebEvent/WebEventService.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace WebEvent {
+namespace Poco::OSP::WebEvent {
 
 
 const std::string WebEventService::SERVICE_NAME("com.appinf.osp.webevent");
 
 
-WebEventService::WebEventService()
-{
-}
+WebEventService::WebEventService() = default;
 
 
-WebEventService::~WebEventService()
-{
-}
+WebEventService::~WebEventService() = default;
 
 
 const std::type_info& WebEventService::type() const
@@ -46,4 +40,4 @@ bool WebEventService::isA(const std::type_info& otherType) const
 }
 
 
-} } } // namespace Poco::OSP::WebEvent
+} // namespace Poco::OSP::WebEvent

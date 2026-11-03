@@ -42,9 +42,7 @@
 #include <string>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 namespace
@@ -351,4 +349,4 @@ void SSHShellConnection::closeWithoutLogin(std::chrono::seconds loginGraceTime)
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

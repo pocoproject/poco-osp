@@ -20,34 +20,28 @@ using Poco::OSP::BundleActivator;
 using Poco::OSP::BundleContext;
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
 class AuthBundleActivator: public BundleActivator
 	/// The BundleActivator for the Auth Bundle.
 {
 public:
-	AuthBundleActivator()
-	{
-	}
+	AuthBundleActivator() = default;
 	
-	~AuthBundleActivator()
-	{
-	}
+	~AuthBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr /*pContext*/) override
 	{
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 	}
 };
 
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth
 
 
 POCO_BEGIN_MANIFEST(BundleActivator)

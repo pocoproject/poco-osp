@@ -24,15 +24,15 @@ class SignatureFileTest: public CppUnit::TestCase
 {
 public:
 	SignatureFileTest(const std::string& name);
-	~SignatureFileTest();
+	~SignatureFileTest() override;
 
 	void testRead();
 	void testWrite();
 	void testReadRejectsLongEntry();
 	void testWriteRejectsLongPath();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 };

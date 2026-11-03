@@ -30,7 +30,7 @@ public:
 	}
 
 protected:
-	Poco::Net::ServerSocket createServerSocket(const Poco::Net::SocketAddress& address) override
+	[[nodiscard]] Poco::Net::ServerSocket createServerSocket(const Poco::Net::SocketAddress& address) override
 	{
 		// The copy shares the socket implementation, which performs the TLS handshake.
 		return Poco::Net::SecureServerSocket(address);

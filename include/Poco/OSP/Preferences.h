@@ -27,8 +27,7 @@
 #include "Poco/Mutex.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API Preferences: public Poco::Util::AbstractConfiguration
@@ -45,6 +44,8 @@ public:
 	Preferences(const std::string& path);
 		/// Creates the Preferences, using the given path.
 
+	Preferences() = delete;
+
 	void save();
 		/// Saves the preferences to the file system.
 		///
@@ -53,14 +54,13 @@ public:
 		/// the previous preferences file is kept.
 
 protected:
-	bool getRaw(const std::string& key, std::string& value) const;
-	void setRaw(const std::string& key, const std::string& value);
-	void enumerate(const std::string& key, Keys& range) const;
-	void removeRaw(const std::string& key);
-	~Preferences();
+	[[nodiscard]] bool getRaw(const std::string& key, std::string& value) const override;
+	void setRaw(const std::string& key, const std::string& value) override;
+	void enumerate(const std::string& key, Keys& range) const override;
+	void removeRaw(const std::string& key) override;
+	~Preferences() override;
 
 private:
-	Preferences();
 
 	std::string _path;
 	Poco::AutoPtr<Poco::Util::PropertyFileConfiguration> _pConfig;
@@ -69,7 +69,7 @@ private:
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_Preferences_INCLUDED

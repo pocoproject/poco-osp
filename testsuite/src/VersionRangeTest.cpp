@@ -23,9 +23,7 @@ VersionRangeTest::VersionRangeTest(const std::string& name): CppUnit::TestCase(n
 }
 
 
-VersionRangeTest::~VersionRangeTest()
-{
-}
+VersionRangeTest::~VersionRangeTest() = default;
 
 
 void VersionRangeTest::testClosedRangeIncludesBounds()

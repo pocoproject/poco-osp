@@ -28,9 +28,7 @@ SignatureFileTest::SignatureFileTest(const std::string& name): CppUnit::TestCase
 }
 
 
-SignatureFileTest::~SignatureFileTest()
-{
-}
+SignatureFileTest::~SignatureFileTest() = default;
 
 
 void SignatureFileTest::testRead()

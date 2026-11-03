@@ -39,19 +39,15 @@ class PreferencesBundleActivator: public BundleActivator
 	/// of the PreferencesService.
 {
 public:
-	PreferencesBundleActivator()
-	{
-	}
+	PreferencesBundleActivator() = default;
 	
-	~PreferencesBundleActivator()
-	{
-	}
+	~PreferencesBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{		
 		// find PreferencesService using the Service Registry
 		ServiceRef::Ptr pPrefsSvcRef = pContext->registry().findByName(PreferencesService::SERVICE_NAME);
-		if (pPrefsSvcRef)
+		if (pPrefsSvcRef != nullptr)
 		{
 			// PreferencesService is available
 			AutoPtr<PreferencesService> pPrefsSvc = pPrefsSvcRef->castedInstance<PreferencesService>();
@@ -75,9 +71,9 @@ public:
 		}
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
-		if (_pPrefs)
+		if (_pPrefs != nullptr)
 		{
 			DateTime now;
 			std::string dateStr = DateTimeFormatter::format(now, DateTimeFormat::SORTABLE_FORMAT);

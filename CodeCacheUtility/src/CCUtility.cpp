@@ -32,29 +32,26 @@ using Poco::Util::AbstractConfiguration;
 using Poco::Util::OptionCallback;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class CodeCacheUtility: public Application
 {
 public:
 	CodeCacheUtility():
-		_showHelp(false),
 		_osName(Poco::Environment::osName()),
-		_osArch(Poco::Environment::osArchitecture()),
-		_cleanCodeCache(false)
+		_osArch(Poco::Environment::osArchitecture())
 	{
 	}
 
 protected:
-	void initialize(Application& self)
+	void initialize(Application& self) override
 	{
 		loadConfiguration(); // load default configuration files, if present
 		Application::initialize(self);
 	}
 
-	void defineOptions(OptionSet& options)
+	void defineOptions(OptionSet& options) override
 	{
 		Application::defineOptions(options);
 
@@ -106,39 +103,39 @@ protected:
 				.callback(OptionCallback<CodeCacheUtility>(this, &CodeCacheUtility::handleCache)));
 	}
 
-	void handleHelp(const std::string& name, const std::string& value)
+	void handleHelp(const std::string& /*name*/, const std::string& /*value*/)
 	{
 		_showHelp = true;
 		displayHelp();
 		stopOptionsProcessing();
 	}
 
-	void handleClean(const std::string& name, const std::string& value)
+	void handleClean(const std::string& /*name*/, const std::string& /*value*/)
 	{
 		_cleanCodeCache = true;
 	}
 
-	void handleConfig(const std::string& name, const std::string& value)
+	void handleConfig(const std::string& /*name*/, const std::string& value)
 	{
 		loadConfiguration(value);
 	}
 
-	void handleOSName(const std::string& name, const std::string& value)
+	void handleOSName(const std::string& /*name*/, const std::string& value)
 	{
 		_osName = value;
 	}
 
-	void handleOSArch(const std::string& name, const std::string& value)
+	void handleOSArch(const std::string& /*name*/, const std::string& value)
 	{
 		_osArch = value;
 	}
 
-	void handleBundles(const std::string& name, const std::string& value)
+	void handleBundles(const std::string& /*name*/, const std::string& value)
 	{
 		_bundleRepositoryPath = value;
 	}
 
-	void handleCache(const std::string& name, const std::string& value)
+	void handleCache(const std::string& /*name*/, const std::string& value)
 	{
 		_codeCachePath = value;
 	}
@@ -166,7 +163,7 @@ protected:
 		helpFormatter.format(std::cout);
 	}
 
-	int main(const std::vector<std::string>& args)
+	int main(const std::vector<std::string>& /*args*/) override
 	{
 		if (_showHelp) return Application::EXIT_OK;
 
@@ -212,16 +209,16 @@ protected:
 	}
 
 private:
-	bool _showHelp;
+	bool _showHelp = false;
 	std::string _osName;
 	std::string _osArch;
 	std::string _codeCachePath;
 	std::string _bundleRepositoryPath;
-	bool _cleanCodeCache;
+	bool _cleanCodeCache = false;
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 POCO_APP_MAIN(Poco::OSP::CodeCacheUtility)

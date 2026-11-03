@@ -24,7 +24,7 @@
 class AuthCommandFactory: public Poco::OSP::Shell::CommandFactory
 {
 public:
-	Poco::OSP::Shell::Command* createCommand()
+	Poco::OSP::Shell::Command* createCommand() override
 	{
 		return new AuthCommand(context());
 	}
@@ -34,7 +34,7 @@ public:
 class PasswdCommandFactory: public Poco::OSP::Shell::CommandFactory
 {
 public:
-	Poco::OSP::Shell::Command* createCommand()
+	Poco::OSP::Shell::Command* createCommand() override
 	{
 		return new PasswdCommand(context());
 	}

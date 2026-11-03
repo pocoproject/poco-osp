@@ -27,9 +27,7 @@
 #include <vector>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class OSPShell_API SessionTracker
@@ -82,7 +80,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_SessionTracker_INCLUDED

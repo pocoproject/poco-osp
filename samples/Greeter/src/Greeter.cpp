@@ -27,19 +27,15 @@ class GreeterBundleActivator: public BundleActivator
 	/// the ServiceRegistry and invokes it.
 {
 public:
-	GreeterBundleActivator()
-	{
-	}
+	GreeterBundleActivator() = default;
 	
-	~GreeterBundleActivator()
-	{
-	}
+	~GreeterBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		// Obtain the GreetingService object from the Service Registry.
 		ServiceRef::Ptr pServiceRef = pContext->registry().findByName("com.appinf.osp.samples.GreetingService");
-		if (pServiceRef)
+		if (pServiceRef != nullptr)
 		{
 			// Service is available - let's invoke it
 			GreetingService::Ptr pService = pServiceRef->castedInstance<GreetingService>();
@@ -56,7 +52,7 @@ public:
 		}
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 	}
 };

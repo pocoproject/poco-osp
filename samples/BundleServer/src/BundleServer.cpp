@@ -40,13 +40,12 @@ public:
 	BundleServerApplication():
 		_errorHandler(*this),
 		_pPreviousErrorHandler(Poco::ErrorHandler::set(&_errorHandler)),
-		_pOSP(new OSPSubsystem),
-		_showHelp(false)
+		_pOSP(new OSPSubsystem)
 	{
 		addSubsystem(_pOSP);
 	}
 
-	~BundleServerApplication()
+	~BundleServerApplication() override
 	{
 		// wait until all threads have terminated
 		// before we completely shut down.
@@ -55,7 +54,7 @@ public:
 		Poco::ErrorHandler::set(_pPreviousErrorHandler);
 	}
 
-	ServiceRegistry& serviceRegistry()
+	[[nodiscard]] ServiceRegistry& serviceRegistry()
 	{
 		return _pOSP->serviceRegistry();
 	}
@@ -69,17 +68,17 @@ protected:
 		{
 		}
 
-		void exception(const Poco::Exception& exc)
+		void exception(const Poco::Exception& exc) override
 		{
 			log(exc.displayText());
 		}
 
-		void exception(const std::exception& exc)
+		void exception(const std::exception& exc) override
 		{
 			log(exc.what());
 		}
 
-		void exception()
+		void exception() override
 		{
 			log("unknown exception");
 		}
@@ -93,7 +92,7 @@ protected:
 		BundleServerApplication& _app;
 	};
 
-	void initialize(Application& self)
+	void initialize(Application& self) override
 	{
 		// The following is a workaround for Windows so that DLLs
 		// loaded from bundles will also look for DLLs in the
@@ -104,7 +103,7 @@ protected:
 		Application::initialize(self);
 	}
 
-	void defineOptions(OptionSet& options)
+	void defineOptions(OptionSet& options) override
 	{
 		ServerApplication::defineOptions(options);
 
@@ -122,7 +121,7 @@ protected:
 				.callback(OptionCallback<BundleServerApplication>(this, &BundleServerApplication::handleConfig)));
 	}
 
-	void handleHelp(const std::string& name, const std::string& value)
+	void handleHelp(const std::string& /*name*/, const std::string& /*value*/)
 	{
 		_showHelp = true;
 		displayHelp();
@@ -130,7 +129,7 @@ protected:
 		_pOSP->cancelInit();
 	}
 
-	void handleConfig(const std::string& name, const std::string& value)
+	void handleConfig(const std::string& /*name*/, const std::string& value)
 	{
 		// Above the default configuration file that initialize() loads.
 		loadConfiguration(value, PRIO_APPLICATION);
@@ -145,7 +144,7 @@ protected:
 		helpFormatter.format(std::cout);
 	}
 
-	int main(const std::vector<std::string>& args)
+	int main(const std::vector<std::string>& /*args*/) override
 	{
 		if (!_showHelp)
 		{
@@ -158,7 +157,7 @@ private:
 	ErrorHandler _errorHandler;
 	Poco::ErrorHandler* _pPreviousErrorHandler;
 	OSPSubsystem* _pOSP;
-	bool _showHelp;
+	bool _showHelp = false;
 };
 
 

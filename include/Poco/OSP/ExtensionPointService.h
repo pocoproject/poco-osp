@@ -29,8 +29,7 @@
 #include <istream>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class BundleEvents;
@@ -76,6 +75,8 @@ public:
 	ExtensionPointService(BundleEvents& events);
 		/// Creates the ExtensionPointService.
 
+	ExtensionPointService() = delete;
+
 	void registerExtensionPoint(Bundle::ConstPtr pBundle, const std::string& id, ExtensionPoint::Ptr pExtensionPoint);
 		/// Registers the given extension point under the given ID.
 		/// If the bundle registering the extension point is stopped,
@@ -97,11 +98,12 @@ public:
 	static const std::string POINT_ATTR;
 
 	// Service
-	const std::type_info& type() const;
-	bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 protected:
-	typedef void (ExtensionPointService::*GenericHandler)(Bundle::ConstPtr pBundle, const std::string& id, Poco::XML::Element* pExtensionElement);
+	using GenericHandler = void (ExtensionPointService::*)(Bundle::ConstPtr pBundle, const std::string& id,
+		Poco::XML::Element* pExtensionElement);
 
 	enum Direction /// The direction in which to traverse the extension points
 	{
@@ -127,14 +129,13 @@ protected:
 	void removeExtension(Bundle::ConstPtr pBundle, const std::string& id, Poco::XML::Element* pExtensionElement);
 		/// Handles a single "extension" element for extension removal.
 
-	ExtensionPoint::Ptr findExtensionPoint(const std::string& id);
+	[[nodiscard]] ExtensionPoint::Ptr findExtensionPoint(const std::string& id);
 		/// Returns the extension point with the given ID.
 
-	~ExtensionPointService();
+	~ExtensionPointService() override;
 		/// Destroys the ExtensionPointService.
 
 private:
-	ExtensionPointService();
 
 	struct XPInfo
 	{
@@ -151,7 +152,7 @@ private:
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_ExtensionPointService_INCLUDED

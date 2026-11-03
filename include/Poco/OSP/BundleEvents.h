@@ -23,8 +23,7 @@
 #include "Poco/BasicEvent.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API BundleEvents
@@ -91,14 +90,13 @@ public:
 		
 	~BundleEvents();
 		/// Destroys the BundleEvents object.
-		
-private:
-	BundleEvents(const BundleEvents&);
-	BundleEvents& operator = (const BundleEvents&);
+
+	BundleEvents(const BundleEvents&) = delete;
+	BundleEvents& operator = (const BundleEvents&) = delete;
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleEvents_INCLUDED

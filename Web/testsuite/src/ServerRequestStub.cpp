@@ -44,7 +44,7 @@ std::ostream& ServerResponseStub::send()
 }
 
 
-void ServerResponseStub::sendFile(const std::string& path, const std::string& mediaType)
+void ServerResponseStub::sendFile(const std::string& /*path*/, const std::string& /*mediaType*/)
 {
 	_sent = true;
 }
@@ -65,7 +65,7 @@ void ServerResponseStub::redirect(const std::string& uri, HTTPStatus status)
 }
 
 
-void ServerResponseStub::requireAuthentication(const std::string& realm)
+void ServerResponseStub::requireAuthentication(const std::string& /*realm*/)
 {
 	setStatusAndReason(HTTP_UNAUTHORIZED);
 }

@@ -26,20 +26,16 @@ class TestBundleActivator: public BundleActivator
 	/// TestBundle activator.
 {
 public:
-	TestBundleActivator()
-	{
-	}
+	TestBundleActivator() = default;
 	
-	~TestBundleActivator()
-	{
-	}
+	~TestBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		TestFactory::instance().add(pContext->thisBundle()->symbolicName(), BundleTest::suite());
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr pContext) override
 	{
 		TestFactory::instance().remove(pContext->thisBundle()->symbolicName());
 	}

@@ -18,8 +18,7 @@
 #include "Poco/OSP/BundleStorage.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 BundleFactory::BundleFactory(const LanguageTag& language):
@@ -28,9 +27,7 @@ BundleFactory::BundleFactory(const LanguageTag& language):
 }
 
 
-BundleFactory::~BundleFactory()
-{
-}
+BundleFactory::~BundleFactory() = default;
 
 
 Bundle* BundleFactory::createBundle(BundleLoader& loader, const std::string& path)
@@ -39,4 +36,4 @@ Bundle* BundleFactory::createBundle(BundleLoader& loader, const std::string& pat
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

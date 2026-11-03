@@ -25,9 +25,7 @@
 
 #include <string>
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
 class OSPAuth_API AuthNotification: public Poco::Notification
@@ -44,17 +42,17 @@ public:
 		const Attributes& attributes
 	);
 
-	~AuthNotification();
+	~AuthNotification() override;
 
-	bool isExternal() const;
-	const std::string& userName() const;
-	const std::string& fullName() const;
-	const Roles& roles() const;
-	const Permissions& permissions() const;
+	[[nodiscard]] bool isExternal() const;
+	[[nodiscard]] const std::string& userName() const;
+	[[nodiscard]] const std::string& fullName() const;
+	[[nodiscard]] const Roles& roles() const;
+	[[nodiscard]] const Permissions& permissions() const;
 		/// Returns the permissions granted to the user directly,
 		/// without the permissions of the user's roles.
 
-	const Attributes& attributes() const;
+	[[nodiscard]] const Attributes& attributes() const;
 
 private:
 
@@ -103,6 +101,6 @@ inline const Attributes& AuthNotification::attributes() const
 }
 
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth
 
 #endif // OSP_Auth_AuthNotification_INCLUDED

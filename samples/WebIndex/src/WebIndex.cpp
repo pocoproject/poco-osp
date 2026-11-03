@@ -44,7 +44,7 @@ public:
 	{
 	}
 	
-	void handleRequest(HTTPServerRequest& request, HTTPServerResponse& response)
+	void handleRequest(HTTPServerRequest& request, HTTPServerResponse& response) override
 	{
 		WebServerDispatcher::PathInfoMap pathInfos;
 		_pWebServerDispatcher->listVirtualPaths(pathInfos);
@@ -86,11 +86,9 @@ private:
 class IndexHandlerFactory: public WebRequestHandlerFactory
 {
 public:
-	IndexHandlerFactory()
-	{
-	}
+	IndexHandlerFactory() = default;
 
-	HTTPRequestHandler* createRequestHandler(const HTTPServerRequest& request)
+	[[nodiscard]] HTTPRequestHandler* createRequestHandler(const HTTPServerRequest& request) override
 	{
 		const std::string path = Poco::URI(request.getURI()).getPath();
 		if (_pWebServerDispatcher != nullptr && (path == "/" || path == "/index.html"))
@@ -101,10 +99,10 @@ public:
 	}
 	
 protected:
-	void initImpl()
+	void initImpl() override
 	{
 		ServiceRef::Ptr pWebServerDispatcherRef = context()->registry().findByName(WebServerDispatcher::SERVICE_NAME);
-		if (pWebServerDispatcherRef)
+		if (pWebServerDispatcherRef != nullptr)
 		{
 			 _pWebServerDispatcher = pWebServerDispatcherRef->castedInstance<WebServerDispatcher>();
 		}

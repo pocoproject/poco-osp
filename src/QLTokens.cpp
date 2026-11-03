@@ -21,8 +21,7 @@
 using Poco::Token;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 //
@@ -30,14 +29,10 @@ namespace OSP {
 //
 
 
-QLToken::QLToken()
-{
-}
+QLToken::QLToken() = default;
 
 
-QLToken::~QLToken()
-{
-}
+QLToken::~QLToken() = default;
 
 
 void QLToken::syntaxError(const std::string& expected, const std::string& actual)
@@ -82,9 +77,7 @@ OperatorToken::OperatorToken()
 }
 
 
-OperatorToken::~OperatorToken()
-{
-}
+OperatorToken::~OperatorToken() = default;
 
 
 Token::Class OperatorToken::tokenClass() const
@@ -93,7 +86,7 @@ Token::Class OperatorToken::tokenClass() const
 }
 
 
-bool OperatorToken::start(char c, std::istream& istr)
+bool OperatorToken::start(char c, std::istream& /*istr*/)
 {
 	_value = c;
 	switch (_value[0])
@@ -122,28 +115,28 @@ void OperatorToken::finish(std::istream& istr)
 	case ')':
 		break;
 	case '<':
-		if (next == '=') _value += (char) istr.get();
+		if (next == '=') _value += static_cast<char>(istr.get());
 		break;
 	case '>':
-		if (next == '=') _value += (char) istr.get();
+		if (next == '=') _value += static_cast<char>(istr.get());
 		break;
 	case '&':
 		if (next == '&')
-			_value += (char) istr.get();
+			_value += static_cast<char>(istr.get());
 		else
 			syntaxError("&", characterText(next));
 		break;
 	case '|':
 		if (next == '|')
-			_value += (char) istr.get();
+			_value += static_cast<char>(istr.get());
 		else
 			syntaxError("|", characterText(next));
 		break;
 	case '=':
-		if (next == '~' || next == '=') _value += (char) istr.get();
+		if (next == '~' || next == '=') _value += static_cast<char>(istr.get());
 		break;
 	case '!':
-		if (next == '=') _value += (char) istr.get();
+		if (next == '=') _value += static_cast<char>(istr.get());
 		break;
 	default:
 		poco_bugcheck();
@@ -166,14 +159,10 @@ int OperatorToken::asInteger() const
 //
 
 
-IdentifierToken::IdentifierToken()
-{
-}
+IdentifierToken::IdentifierToken() = default;
 
 
-IdentifierToken::~IdentifierToken()
-{
-}
+IdentifierToken::~IdentifierToken() = default;
 
 
 Token::Class IdentifierToken::tokenClass() const
@@ -182,7 +171,7 @@ Token::Class IdentifierToken::tokenClass() const
 }
 
 
-bool IdentifierToken::start(char c, std::istream& istr)
+bool IdentifierToken::start(char c, std::istream& /*istr*/)
 {
 	_value = c;
 	return (c >= 'A' && c <= 'Z') ||
@@ -199,7 +188,7 @@ void IdentifierToken::finish(std::istream& istr)
 		   (next >= '0' && next <= '9') ||
 		    next == '_' || next == '.') 
 	{
-		_value += (char) istr.get();
+		_value += static_cast<char>(istr.get());
 		next = istr.peek();
 	}
 }
@@ -210,14 +199,10 @@ void IdentifierToken::finish(std::istream& istr)
 //
 
 
-StringLiteralToken::StringLiteralToken()
-{
-}
+StringLiteralToken::StringLiteralToken() = default;
 
 
-StringLiteralToken::~StringLiteralToken()
-{
-}
+StringLiteralToken::~StringLiteralToken() = default;
 
 
 Token::Class StringLiteralToken::tokenClass() const
@@ -226,7 +211,7 @@ Token::Class StringLiteralToken::tokenClass() const
 }
 
 
-bool StringLiteralToken::start(char c, std::istream& istr)
+bool StringLiteralToken::start(char c, std::istream& /*istr*/)
 {
 	_value = c;
 	return c == '"';
@@ -238,14 +223,14 @@ void StringLiteralToken::finish(std::istream& istr)
 	int next = istr.peek();	
 	while (next != -1 && next != '"' && next != '\n' && next != '\r')
 	{
-		if (next == '\\') _value += (char) istr.get();
-		_value += (char) istr.get();
+		if (next == '\\') _value += static_cast<char>(istr.get());
+		_value += static_cast<char>(istr.get());
 		next = istr.peek();
 	}
 	if (next == '"')
 	{
 		next = istr.get();
-		_value += (char) next;
+		_value += static_cast<char>(next);
 	}
 	else throw SyntaxException("Unterminated string literal");
 }
@@ -274,14 +259,10 @@ std::string StringLiteralToken::asString() const
 //
 
 
-RegExpToken::RegExpToken()
-{
-}
+RegExpToken::RegExpToken() = default;
 
 
-RegExpToken::~RegExpToken()
-{
-}
+RegExpToken::~RegExpToken() = default;
 
 
 Token::Class RegExpToken::tokenClass() const
@@ -290,7 +271,7 @@ Token::Class RegExpToken::tokenClass() const
 }
 
 
-bool RegExpToken::start(char c, std::istream& istr)
+bool RegExpToken::start(char c, std::istream& /*istr*/)
 {
 	_value = c;
 	return c == '/' || c == '#';
@@ -302,13 +283,13 @@ void RegExpToken::finish(std::istream& istr)
 	int next = istr.peek();	
 	while (next != -1 && next != _value[0] && next != '\n' && next != '\r')
 	{
-		_value += (char) istr.get();
+		_value += static_cast<char>(istr.get());
 		next = istr.peek();
 	}
 	if (next == _value[0])
 	{
 		next = istr.get();
-		_value += (char) next;
+		_value += static_cast<char>(next);
 	}
 	else throw SyntaxException("Unterminated regular expression");
 }
@@ -333,15 +314,10 @@ std::string RegExpToken::asString() const
 //
 
 
-NumberLiteralToken::NumberLiteralToken():
-	_isFloat(false)
-{
-}
+NumberLiteralToken::NumberLiteralToken() = default;
 
 
-NumberLiteralToken::~NumberLiteralToken()
-{
-}
+NumberLiteralToken::~NumberLiteralToken() = default;
 
 
 Token::Class NumberLiteralToken::tokenClass() const
@@ -367,14 +343,14 @@ void NumberLiteralToken::finish(std::istream& istr)
 	{
 		if (next == 'x')
 		{
-			_value += (char) istr.get();
+			_value += static_cast<char>(istr.get());
 			next = istr.peek();
-			while (std::isxdigit(next)) { _value += (char) istr.get(); next = istr.peek(); }
+			while (std::isxdigit(next)) { _value += static_cast<char>(istr.get()); next = istr.peek(); }
 			return;
 		}
 		while (next >= '0' && next <= '9')
 		{
-			_value += (char) istr.get();
+			_value += static_cast<char>(istr.get());
 			next = istr.peek();
 		}
 		if (next == '.')
@@ -400,24 +376,24 @@ void NumberLiteralToken::finish(std::istream& istr)
 	}
 	while (next >= '0' && next <= '9')
 	{
-		_value += (char) istr.get();
+		_value += static_cast<char>(istr.get());
 		next = istr.peek();
 	}
 	if (next == 'e' || next == 'E')
 	{
 		_isFloat = true;
-		_value += (char) istr.get();
+		_value += static_cast<char>(istr.get());
 		next = istr.peek();
 		if (next == '+' || next == '-')
 		{
-			_value += (char) istr.get();
+			_value += static_cast<char>(istr.get());
 			next = istr.peek();
 		}
 		if (next >= '0' && next <= '9')
 		{
 			while (next >= '0' && next <= '9')
 			{
-				_value += (char) istr.get();
+				_value += static_cast<char>(istr.get());
 				next = istr.peek();
 			}
 		}
@@ -429,4 +405,4 @@ void NumberLiteralToken::finish(std::istream& istr)
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

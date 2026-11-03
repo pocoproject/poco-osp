@@ -24,7 +24,8 @@ class LogLevelCommand: public Poco::OSP::Shell::Command
 	/// for querying or changing log levels.
 {
 public:
-	int execute(Poco::OSP::Shell::Session& session, const std::vector<std::string>& args, std::ostream& ostr)
+	[[nodiscard]] int execute(Poco::OSP::Shell::Session& /*session*/, const std::vector<std::string>& args,
+		std::ostream& ostr) override
 	{
 		if (args.size() > 1 && (args[1] == "--help" || args[1] == "-h"))
 		{
@@ -50,7 +51,7 @@ public:
 		else if (args.size() == 2)
 		{
 			Poco::Logger* pLogger = Poco::Logger::has(args[1]);
-			if (pLogger)
+			if (pLogger != nullptr)
 			{
 				ostr << levelToString(pLogger->getLevel());
 				return Poco::OSP::Shell::Command::STATUS_OK; 
@@ -102,7 +103,7 @@ protected:
 			<< '\n';
 	}
 
-	static std::string levelToString(int level)
+	[[nodiscard]] static std::string levelToString(int level)
 	{
 		switch (level)
 		{
@@ -124,7 +125,7 @@ protected:
 class LogLevelCommandFactory: public Poco::OSP::Shell::CommandFactory
 {
 public:
-	Poco::OSP::Shell::Command* createCommand()
+	[[nodiscard]] Poco::OSP::Shell::Command* createCommand() override
 	{
 		return new LogLevelCommand;
 	}

@@ -17,8 +17,7 @@
 #include <utility>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 BundleEvent::BundleEvent(Bundle::Ptr pBundle, EventKind what):
@@ -67,4 +66,4 @@ BundleEvent& BundleEvent::operator = (const BundleEvent& event)
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

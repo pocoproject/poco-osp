@@ -24,8 +24,7 @@ using Poco::File;
 using Poco::DirectoryIterator;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 BundleDirectory::BundleDirectory(const std::string& path):
@@ -35,9 +34,7 @@ BundleDirectory::BundleDirectory(const std::string& path):
 }
 
 
-BundleDirectory::~BundleDirectory()
-{
-}
+BundleDirectory::~BundleDirectory() = default;
 
 
 std::istream* BundleDirectory::getResource(const std::string& path) const
@@ -47,7 +44,7 @@ std::istream* BundleDirectory::getResource(const std::string& path) const
 	if (f.exists() && f.isFile())
 		return new Poco::FileInputStream(f.path());
 	else
-		return 0;
+		return nullptr;
 }
 
 
@@ -113,4 +110,4 @@ Poco::Path BundleDirectory::buildPath(const std::string& path) const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

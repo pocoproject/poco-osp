@@ -24,8 +24,7 @@
 #include "Poco/AutoPtr.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API BundleFilter: public Poco::RefCountedObject
@@ -39,19 +38,19 @@ class OSP_API BundleFilter: public Poco::RefCountedObject
 public:
 	using Ptr = Poco::AutoPtr<BundleFilter>;
 
-	virtual bool accept(Bundle::Ptr pBundle) = 0;
+	[[nodiscard]] virtual bool accept(Bundle::Ptr pBundle) = 0;
 		/// Check whether the given Bundle should be
 		/// loaded. Must be overridden by subclasses.
 		///
 		/// Returns true if given Bundle should be loaded,
 		/// or false otherwise.
 
-	virtual ~BundleFilter();
+	~BundleFilter() override;
 		/// Destroys the BundleFilter.
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_BundleFilter_INCLUDED

@@ -23,22 +23,22 @@ class BundleTest: public Poco::OSP::Unit::TestCase
 {
 public:
 	BundleTest(const std::string& name);
-	~BundleTest();
+	~BundleTest() override;
 
 	void testSetUp();
 	void testSuccess();
-	void testError();
-	void testFailure();
+	[[noreturn]] void testError();
+	[[noreturn]] void testFailure();
 	void testTornDown();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 
 private:
-	bool _setUp;
-	bool _tornDown;
+	bool _setUp = false;
+	bool _tornDown = false;
 };
 
 

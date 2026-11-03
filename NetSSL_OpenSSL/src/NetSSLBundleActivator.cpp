@@ -26,22 +26,18 @@ using Poco::Net::HTTPSSessionInstantiator;
 class NetSSLBundleActivator: public BundleActivator
 {
 public:
-	NetSSLBundleActivator()
-	{
-	}
+	NetSSLBundleActivator() = default;
 	
-	~NetSSLBundleActivator()
-	{
-	}
+	~NetSSLBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr /*pContext*/) override
 	{
 		Poco::Net::initializeSSL();
 		HTTPSStreamFactory::registerFactory();
 		HTTPSSessionInstantiator::registerInstantiator();
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 		HTTPSSessionInstantiator::unregisterInstantiator();
 		HTTPSStreamFactory::unregisterFactory();

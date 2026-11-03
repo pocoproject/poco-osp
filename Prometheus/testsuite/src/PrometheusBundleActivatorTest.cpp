@@ -84,22 +84,23 @@ namespace
 		TestAuthService& operator = (const TestAuthService&) = delete;
 		TestAuthService& operator = (TestAuthService&&) = delete;
 
-		bool authenticate(const std::string& userName, const std::string& credentials) const override
+		[[nodiscard]] bool authenticate(const std::string& userName, const std::string& credentials) const override
 		{
 			return userExists(userName) && credentials == "secret";
 		}
 
-		bool authorize(const std::string& userName, const std::string& permission) const override
+		[[nodiscard]] bool authorize(const std::string& userName, const std::string& permission) const override
 		{
 			return userName == "alice" && permission == "metrics";
 		}
 
-		bool authorize(const std::string& userName, const std::string& scope, const std::string& permission) const override
+		[[nodiscard]] bool authorize(const std::string& userName, const std::string& /*scope*/,
+			const std::string& permission) const override
 		{
 			return authorize(userName, permission);
 		}
 
-		bool userExists(const std::string& userName) const override
+		[[nodiscard]] bool userExists(const std::string& userName) const override
 		{
 			return userName == "alice" || userName == "bob";
 		}

@@ -21,25 +21,20 @@
 #include "Poco/Util/OptionCallback.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 ServicesCommand::ServicesCommand(Poco::OSP::BundleContext::Ptr pContext):
 	OSPCommand(pContext, "services"),
-	_query("name"),
-	_properties(false)
+	_query("name")
 {
 }
 
 
-ServicesCommand::~ServicesCommand()
-{
-}
+ServicesCommand::~ServicesCommand() = default;
 
 
-int ServicesCommand::executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr)
+int ServicesCommand::executeImpl(Session& /*session*/, const std::vector<std::string>& args, std::ostream& ostr)
 {
 	std::vector<Poco::OSP::ServiceRef::Ptr> services;
 	context()->registry().find(_query, services);
@@ -83,16 +78,16 @@ void ServicesCommand::defineOptions(Poco::Util::OptionSet& options)
 }
 
 
-void ServicesCommand::handleQuery(const std::string& name, const std::string& value)
+void ServicesCommand::handleQuery(const std::string& /*name*/, const std::string& value)
 {
 	_query = value;
 }
 
 
-void ServicesCommand::handleProperties(const std::string& name, const std::string& value)
+void ServicesCommand::handleProperties(const std::string& /*name*/, const std::string& /*value*/)
 {
 	_properties = true;
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

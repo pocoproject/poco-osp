@@ -31,8 +31,7 @@ using Poco::Util::PropertyFileConfiguration;
 using Poco::Path;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 namespace
@@ -92,7 +91,7 @@ Bundle::Bundle(int id, BundleLoader& loader, BundleStorage::Ptr pStorage, const 
 	_pStorage(pStorage),
 	_language(language),
 	_pProperties(new BundleProperties),
-	_pActivator(0),
+	_pActivator(nullptr),
 	_extensionCount(0)
 {
 	poco_check_ptr (_pStorage);
@@ -106,9 +105,7 @@ Bundle::Bundle(int id, BundleLoader& loader, BundleStorage::Ptr pStorage, const 
 }
 
 
-Bundle::~Bundle()
-{
-}
+Bundle::~Bundle() = default;
 
 
 const std::string& Bundle::stateString() const
@@ -149,12 +146,12 @@ std::istream* Bundle::getResource(const std::string& name) const
 
 		std::vector<Bundle::Ptr>::const_iterator it = extensionBundles.begin();
 		std::vector<Bundle::Ptr>::const_iterator end = extensionBundles.end();
-		while (!pStream && it != end)
+		while (pStream == nullptr && it != end)
 		{
 			pStream = (*it)->getResource(name);
 			++it;
 		}
-		if (!pStream)
+		if (pStream == nullptr)
 		{
 			pStream = _pStorage->getResource(name);
 		}
@@ -180,7 +177,7 @@ std::istream* Bundle::getLocalizedResource(const std::string& name, const Langua
 	localPath.pushDirectory(language.subTags());
 	Path resPath(localPath, name);
 	std::istream* pStream = getResource(resPath.toString(Path::PATH_UNIX));
-	while (!pStream && localPath.depth() > 0)
+	while (pStream == nullptr && localPath.depth() > 0)
 	{
 		localPath.popDirectory();
 		resPath = Path(localPath, name);
@@ -301,7 +298,7 @@ Bundle::Ptr Bundle::extendedBundle() const
 void Bundle::loadManifest()
 {
 	std::unique_ptr<std::istream> pStream(_pStorage->getResource(MANIFEST_FILE));
-	if (pStream.get())
+	if (pStream != nullptr)
 		_pManifest = new BundleManifest(*pStream);
 	else
 		throw BundleLoadException("No manifest found", _pStorage->path());
@@ -326,7 +323,7 @@ void Bundle::loadProperties()
 void Bundle::addProperties(const std::string& path)
 {
 	std::unique_ptr<std::istream> pStream(getResource(path));
-	if (pStream.get())
+	if (pStream != nullptr)
 	{
 		PropertyFileConfiguration::Ptr pConfig = new PropertyFileConfiguration(*pStream);
 		_pProperties->addProperties(pConfig);
@@ -400,4 +397,4 @@ void Bundle::setResolution(ResolvedDependencies& dependencies, ModuleProviders& 
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

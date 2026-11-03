@@ -26,9 +26,7 @@
 #include <istream>
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 class OSPWeb_API MediaTypeMapper: public Service
@@ -60,7 +58,7 @@ public:
 	MediaTypeMapper();
 		/// Creates an empty MediaTypeMapper.
 
-	~MediaTypeMapper();
+	~MediaTypeMapper() override;
 		/// Destroys the MediaTypeMapper.
 
 	void load(std::istream& str);
@@ -73,14 +71,14 @@ public:
 		/// media type of an existing mapping for the suffix.
 		/// Suffix is not case sensitive.
 
-	ConstIterator find(const std::string& suffix) const;
+	[[nodiscard]] ConstIterator find(const std::string& suffix) const;
 		/// Searches a MIME media type for the given suffix. Returns end() for unknown mappings.
 		/// Note that the search is not case sensitive!
 
-	ConstIterator begin() const;
+	[[nodiscard]] ConstIterator begin() const;
 		/// Returns the begin iterator for the suffix to MIME media type map.
 
-	ConstIterator end() const;
+	[[nodiscard]] ConstIterator end() const;
 		/// Returns the end iterator for the suffix to MIME media type map.
 
 	[[nodiscard]] std::string map(const std::string& suffix) const;
@@ -99,8 +97,8 @@ public:
 		/// the default type is application/octet-stream.
 
 	// Service
-	virtual const std::type_info& type() const;
-	virtual bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 	static const std::string SERVICE_NAME;
 
@@ -126,7 +124,7 @@ inline MediaTypeMapper::ConstIterator MediaTypeMapper::end() const
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web
 
 
 #endif // OSP_Web_MediaTypeMapper_INCLUDED

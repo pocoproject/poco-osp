@@ -19,9 +19,7 @@
 #include <memory>
 
 
-namespace Poco {
-namespace OSP {
-namespace Prometheus {
+namespace Poco::OSP::Prometheus {
 
 
 class WebSessionCollector: public Poco::Prometheus::Collector
@@ -30,7 +28,7 @@ public:
 	explicit WebSessionCollector(Poco::AutoPtr<Poco::OSP::Web::WebSessionManager> pWebSessionManager);
 		/// Creates a default WebSessionCollector.
 
-	~WebSessionCollector() = default;
+	~WebSessionCollector() override = default;
 		/// Destroys the WebSessionCollector.
 
 	// Collector
@@ -47,7 +45,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Prometheus
+} // namespace Poco::OSP::Prometheus
 
 
 #endif // OSP_Prometheus_WebSessionCollector_INCLUDED

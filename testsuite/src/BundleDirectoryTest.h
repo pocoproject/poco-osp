@@ -22,7 +22,7 @@ class BundleDirectoryTest: public CppUnit::TestCase
 {
 public:
 	BundleDirectoryTest(const std::string& name);
-	~BundleDirectoryTest();
+	~BundleDirectoryTest() override;
 
 	void testGetResourceOpensFile();
 	void testGetResourceRejectsInvalidPath();
@@ -31,8 +31,8 @@ public:
 	void testLastModifiedIsTimeOfFile();
 	void testStorageOpenReturnsBundleDirectory();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 

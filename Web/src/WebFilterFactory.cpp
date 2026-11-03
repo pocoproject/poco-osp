@@ -15,19 +15,13 @@
 #include "Poco/OSP/Web/WebFilterFactory.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
-WebFilterFactory::WebFilterFactory()
-{
-}
+WebFilterFactory::WebFilterFactory() = default;
 
 
-WebFilterFactory::~WebFilterFactory()
-{
-}
+WebFilterFactory::~WebFilterFactory() = default;
 
 
 void WebFilterFactory::init(BundleContext::Ptr pContext)
@@ -42,4 +36,4 @@ void WebFilterFactory::initImpl()
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web

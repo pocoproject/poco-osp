@@ -37,12 +37,12 @@ namespace
 	public:
 		using Ptr = Poco::AutoPtr<TestService>;
 
-		const std::type_info& type() const
+		[[nodiscard]] const std::type_info& type() const override
 		{
 			return typeid(TestService);
 		}
 
-		bool isA(const std::type_info& otherType) const
+		[[nodiscard]] bool isA(const std::type_info& otherType) const override
 		{
 			std::string name(typeid(TestService).name());
 			return name == otherType.name() || Service::isA(otherType);
@@ -54,12 +54,12 @@ namespace
 	public:
 		using Ptr = Poco::AutoPtr<OtherTestService>;
 
-		const std::type_info& type() const
+		[[nodiscard]] const std::type_info& type() const override
 		{
 			return typeid(OtherTestService);
 		}
 
-		bool isA(const std::type_info& otherType) const
+		[[nodiscard]] bool isA(const std::type_info& otherType) const override
 		{
 			std::string name(typeid(OtherTestService).name());
 			return name == otherType.name() || Service::isA(otherType);
@@ -69,7 +69,7 @@ namespace
 	class TestServiceFactory: public ServiceFactory
 	{
 	public:
-		Service::Ptr createService()
+		[[nodiscard]] Service::Ptr createService() override
 		{
 			return new TestService;
 		}
@@ -82,9 +82,7 @@ ServiceRegistryTest::ServiceRegistryTest(const std::string& name): CppUnit::Test
 }
 
 
-ServiceRegistryTest::~ServiceRegistryTest()
-{
-}
+ServiceRegistryTest::~ServiceRegistryTest() = default;
 
 
 void ServiceRegistryTest::testRegisterFindAndUnregisterServices()
@@ -137,7 +135,7 @@ void ServiceRegistryTest::testRegisterFindAndUnregisterServices()
 	assert (pService22 != pService21);
 
 	TestService::Ptr pTestService = pRef->castedInstance<TestService>();
-	assert (pTestService.get() != 0);
+	assert (pTestService != nullptr);
 
 	try
 	{
@@ -272,7 +270,7 @@ void ServiceRegistryTest::testFindWithSyntaxErrorKeepsResults()
 }
 
 
-void ServiceRegistryTest::handleEvent(const void* sender, Poco::OSP::ServiceEvent& event)
+void ServiceRegistryTest::handleEvent(const void* /*sender*/, Poco::OSP::ServiceEvent& event)
 {
 	_events.push_back(event);
 }

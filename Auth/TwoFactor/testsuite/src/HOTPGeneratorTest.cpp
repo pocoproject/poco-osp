@@ -27,9 +27,7 @@ HOTPGeneratorTest::HOTPGeneratorTest(const std::string& name): CppUnit::TestCase
 }
 
 
-HOTPGeneratorTest::~HOTPGeneratorTest()
-{
-}
+HOTPGeneratorTest::~HOTPGeneratorTest() = default;
 
 
 void HOTPGeneratorTest::testGenerate()

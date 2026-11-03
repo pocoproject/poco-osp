@@ -24,15 +24,15 @@ class SignUtilityTest: public CppUnit::TestCase
 {
 public:
 	SignUtilityTest(const std::string& name);
-	~SignUtilityTest();
+	~SignUtilityTest() override;
 
 	void testSignUtility();
 	void testFilesWithoutDirectoryEntriesAreIncluded();
 	void testDuplicateEntryIsRejected();
 	void testNonCanonicalEntryNameIsRejected();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 

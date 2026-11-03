@@ -24,7 +24,7 @@ class AuthAdminServiceTest: public CppUnit::TestCase
 {
 public:
 	AuthAdminServiceTest(const std::string& name);
-	~AuthAdminServiceTest();
+	~AuthAdminServiceTest() override;
 	
 	void testLDAPParamsHaveDefaultTimeout();
 	void testDefaultAuthenticateAccountReturnsUserName();
@@ -33,8 +33,8 @@ public:
 	void testEscapeLDAPFilterValue();
 #endif
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 };

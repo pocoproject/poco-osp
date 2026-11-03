@@ -22,8 +22,7 @@ using Poco::Any;
 using Poco::SyntaxException;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 QLParser::QLParser(const std::string& expr):
@@ -39,9 +38,7 @@ QLParser::QLParser(const std::string& expr):
 }
 
 
-QLParser::~QLParser()
-{
-}
+QLParser::~QLParser() = default;
 
 
 QLExpr::Ptr QLParser::parse()
@@ -215,4 +212,4 @@ Any QLParser::token2value(const Poco::Token* token)
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

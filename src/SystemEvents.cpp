@@ -15,18 +15,13 @@
 #include "Poco/OSP/SystemEvents.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
-SystemEvents::SystemEvents()
-{
-}
+SystemEvents::SystemEvents() = default;
 
 
-SystemEvents::~SystemEvents()
-{
-}
+SystemEvents::~SystemEvents() = default;
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

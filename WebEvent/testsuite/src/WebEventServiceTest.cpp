@@ -89,7 +89,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 		_socket.impl()->close();
 		_pState->ready.set();
@@ -110,7 +110,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 		_pState->ready.set();
 	}
@@ -147,7 +147,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 		_pState->started.set();
 		_pState->proceed.wait();
@@ -179,7 +179,7 @@ public:
 		bool found = false;
 	};
 
-	bool corruptFirstSocket(long timeoutMs = 5000)
+	[[nodiscard]] bool corruptFirstSocket(long timeoutMs = 5000)
 	{
 		SignalState::Ptr pState = new SignalState;
 		Subscriber::Ptr pSubscriber;
@@ -188,23 +188,23 @@ public:
 		return pState->ready.tryWait(timeoutMs);
 	}
 
-	bool waitForMainThread(long timeoutMs = 5000)
+	[[nodiscard]] bool waitForMainThread(long timeoutMs = 5000)
 	{
 		SignalState::Ptr pState = new SignalState;
 		enqueueMain(new SignalNotification(*this, pState));
 		return pState->ready.tryWait(timeoutMs);
 	}
 
-	bool waitForWorkerThread(long timeoutMs = 5000)
+	[[nodiscard]] bool waitForWorkerThread(long timeoutMs = 5000)
 	{
 		SignalState::Ptr pState = new SignalState;
 		workerQueue().enqueueNotification(new SignalNotification(*this, pState));
 		return pState->ready.tryWait(timeoutMs);
 	}
 
-	~TestableWebEventServiceImpl()
+	~TestableWebEventServiceImpl() override
 	{
-		if (_pDestroyed) _pDestroyed->set();
+		if (_pDestroyed != nullptr) _pDestroyed->set();
 	}
 
 	void setDestroyedEvent(Poco::Event* pEvent)
@@ -213,7 +213,7 @@ public:
 		_pDestroyed = pEvent;
 	}
 
-	SubscriberStats inspectFirstSubscriber()
+	[[nodiscard]] SubscriberStats inspectFirstSubscriber()
 		/// Must run on the main thread (socket map access).
 	{
 		SubscriberStats stats;
@@ -259,7 +259,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 		_pState->stats = _testable.inspectFirstSubscriber();
 		_pState->ready.set();
@@ -300,7 +300,7 @@ public:
 	{
 	}
 
-	void execute()
+	void execute() override
 	{
 		if (!_testable.socketMap().empty())
 			_pState->pSubscriber = _testable.socketMap().begin()->second;
@@ -388,7 +388,7 @@ public:
 		release();
 	}
 
-	bool parked() const
+	[[nodiscard]] bool parked() const
 		/// Whether a thread picked the block up in time.
 	{
 		return _parked;
@@ -429,7 +429,8 @@ public:
 		});
 	}
 
-	Poco::Net::HTTPRequestHandler* createRequestHandler(const Poco::Net::HTTPServerRequest& request) override
+	[[nodiscard]] Poco::Net::HTTPRequestHandler* createRequestHandler(
+		const Poco::Net::HTTPServerRequest& request) override
 	{
 		if (Poco::URI(request.getURI()).getPath() == "/webevent")
 		{
@@ -484,7 +485,7 @@ struct LocalService
 		/// reference is dropped. It must be 1: anything more is a reference
 		/// still held by a server or service thread. Idempotent.
 	{
-		if (pService)
+		if (pService != nullptr)
 		{
 			pService->stop();
 			pServer->stopAll(true);
@@ -546,7 +547,7 @@ struct UnsubscriptionRecorder
 		subjects.push_back(subject);
 	}
 
-	std::vector<std::string> recorded()
+	[[nodiscard]] std::vector<std::string> recorded()
 	{
 		Poco::FastMutex::ScopedLock lock(mutex);
 		return subjects;
@@ -574,7 +575,7 @@ struct WebSocketErrorRequestHandler
 	/// Fails every upgrade request with a WebSocket error that is not one of
 	/// the handshake errors.
 {
-	void onRequest(const Poco::Net::HTTPServerRequest*&)
+	[[noreturn]] void onRequest(const Poco::Net::HTTPServerRequest*&)
 	{
 		throw Poco::Net::WebSocketException("delegate failed", Poco::Net::WebSocket::WS_ERR_PAYLOAD_TOO_BIG);
 	}
@@ -584,7 +585,7 @@ struct WebSocketErrorRequestHandler
 struct ThrowingNotificationHandler
 	/// Fails every notification, with a standard or a Poco exception.
 {
-	void onNotification(const WebEventService::NotificationEvent&)
+	[[noreturn]] void onNotification(const WebEventService::NotificationEvent&)
 	{
 		if (throwStd) throw std::runtime_error("delegate failed");
 		throw Poco::IllegalStateException("delegate failed");
@@ -756,13 +757,7 @@ private:
 
 
 WebEventServiceTest::WebEventServiceTest(const std::string& name):
-	CppUnit::TestCase(name),
-	_port(0),
-	_notificationHandlerAdded(false),
-	_childHandlerAdded(false),
-	_parentHandlerAdded(false),
-	_subscriptionHandlerAdded(false),
-	_siblingHandlerAdded(false)
+	CppUnit::TestCase(name)
 {
 }
 
@@ -809,7 +804,7 @@ void WebEventServiceTest::setUp()
 
 void WebEventServiceTest::tearDown()
 {
-	if (_pService)
+	if (_pService != nullptr)
 	{
 		if (_notificationHandlerAdded)
 			_pService->notificationSent -= delegate(this, &WebEventServiceTest::onNotificationSent);
@@ -837,9 +832,9 @@ void WebEventServiceTest::stopService(bool check)
 	/// thread. Every test ends with the check; tearDown repeats the
 	/// sequence without it, for tests that failed before their end.
 {
-	if (!_pService) return;
+	if (_pService == nullptr) return;
 	_pService->stop();
-	if (_pServer)
+	if (_pServer != nullptr)
 	{
 		_pServer->stopAll(true);
 		_pServer->stop();

@@ -22,8 +22,7 @@
 #include "Poco/OSP/Service.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API ServiceFactory: public Service
@@ -36,23 +35,23 @@ class OSP_API ServiceFactory: public Service
 	/// requested from the ServiceRegistry.
 {
 public:
-	virtual Service::Ptr createService() = 0;
+	[[nodiscard]] virtual Service::Ptr createService() = 0;
 		/// Creates and returns a new instance of a Service.
 		
 	// Service
-	const std::type_info& type() const;
-	bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 		
 protected:
 	ServiceFactory();
 		/// Creates the ServiceFactory.
 
-	~ServiceFactory();
+	~ServiceFactory() override;
 		/// Destroys the ServiceFactory.
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_ServiceFactory_INCLUDED

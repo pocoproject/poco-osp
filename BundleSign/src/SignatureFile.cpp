@@ -20,9 +20,7 @@
 #include <cstddef>
 
 
-namespace Poco {
-namespace OSP {
-namespace BundleSign {
+namespace Poco::OSP::BundleSign {
 
 
 const std::string SignatureFile::SIGNATURE_VERSION("Signature-Version");
@@ -30,9 +28,7 @@ const std::string SignatureFile::CREATED_BY("Created-By");
 const std::string SignatureFile::NAME("Name");
 
 
-SignatureFile::SignatureFile()
-{
-}
+SignatureFile::SignatureFile() = default;
 
 	
 SignatureFile::SignatureFile(const std::string& version, const std::string& creator, const std::string& digestType):
@@ -43,9 +39,7 @@ SignatureFile::SignatureFile(const std::string& version, const std::string& crea
 }
 
 
-SignatureFile::~SignatureFile()
-{
-}
+SignatureFile::~SignatureFile() = default;
 
 
 void SignatureFile::write(const Signatures& signatures, std::ostream& ostr) const
@@ -135,4 +129,4 @@ void SignatureFile::readEntry(std::istream& istr, std::string& name, std::string
 }
 
 
-} } } // namespace Poco::OSP::BundleSign
+} // namespace Poco::OSP::BundleSign

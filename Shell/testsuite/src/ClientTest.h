@@ -53,7 +53,7 @@ private:
 			/// What ospsh writes to standard error.
 	};
 
-	Output runClient(const std::vector<std::string>& args, const Poco::Process::Env& env = {});
+	[[nodiscard]] Output runClient(const std::vector<std::string>& args, const Poco::Process::Env& env = {});
 		/// Runs ospsh with the given arguments and the given additional
 		/// environment variables and returns what it writes.
 

@@ -41,9 +41,7 @@
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
 AbstractLDAPAuthAdminService::AbstractLDAPAuthAdminService(Poco::Logger& logger, const LDAPParams& ldapParams):
@@ -84,9 +82,7 @@ AbstractLDAPAuthAdminService::AbstractLDAPAuthAdminService(Poco::Logger& logger,
 }
 
 
-AbstractLDAPAuthAdminService::~AbstractLDAPAuthAdminService()
-{
-}
+AbstractLDAPAuthAdminService::~AbstractLDAPAuthAdminService() = default;
 
 
 bool AbstractLDAPAuthAdminService::authenticateLDAP(const std::string& username, const std::string& credentials, bool& fallbackLocal) const
@@ -111,8 +107,9 @@ bool AbstractLDAPAuthAdminService::authenticateLDAP(const std::string& username,
 }
 
 
-AbstractLDAPAuthAdminService::LDAPResult AbstractLDAPAuthAdminService::verifyLDAP(const std::string& username,
-	const std::string& credentials, LDAPUser& user) const
+AbstractLDAPAuthAdminService::LDAPResult AbstractLDAPAuthAdminService::verifyLDAP(
+	[[maybe_unused]] const std::string& username, [[maybe_unused]] const std::string& credentials,
+	[[maybe_unused]] LDAPUser& user) const
 {
 #if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 
@@ -502,4 +499,4 @@ bool AbstractLDAPAuthAdminService::isExtraAttribute(const std::string& attr, std
 }
 
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth

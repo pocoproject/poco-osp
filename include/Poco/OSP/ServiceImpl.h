@@ -33,8 +33,7 @@
 #include "Poco/Util/Application.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 template <typename Derived>
@@ -97,6 +96,11 @@ class ServiceImpl: public Service
 	///   - logger() - returns a logger named after the service name
 {
 public:
+	ServiceImpl(const ServiceImpl&) = delete;
+	ServiceImpl(ServiceImpl&&) = delete;
+	ServiceImpl& operator=(const ServiceImpl&) = delete;
+	ServiceImpl& operator=(ServiceImpl&&) = delete;
+
 	using Ptr = Poco::AutoPtr<Derived>;
 	using ConfigPtr = Poco::AutoPtr<Poco::Util::AbstractConfiguration>;
 
@@ -117,13 +121,13 @@ public:
 		/// service name, which may differ from SERVICE_NAME if the service
 		/// was registered with a custom name (e.g., from configuration).
 
-	const std::type_info& type() const override
+	[[nodiscard]] const std::type_info& type() const override
 		/// Returns the type information for the derived service class.
 	{
 		return typeid(Derived);
 	}
 
-	bool isA(const std::type_info& otherType) const override
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override
 		/// Returns true if the service is of the given type
 		/// or a subclass thereof.
 	{
@@ -131,17 +135,13 @@ public:
 		return typeName == otherType.name() || Service::isA(otherType);
 	}
 
-	const std::string& name() const
+	[[nodiscard]] const std::string& name() const
 		/// Returns the service name.
 	{
 		return _name;
 	}
 
 protected:
-	ServiceImpl(const ServiceImpl&) = delete;
-	ServiceImpl(ServiceImpl&&) = delete;
-	ServiceImpl& operator=(const ServiceImpl&) = delete;
-	ServiceImpl& operator=(ServiceImpl&&) = delete;
 
 	ServiceImpl(const std::string& name = SERVICE_NAME,
 		BundleContext::Ptr pContext = nullptr,
@@ -165,14 +165,14 @@ protected:
 		///   3. Service configuration (pServiceConf)
 	{
 		// 1. Process-wide configuration (lowest priority)
-		if (_pContext)
+		if (_pContext != nullptr)
 		{
 			ServiceRef::Ptr pPrefsRef =
 				_pContext->registry().findByName(PreferencesService::SERVICE_NAME);
-			if (pPrefsRef)
+			if (pPrefsRef != nullptr)
 			{
 				PreferencesService::Ptr pPrefs = pPrefsRef->castedInstance<PreferencesService>();
-				if (pPrefs && pPrefs->configuration())
+				if (pPrefs != nullptr && pPrefs->configuration() != nullptr)
 					copyConfig(pPrefs->configuration());
 			}
 		}
@@ -182,31 +182,29 @@ protected:
 		}
 
 		// 2. Bundle configuration (overwrites process)
-		if (_pContext && _pContext->thisBundle())
+		if (_pContext != nullptr && _pContext->thisBundle() != nullptr)
 		{
 			copyConfig(&_pContext->thisBundle()->properties());
 		}
 
 		// 3. Service configuration (overwrites bundle)
-		if (pServiceConf)
+		if (pServiceConf != nullptr)
 		{
 			copyConfig(pServiceConf);
 		}
 	}
 
-	~ServiceImpl()
+	~ServiceImpl() override = default;
 		/// Destroys the ServiceImpl.
-	{
-	}
 
-	BundleContext::Ptr context() const
+	[[nodiscard]] BundleContext::Ptr context() const
 		/// Returns the BundleContext, or nullptr if not running in a bundle.
 	{
 		Poco::RWLock::ScopedReadLock lock(_rwLock);
 		return _pContext;
 	}
 
-	ConfigPtr config() const
+	[[nodiscard]] ConfigPtr config() const
 		/// Returns the merged configuration.
 		///
 		/// The configuration contains entries from process, bundle,
@@ -217,7 +215,7 @@ protected:
 		return _pConfig;
 	}
 
-	ConfigPtr configSnapshot() const
+	[[nodiscard]] ConfigPtr configSnapshot() const
 		/// Returns a deep copy of the merged configuration.
 		///
 		/// The returned MapConfiguration is an independent copy that
@@ -238,13 +236,13 @@ protected:
 		/// entries with the same keys.
 	{
 		Poco::RWLock::ScopedWriteLock lock(_rwLock);
-		if (pRemoveConf)
+		if (pRemoveConf != nullptr)
 			removeConfig(pRemoveConf);
-		if (pConf)
+		if (pConf != nullptr)
 			copyConfig(pConf);
 	}
 
-	Poco::Logger& logger() const
+	[[nodiscard]] Poco::Logger& logger() const
 		/// Returns a logger for this service.
 		///
 		/// The logger is named after the service name.
@@ -315,7 +313,7 @@ private:
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_ServiceImpl_INCLUDED

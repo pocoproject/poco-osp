@@ -29,27 +29,23 @@ using Poco::OSP::ServiceFinder;
 class ODBCBundleActivator: public BundleActivator
 {
 public:
-	ODBCBundleActivator()
-	{
-	}
+	ODBCBundleActivator() = default;
 	
-	~ODBCBundleActivator()
-	{
-	}
+	~ODBCBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		Poco::Data::ODBC::Connector::registerConnector();
 
 		PreferencesService::Ptr pPrefs = ServiceFinder::find<PreferencesService>(pContext);
-		if (pPrefs)
+		if (pPrefs != nullptr)
 		{
 			bool flag = pPrefs->configuration()->getBool("data.odbc.bindStringToLongVarChar", true);
 			Poco::Data::ODBC::Connector::bindStringToLongVarChar(flag);
 		}
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 		Poco::Data::ODBC::Connector::unregisterConnector();
 	}

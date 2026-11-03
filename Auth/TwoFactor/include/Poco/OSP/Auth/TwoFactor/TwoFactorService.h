@@ -25,10 +25,7 @@
 #include "Poco/AutoPtr.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace TwoFactor {
+namespace Poco::OSP::Auth::TwoFactor {
 
 
 class OSPAuthTwoFactor_API TwoFactorService: public Poco::OSP::Service
@@ -50,7 +47,7 @@ public:
 		VALIDATION_FAILED_CODE_ALREADY_USED
 	};
 
-	virtual bool is2FAEnabled(const std::string& username) const = 0;
+	[[nodiscard]] virtual bool is2FAEnabled(const std::string& username) const = 0;
 		/// Returns true if two-factor authentication has been
 		/// enabled for the given username.
 
@@ -68,19 +65,19 @@ public:
 	virtual std::string secret(const std::string& username) const = 0;
 		/// Returns the base32-encoded secret for the given username.
 
-	virtual std::string generateAuthenticatorURI(const std::string& username) const = 0;
+	[[nodiscard]] virtual std::string generateAuthenticatorURI(const std::string& username) const = 0;
 		/// Generates a TOTP URI with the secret suitable for encoding as QR code
 		/// for importing into Google Authenticator and similar apps.
 
 	// Service
-	const std::type_info& type() const;
-	bool isA(const std::type_info& otherType) const;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 	static const std::string SERVICE_NAME;
 };
 
 
-} } } } // namespace Poco::OSP::Auth::TwoFactor
+} // namespace Poco::OSP::Auth::TwoFactor
 
 
 #endif // OSP_Auth_TwoFactor_TwoFactorService_INCLUDED

@@ -35,9 +35,7 @@ class Test;
 }
 
 
-namespace Poco {
-namespace OSP {
-namespace Unit {
+namespace Poco::OSP::Unit {
 
 
 class TestCase;
@@ -50,6 +48,9 @@ class OSPUnit_API TestFactory
 	/// bundle that contains the tests.
 {
 public:
+	TestFactory(const TestFactory&) = delete;
+	TestFactory& operator = (const TestFactory&) = delete;
+
 	using Ptr = Poco::SharedPtr<CppUnit::Test>;
 	using TestVec = std::vector<Ptr>;
 
@@ -59,7 +60,7 @@ public:
 	~TestFactory();
 		/// Destroys the TestFactory.
 
-	static TestFactory& instance();
+	[[nodiscard]] static TestFactory& instance();
 		/// Returns the static instance of the singleton.
 
 	void add(const std::string& symbolicName, CppUnit::Test* pTest);
@@ -69,21 +70,18 @@ public:
 	void remove(const std::string& symbolicName);
 		/// Removes all tests for given bundle from the factory.
 
-	TestVec get(const std::string& symbolicName);
+	[[nodiscard]] TestVec get(const std::string& symbolicName);
 		/// Retrieves a vector of tests for the given bundle.
 
 private:
 	using TestMap = std::multimap<std::string, Ptr>;
-
-	TestFactory(const TestFactory&);
-	TestFactory& operator = (const TestFactory&);
 
 	TestMap         _tests;
 	Poco::FastMutex _mutex;
 };
 
 
-} } } // namespace Poco::OSP::Unit
+} // namespace Poco::OSP::Unit
 
 
 #endif // OSP_Unit_TestFactory_INCLUDED

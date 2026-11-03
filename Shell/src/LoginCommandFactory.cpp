@@ -18,19 +18,13 @@
 #include "Poco/OSP/Shell/LoginCommand.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
-LoginCommandFactory::LoginCommandFactory()
-{
-}
+LoginCommandFactory::LoginCommandFactory() = default;
 
 
-LoginCommandFactory::~LoginCommandFactory()
-{
-}
+LoginCommandFactory::~LoginCommandFactory() = default;
 
 
 Command* LoginCommandFactory::createCommand()
@@ -39,4 +33,4 @@ Command* LoginCommandFactory::createCommand()
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

@@ -35,7 +35,7 @@ public:
 	{
 	}
 	
-	void handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem)
+	void handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem) override
 	{
 		std::string msg("Handling extension; bundle: ");
 		msg += pBundle->symbolicName();
@@ -54,19 +54,15 @@ class ExtensibleBundleActivator: public BundleActivator
 	/// Registers an extension point with the ExtensionPointService.
 {
 public:
-	ExtensibleBundleActivator()
-	{
-	}
+	ExtensibleBundleActivator() = default;
 	
-	~ExtensibleBundleActivator()
-	{
-	}
+	~ExtensibleBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		// find ExtensionPointService using the Service Registry
 		ServiceRef::Ptr pXPSRef = pContext->registry().findByName(ExtensionPointService::SERVICE_NAME);
-		if (pXPSRef)
+		if (pXPSRef != nullptr)
 		{
 			// ExtensionPointService is available
 			AutoPtr<ExtensionPointService> pXPS = pXPSRef->castedInstance<ExtensionPointService>();
@@ -84,7 +80,7 @@ public:
 		}
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 		// Nothing to do here.
 		// The ExtensionPointService will automatically unregister our

@@ -25,7 +25,7 @@ class ServiceListenerTest: public CppUnit::TestCase
 {
 public:
 	ServiceListenerTest(const std::string& name);
-	~ServiceListenerTest();
+	~ServiceListenerTest() override;
 
 	void testListenerReportsMatchingServices();
 	void testFailedConstructionLeavesNoDelegates();
@@ -34,15 +34,15 @@ public:
 	void testListenerWithInvalidQueryThrows();
 	void testPropertyChangeIsNotReported();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 
 protected:
 	void handleRegistered(const Poco::OSP::ServiceRef::Ptr& pServiceRef);
 	void handleUnregistered(const Poco::OSP::ServiceRef::Ptr& pServiceRef);
-	void handleRegisteredThrows(const Poco::OSP::ServiceRef::Ptr& pServiceRef);
+	[[noreturn]] void handleRegisteredThrows(const Poco::OSP::ServiceRef::Ptr& pServiceRef);
 	void handleRegisteredUnregistersService2(const Poco::OSP::ServiceRef::Ptr& pServiceRef);
 
 private:

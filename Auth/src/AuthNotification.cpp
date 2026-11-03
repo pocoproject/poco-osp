@@ -17,9 +17,7 @@
 #include "Poco/OSP/Auth/AuthNotification.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
 AuthNotification::AuthNotification(bool isExternal,
@@ -34,10 +32,7 @@ AuthNotification::AuthNotification(bool isExternal,
 }
 
 
-AuthNotification::~AuthNotification()
-{
-
-}
+AuthNotification::~AuthNotification() = default;
 
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth

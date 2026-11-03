@@ -22,13 +22,13 @@ public:
 	BundleInstallHandler(Poco::OSP::BundleContext::Ptr pContext);
 		/// Creates the BundleListHandler.
 
-	~BundleInstallHandler();
+	~BundleInstallHandler() override;
 		/// Destroys the BundleListHandler.
 		
 	void handle() override;
 	
 protected:
-	std::string bundlePath(const std::string& symbolicName);
+	[[nodiscard]] std::string bundlePath(const std::string& symbolicName);
 };
 
 

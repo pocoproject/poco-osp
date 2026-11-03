@@ -24,9 +24,7 @@
 #include "Poco/OSP/Bundle.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class ResolveCommand: public BundleActionCommand
@@ -37,16 +35,16 @@ public:
 		/// Creates the ResolveCommand, using the given
 		/// bundle context.
 		
-	~ResolveCommand();
+	~ResolveCommand() override;
 		/// Destroys the ResolveCommand.
 
 protected:
 	// BundleActionCommand
-	int doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr) override;
+	[[nodiscard]] int doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr) override;
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_ResolveCommand_INCLUDED

@@ -30,9 +30,7 @@
 #include <vector>
 
 
-namespace Poco {
-namespace OSP {
-namespace BundleSign {
+namespace Poco::OSP::BundleSign {
 
 
 class OSPBundleSign_API BundleVerifier
@@ -40,6 +38,10 @@ class OSPBundleSign_API BundleVerifier
 	/// signature of a signed bundle.
 {
 public:
+	BundleVerifier() = delete;
+	BundleVerifier(const BundleVerifier&) = delete;
+	BundleVerifier& operator = (const BundleVerifier&) = delete;
+
 	using CertificatePtr = Poco::SharedPtr<Poco::Crypto::X509Certificate>;
 
 	enum VerificationResult
@@ -86,7 +88,7 @@ public:
 		///
 		/// Throws the exceptions of SignUtility::listFiles().
 
-	std::string firstSigner() const;
+	[[nodiscard]] std::string firstSigner() const;
 		/// Returns the alias name of the signer of the bundle.
 		///
 		/// If the bundle has more than one signature, the alias
@@ -95,7 +97,7 @@ public:
 		/// If the bundle does not contain any signatures, returns
 		/// an empty string.
 
-	CertificatePtr extractCertificate(const std::string& alias) const;
+	[[nodiscard]] CertificatePtr extractCertificate(const std::string& alias) const;
 		/// Extracts the X509 certificate for the signer given
 		/// by alias from the bundle's signature file.
 		///
@@ -123,7 +125,8 @@ public:
 		/// This is the verification an application uses to accept only bundles
 		/// from known signers.
 
-	VerificationResult verify(const std::string& alias, const Poco::Crypto::X509Certificate& certificate, std::vector<std::string>& messages);
+	[[nodiscard]] VerificationResult verify(const std::string& alias, const Poco::Crypto::X509Certificate& certificate,
+		std::vector<std::string>& messages);
 		/// Verifies the bundle, using the signature from the signer
 		/// given by alias, as well as the signer's public key
 		/// extracted from the given certificate.
@@ -201,13 +204,9 @@ protected:
 		/// maxSize, before more than that has been read.
 
 	static void digestFromHex(const std::string& hex, Poco::DigestEngine::Digest& digest);
-	static int nibble(char ch);
+	[[nodiscard]] static int nibble(char ch);
 
 private:
-	BundleVerifier();
-	BundleVerifier(const BundleVerifier&);
-	BundleVerifier& operator = (const BundleVerifier&);
-
 	static const std::string META_INF;
 	static const std::string EXT_SF;
 	static const std::string EXT_RSA;
@@ -217,7 +216,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::BundleSign
+} // namespace Poco::OSP::BundleSign
 
 
 #endif // OSP_BundleSign_BundleVerifier_INCLUDED

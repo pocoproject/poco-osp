@@ -90,9 +90,7 @@ ServiceTest::ServiceTest(const std::string& name): CppUnit::TestCase(name)
 }
 
 
-ServiceTest::~ServiceTest()
-{
-}
+ServiceTest::~ServiceTest() = default;
 
 
 void ServiceTest::testServiceType()

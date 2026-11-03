@@ -16,8 +16,7 @@
 #include <algorithm>
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 VersionRange::VersionRange():
@@ -46,18 +45,10 @@ VersionRange::VersionRange(const Version& lower, bool includeLower, const Versio
 }
 
 
-VersionRange::VersionRange(const VersionRange& range):
-	_lower(range._lower),
-	_upper(range._upper),
-	_includeLower(range._includeLower),
-	_includeUpper(range._includeUpper)
-{
-}
+VersionRange::VersionRange(const VersionRange& range) = default;
 
 
-VersionRange::~VersionRange()
-{
-}
+VersionRange::~VersionRange() = default;
 
 
 VersionRange& VersionRange::operator = (const VersionRange& range)
@@ -76,7 +67,7 @@ VersionRange& VersionRange::operator = (const Version& ver)
 }
 
 
-void VersionRange::swap(VersionRange& range)
+void VersionRange::swap(VersionRange& range) noexcept
 {
 	using std::swap;
 	swap(_lower, range._lower);
@@ -114,4 +105,4 @@ std::string VersionRange::toString() const
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

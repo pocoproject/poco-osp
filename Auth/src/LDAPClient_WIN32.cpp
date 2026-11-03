@@ -36,11 +36,11 @@ using namespace std::string_literals;
 
 namespace {
 	// Convert wide LDAP error string to UTF-8 std::string
-	std::string ldapError(ULONG err)
+	[[nodiscard]] std::string ldapError(ULONG err)
 	{
 		// ldap_err2stringW may return a wide string
 		LPWSTR w = ldap_err2stringW(err);
-		if (!w) return "Unknown LDAP error";
+		if (w == nullptr) return "Unknown LDAP error";
 		std::wstring ws(w);
 		std::string s;
 		Poco::UnicodeConverter::toUTF8(ws, s);
@@ -76,9 +76,7 @@ namespace {
 }
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
 class LDAPClientImpl
@@ -111,13 +109,13 @@ public:
 
 	~LDAPClientImpl();
 
-	bool initialize(const std::string& uri);
+	[[nodiscard]] bool initialize(const std::string& uri);
 
-	bool setTimeLimit(int limit);
+	[[nodiscard]] bool setTimeLimit(int limit);
 
-	Result bind(const std::string& bindDN, const std::string& credentials);
+	[[nodiscard]] Result bind(const std::string& bindDN, const std::string& credentials);
 
-	bool isBound() const;
+	[[nodiscard]] bool isBound() const;
 
 	void unbind();
 
@@ -133,12 +131,12 @@ public:
 	[[nodiscard]] bool find(const std::string& searchBase, const std::string& filter, bool subtree, bool queryRoles,
 		bool queryAccountName, AuthProperties& properties);
 
-	int lastReturnCode() const;
+	[[nodiscard]] int lastReturnCode() const;
 		/// Return code of the last LDAP operation.
 
 private:
 
-	bool isExtraAttribute(const std::string& attr, std::string& canonicalAttr) const;
+	[[nodiscard]] bool isExtraAttribute(const std::string& attr, std::string& canonicalAttr) const;
 
 	static const std::string DISPLAY_NAME_ATTR;
 	static const std::string ACCOUNT_NAME_ATTR;
@@ -206,7 +204,7 @@ bool LDAPClientImpl::initialize(const std::string& uri)
 		else
 			_ldap = ldap_initW(const_cast<LPWSTR>(whost.c_str()), static_cast<ULONG>(port));
 
-		if (!_ldap)
+		if (_ldap == nullptr)
 		{
 			_logger.error("Failed to initialize LDAP client for URI: %s"s, uri);
 			return false;
@@ -235,7 +233,7 @@ bool LDAPClientImpl::initialize(const std::string& uri)
 
 bool LDAPClientImpl::setTimeLimit(int limit)
 {
-	if (!_ldap) return false;
+	if (_ldap == nullptr) return false;
 
 	_rc = ldap_set_optionW(_ldap, LDAP_OPT_TIMELIMIT, &limit);
 	if (_rc != LDAP_SUCCESS)
@@ -269,7 +267,7 @@ bool LDAPClientImpl::setTimeout(const Poco::Timespan& timeout)
 
 LDAPClientImpl::Result LDAPClientImpl::bind(const std::string& bindDN, const std::string& credentials)
 {
-	if (!_ldap)
+	if (_ldap == nullptr)
 	{
 		_logger.error("LDAP not initialized");
 		return Result::ERROR_RESULT;
@@ -358,7 +356,7 @@ bool LDAPClientImpl::isBound() const
 
 void LDAPClientImpl::unbind()
 {
-	if (_ldap)
+	if (_ldap != nullptr)
 	{
 		ULONG rc = ldap_unbind_s(_ldap);
 		if (rc != LDAP_SUCCESS)
@@ -399,7 +397,7 @@ void LDAPClientImpl::setExtraAttributesMap(const AttributesNameMap& nameMap)
 bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filter, bool subtree, bool queryRoles,
 	bool queryAccountName, AuthProperties& properties)
 {
-	if (!_ldap)
+	if (_ldap == nullptr)
 	{
 		_logger.error("LDAP not initialized");
 		return false;
@@ -639,4 +637,4 @@ bool LDAPClientImpl::isExtraAttribute(const std::string& attr, std::string& cano
 	return false;
 }
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth

@@ -90,7 +90,7 @@ namespace
 
 		~SymbolicNameFilter() override = default;
 
-		bool accept(Bundle::Ptr pBundle) override
+		[[nodiscard]] bool accept(Bundle::Ptr pBundle) override
 		{
 			return pBundle->symbolicName() == _symbolicName;
 		}
@@ -111,12 +111,12 @@ namespace
 		{
 		}
 
-		void handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem) override
+		void handleExtension(Bundle::ConstPtr /*pBundle*/, Poco::XML::Element* pExtensionElem) override
 		{
 			_calls.push_back("handled:" + pExtensionElem->getAttribute("value"));
 		}
 
-		void removeExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem) override
+		void removeExtension(Bundle::ConstPtr /*pBundle*/, Poco::XML::Element* pExtensionElem) override
 		{
 			_calls.push_back("removed:" + pExtensionElem->getAttribute("value"));
 		}
@@ -159,7 +159,7 @@ namespace
 			OSPSubsystem::startBundles(app);
 		}
 
-		void onSystemEvent(const void* pSender, Poco::OSP::SystemEvents::EventKind& kind)
+		void onSystemEvent(const void* /*pSender*/, Poco::OSP::SystemEvents::EventKind& kind)
 		{
 			const std::string what(kind == Poco::OSP::SystemEvents::EV_SYSTEM_STARTED ? "started" : "shutting down");
 			Bundle::Ptr pBundle = bundleLoader().findBundle(_symbolicName);
@@ -175,7 +175,7 @@ namespace
 	class NullExtensionPoint: public Poco::OSP::ExtensionPoint
 	{
 	public:
-		void handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem) override
+		void handleExtension(Bundle::ConstPtr /*pBundle*/, Poco::XML::Element* /*pExtensionElem*/) override
 		{
 		}
 	};
@@ -203,7 +203,7 @@ namespace
 		{
 		}
 
-		bool notify(const void* sender, BundleEvent& event) override
+		bool notify(const void* /*sender*/, BundleEvent& event) override
 		{
 			if (event.bundle()->symbolicName() == _gate.heldBundle)
 			{
@@ -214,7 +214,7 @@ namespace
 			return true;
 		}
 
-		Poco::AbstractDelegate<BundleEvent>* clone() const override
+		[[nodiscard]] Poco::AbstractDelegate<BundleEvent>* clone() const override
 		{
 			return new StartGateDelegate(*this);
 		}
@@ -224,7 +224,7 @@ namespace
 			// removed only when no bundle is starting
 		}
 
-		bool equals(const Poco::AbstractDelegate<BundleEvent>& other) const override
+		[[nodiscard]] bool equals(const Poco::AbstractDelegate<BundleEvent>& other) const override
 		{
 			const StartGateDelegate* pOther = dynamic_cast<const StartGateDelegate*>(other.unwrap());
 			return pOther != nullptr && &pOther->_gate == &_gate;
@@ -241,9 +241,7 @@ BundleTest::BundleTest(const std::string& name): CppUnit::TestCase(name)
 }
 
 
-BundleTest::~BundleTest()
-{
-}
+BundleTest::~BundleTest() = default;
 
 
 void BundleTest::testLoadOne()
@@ -414,7 +412,7 @@ void BundleTest::testManifestPlaceholdersAreReplacedByProperties()
 	assert (pBundle->properties().getString("greeting") == "Hello, world!");
 
 	std::unique_ptr<std::istream> pStream(pBundle->getResource("lang.txt"));
-	assert (pStream.get() != 0);
+	assert (pStream != nullptr);
 	std::string s;
 	*pStream >> s;
 	assert (s == "en-US");
@@ -443,7 +441,7 @@ void BundleTest::testLocalizedPropertiesExactLanguage()
 	assert (pBundle->properties().getString("greeting") == "Servus!");
 
 	std::unique_ptr<std::istream> pStream(pBundle->getLocalizedResource("lang.txt"));
-	assert (pStream.get() != 0);
+	assert (pStream != nullptr);
 	std::string s;
 	*pStream >> s;
 	assert (s == "de-AT");
@@ -472,7 +470,7 @@ void BundleTest::testLocalizedPropertiesFallBackToLanguage()
 	assert (pBundle->properties().getString("greeting") == "Guten Tag!");
 
 	std::unique_ptr<std::istream> pStream(pBundle->getLocalizedResource("lang.txt"));
-	assert (pStream.get() != 0);
+	assert (pStream != nullptr);
 	std::string s;
 	*pStream >> s;
 	assert (s == "de");
@@ -501,7 +499,7 @@ void BundleTest::testBundleFile()
 	assert (pBundle->properties().getString("greeting") == "Guten Tag!");
 
 	std::unique_ptr<std::istream> pStream(pBundle->getLocalizedResource("lang.txt"));
-	assert (pStream.get() != 0);
+	assert (pStream != nullptr);
 	std::string s;
 	*pStream >> s;
 	assert (s == "de");
@@ -899,13 +897,13 @@ void BundleTest::testExtensionBundle()
 	assert (pBundle2->properties().getString("greeting") == "Bonjour!");
 
 	std::unique_ptr<std::istream> pStream(pBundle2->getLocalizedResource("lang.txt"));
-	assert (pStream.get() != 0);
+	assert (pStream != nullptr);
 	std::string s;
 	*pStream >> s;
 	assert (s == "fr-FR");
 
 	std::unique_ptr<std::istream> pStream2(pBundle2->getLocalizedResource("lang.txt", LanguageTag("de", "AT")));
-	assert (pStream2.get() != 0);
+	assert (pStream2 != nullptr);
 	*pStream2 >> s;
 	assert (s == "de-AT");
 
@@ -2444,61 +2442,61 @@ std::string BundleTest::createTestBundleArchive(const std::string& fileName, con
 }
 
 
-void BundleTest::handleEvent(const void* sender, Poco::OSP::BundleEvent& event)
+void BundleTest::handleEvent(const void* /*sender*/, Poco::OSP::BundleEvent& event)
 {
 	_events.push_back(event);
 }
 
 
-void BundleTest::handleStartingEvent(const void* sender, Poco::OSP::BundleEvent& event)
+void BundleTest::handleStartingEvent(const void* /*sender*/, Poco::OSP::BundleEvent& event)
 {
 	_events.push_back(event);
 	assert (event.bundle()->state() == Bundle::BUNDLE_STARTING);
 }
 
 
-void BundleTest::handleStartedEvent(const void* sender, Poco::OSP::BundleEvent& event)
+void BundleTest::handleStartedEvent(const void* /*sender*/, Poco::OSP::BundleEvent& event)
 {
 	_events.push_back(event);
 	assert (event.bundle()->state() == Bundle::BUNDLE_ACTIVE);
 }
 
 
-void BundleTest::handleStoppingEvent(const void* sender, Poco::OSP::BundleEvent& event)
+void BundleTest::handleStoppingEvent(const void* /*sender*/, Poco::OSP::BundleEvent& event)
 {
 	_events.push_back(event);
 	assert (event.bundle()->state() == Bundle::BUNDLE_STOPPING);
 }
 
 
-void BundleTest::handleStoppedEvent(const void* sender, Poco::OSP::BundleEvent& event)
+void BundleTest::handleStoppedEvent(const void* /*sender*/, Poco::OSP::BundleEvent& event)
 {
 	_events.push_back(event);
 	assert (event.bundle()->state() == Bundle::BUNDLE_RESOLVED);
 }
 
 
-void BundleTest::handleStoppingEventFails(const void* sender, Poco::OSP::BundleEvent& event)
+void BundleTest::handleStoppingEventFails(const void* /*sender*/, Poco::OSP::BundleEvent& event)
 {
 	if (event.bundle()->symbolicName() == "com.appinf.osp.test.failing")
 		throw Poco::IllegalStateException("bundle cannot be stopped", event.bundle()->symbolicName());
 }
 
 
-void BundleTest::handleStartingEventThrowsUnknown(const void* sender, Poco::OSP::BundleEvent& event)
+void BundleTest::handleStartingEventThrowsUnknown(const void* /*sender*/, Poco::OSP::BundleEvent& event)
 {
 	if (event.bundle()->symbolicName() == "com.appinf.osp.test.failing")
 		throw NotAnException();
 }
 
 
-void BundleTest::handleBundleError(const void* sender, const Poco::OSP::BundleLoader::BundleError& error)
+void BundleTest::handleBundleError(const void* /*sender*/, const Poco::OSP::BundleLoader::BundleError& error)
 {
 	_bundleErrors.push_back(error.pBundle->symbolicName());
 }
 
 
-void BundleTest::handleEventProbesLoader(const void* sender, Poco::OSP::BundleEvent& event)
+void BundleTest::handleEventProbesLoader(const void* /*sender*/, Poco::OSP::BundleEvent& /*event*/)
 {
 	// Another thread calls into the loader: it blocks until the event
 	// returns if the event is fired with the loader's mutex held. It is

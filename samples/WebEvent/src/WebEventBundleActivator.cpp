@@ -33,15 +33,11 @@ using Poco::OSP::BundleContext;
 class WebEventBundleActivator: public BundleActivator
 {
 public:
-	WebEventBundleActivator()
-	{
-	}
+	WebEventBundleActivator() = default;
 	
-	~WebEventBundleActivator()
-	{
-	}
+	~WebEventBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		_pContext = pContext;
 		_pWebEventService = Poco::OSP::ServiceFinder::find<Poco::OSP::WebEvent::WebEventService>(pContext);
@@ -54,7 +50,7 @@ public:
 		_timer.scheduleAtFixedRate(new Poco::Util::TimerTaskAdapter<WebEventBundleActivator>(*this, &WebEventBundleActivator::fire60SecondsEvent), 60000, 60000);
 	}
 		
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 		_pWebEventService->notificationSent -= Poco::delegate(this, &WebEventBundleActivator::onNotificationSent);
 		_pWebEventService->requestReceived -= Poco::delegate(this, &WebEventBundleActivator::onRequestReceived);
@@ -62,7 +58,7 @@ public:
 		_pWebEventService->subjectNotified("sample.client") -= Poco::delegate(this, &WebEventBundleActivator::onSpecificNotificationSent);
 
 		_timer.cancel(true);
-		_pWebEventService = 0;
+		_pWebEventService = nullptr;
 		// Removing a delegate waits until a running call of it has returned, so no
 		// delegate uses _pContext after this point; start() assigns it again.
 	}

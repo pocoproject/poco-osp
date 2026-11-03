@@ -33,9 +33,7 @@
 using Poco::FastMutex;
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 
 const std::string WebServerExtensionPoint::EXTPOINT_DIRECTORY("osp.web.server.directory");
@@ -84,7 +82,7 @@ void WebServerExtensionPoint::handleExtension(Bundle::ConstPtr pBundle, Poco::XM
 {
 	FastMutex::ScopedLock lock(_mutex);
 
-	if (pExtensionElem)
+	if (pExtensionElem != nullptr)
 	{
 		const Poco::XML::XMLString& extPoint = pExtensionElem->getAttribute(ExtensionPointService::POINT_ATTR);
 		if (extPoint == EXTPOINT_DIRECTORY)
@@ -171,7 +169,7 @@ void WebServerExtensionPoint::handleCommon(Bundle::ConstPtr pBundle, Poco::XML::
 	if (vPath.redirectOn401.empty())
 	{
 		ServiceRef::Ptr pPrefsRef = _pContext->registry().findByName(PreferencesService::SERVICE_NAME);
-		if (pPrefsRef)
+		if (pPrefsRef != nullptr)
 		{
 			PreferencesService::Ptr pPrefs = pPrefsRef->castedInstance<PreferencesService>();
 			vPath.redirectOn401 = pPrefs->configuration()->getString("osp.web.redirectOn401", "");
@@ -203,4 +201,4 @@ void WebServerExtensionPoint::handleCommon(Bundle::ConstPtr pBundle, Poco::XML::
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web

@@ -26,8 +26,7 @@
 #undef minor
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API Version
@@ -80,22 +79,22 @@ public:
 		/// Throws a Poco::SyntaxException if the string is not a valid
 		/// version (see Version(const std::string&)).
 
-	void swap(Version& version);
+	void swap(Version& version) noexcept;
 		/// Swaps the version with another one.
 
-	int major() const;
+	[[nodiscard]] int major() const;
 		/// Returns the major version number.
 
-	int minor() const;
+	[[nodiscard]] int minor() const;
 		/// Returns the minor version number.
 
-	int revision() const;
+	[[nodiscard]] int revision() const;
 		/// Returns the revision number.
 
-	const std::string& designation() const;
+	[[nodiscard]] const std::string& designation() const;
 		/// Returns the release designation.
 
-	std::string toString() const;
+	[[nodiscard]] std::string toString() const;
 		/// Returns a string representation of the version.
 
 	bool operator == (const Version& version) const;
@@ -144,13 +143,13 @@ inline const std::string& Version::designation() const
 }
 
 
-inline void swap(Version& v1, Version& v2)
+inline void swap(Version& v1, Version& v2) noexcept
 {
 	v1.swap(v2);
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_Version_INCLUDED

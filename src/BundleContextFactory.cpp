@@ -16,8 +16,7 @@
 #include "Poco/OSP/BundleContext.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 BundleContextFactory::BundleContextFactory(ServiceRegistry& registry, SystemEvents& systemEvents):
@@ -36,9 +35,7 @@ BundleContextFactory::BundleContextFactory(ServiceRegistry& registry, SystemEven
 }
 
 
-BundleContextFactory::~BundleContextFactory()
-{
-}
+BundleContextFactory::~BundleContextFactory() = default;
 
 
 BundleContext* BundleContextFactory::createBundleContext(BundleLoader& loader, Bundle::ConstPtr pBundle, BundleEvents& events)
@@ -47,4 +44,4 @@ BundleContext* BundleContextFactory::createBundleContext(BundleLoader& loader, B
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

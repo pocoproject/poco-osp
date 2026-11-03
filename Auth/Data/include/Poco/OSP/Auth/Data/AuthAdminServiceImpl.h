@@ -40,10 +40,7 @@
 #include <set>
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace Data {
+namespace Poco::OSP::Auth::Data {
 
 
 class OSPAuthData_API AuthAdminServiceImpl: public AbstractLDAPAuthAdminService
@@ -156,14 +153,15 @@ public:
 		/// See the Poco::Data::Session class for more information on connector names and
 		/// connection strings.
 
-	~AuthAdminServiceImpl();
+	~AuthAdminServiceImpl() override;
 		/// Destroys the AuthAdminServiceImpl.
 
-	static bool checkDatabaseConnectivity(const Poco::Util::AbstractConfiguration& properties, const AuthParams& authParams, Poco::Logger& logger);
+	[[nodiscard]] static bool checkDatabaseConnectivity(const Poco::Util::AbstractConfiguration& properties,
+		const AuthParams& authParams, Poco::Logger& logger);
 		/// Checks whether the database connection is ok.
 
 	// AuthAdminService
-	bool verifyCredentials(const std::string& username, const std::string& credentials) override;
+	[[nodiscard]] bool verifyCredentials(const std::string& username, const std::string& credentials) override;
 		/// Returns true only if the account name of the login equals username
 		/// ignoring case, as authenticate() does.
 	void changePassword(const std::string& username, const std::string& password) override;
@@ -177,14 +175,14 @@ public:
 	int usersWithPermission(std::set<std::string>& users, const std::string& permission, int first = 0, int limit = 0) const override;
 	int usersWithRole(std::set<std::string>& users, const std::string& role, int first = 0, int limit = 0) const override;
 	int usersWithAttribute(std::set<std::string>& users, const std::string& attribute, const std::string& value, int first = 0, int limit = 0) const override;
-	bool userEnabled(const std::string& username) const override;
+	[[nodiscard]] bool userEnabled(const std::string& username) const override;
 	void addUser(const std::string& username, const std::string& password) override;
 	void removeUser(const std::string& username) override;
 	void permissionsForRole(const std::string& rolename, std::set<std::string>& permissions) const override;
 	void grantPermissionsToRole(const std::string& rolename, const std::set<std::string>& permissions) override;
 	void replacePermissionsForRole(const std::string& rolename, const std::set<std::string>& permissions) override;
 	void revokePermissionsFromRole(const std::string& rolename, const std::set<std::string>& permissions) override;
-	bool roleExists(const std::string& rolename) const override;
+	[[nodiscard]] bool roleExists(const std::string& rolename) const override;
 	void roles(std::set<std::string>& roles) const override;
 	void addRole(const std::string& rolename) override;
 	void removeRole(const std::string& rolename) override;
@@ -193,7 +191,8 @@ public:
 	void removeRoleFromUser(const std::string& username, const std::string& rolename) override;
 	void replaceRolesForUser(const std::string& username, const std::set<std::string>& permissions) override;
 	void uncacheUser(const std::string& username) override;
-	std::string getUserAttribute(const std::string& username, const std::string& attribute, const std::string& deflt = std::string()) const override;
+	[[nodiscard]] std::string getUserAttribute(const std::string& username, const std::string& attribute,
+		const std::string& deflt = std::string()) const override;
 	void setUserAttribute(const std::string& username, const std::string& attribute, const std::string& value) override;
 	void setRoleAttribute(const std::string& rolename, const std::string& attribute, const std::string& value);
 	void removeUserAttribute(const std::string& username, const std::string& attribute) override;
@@ -203,13 +202,14 @@ public:
 	void updateUserAttributes(const std::string& username, const std::map<std::string, std::string>& attributes) override;
 	void attributesForUser(const std::string& username, std::set<std::string>& attributes) const override;
 	int attributesForUser(const std::string& username, std::map<std::string, std::string>& attributes) const override;
-	std::vector<std::string> findUsersByAttribute(const std::string& attribute, const std::string& value) const override;
+	[[nodiscard]] std::vector<std::string> findUsersByAttribute(const std::string& attribute,
+		const std::string& value) const override;
 	void revokePermission(const std::string& permission) override;
 	void lockOutUser(const std::string& username, const Poco::DateTime& lockOutUntil) override;
 	void unlockOutUser(const std::string& username) override;
-	bool isUserLockedOut(const std::string& username) const override;
-	bool isExternalUser(const std::string& username) const override;
-	bool isExternalRole(const std::string& rolename) const override;
+	[[nodiscard]] bool isUserLockedOut(const std::string& username) const override;
+	[[nodiscard]] bool isExternalUser(const std::string& username) const override;
+	[[nodiscard]] bool isExternalRole(const std::string& rolename) const override;
 	void allRoleMappings(std::map<std::string, std::string>& mappings) const override;
 	void roleMappingForExternal(const std::string& externalRole, std::string& internalRole) const override;
 	void setRoleMapping(const std::string& externalRole, const std::string& internalRole) override;
@@ -218,7 +218,7 @@ public:
 	void invalidateCaches(int what = INVALIDATE_ALL) override;
 
 	// AuthService
-	bool authenticate(const std::string& username, const std::string& credentials) const override;
+	[[nodiscard]] bool authenticate(const std::string& username, const std::string& credentials) const override;
 		/// Returns true only if the account name that authenticateAccount()
 		/// returns for the login equals username ignoring case. A login with
 		/// another name of an LDAP user is accepted as by authenticateAccount(),
@@ -234,37 +234,32 @@ public:
 		/// attributes of the user are kept under the account name.
 		///
 		/// Throws a Poco::Data::DataException if the auth database cannot be used.
-	bool authorize(const std::string& username, const std::string& permission) const override;
-	bool authorize(const std::string& userName, const std::string& roleOrScope, const std::string& permission) const override;
-	bool userExists(const std::string& username) const override;
+	[[nodiscard]] bool authorize(const std::string& username, const std::string& permission) const override;
+	[[nodiscard]] bool authorize(const std::string& userName, const std::string& roleOrScope,
+		const std::string& permission) const override;
+	[[nodiscard]] bool userExists(const std::string& username) const override;
 
 	// Service
-	const std::type_info& type() const override;
-	bool isA(const std::type_info& otherType) const override;
+	[[nodiscard]] const std::type_info& type() const override;
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 	static const std::string USER_ATTR_FAILURES;
 	static const std::string USER_ATTR_LOCKOUT;
 
 protected:
-	enum
-	{
-		V4_MIN_SALT_LENGTH = 8,
-		V4_MIN_ITERATIONS = 50000
-	};
+	static constexpr int V4_MIN_SALT_LENGTH = 8;
+	static constexpr int V4_MIN_ITERATIONS = 50000;
 
-	enum
-	{
-		SQL_CACHE_BUCKET_SIZE = 113 // next prime > 2*number of SQL statements
-	};
+	static constexpr std::size_t SQL_CACHE_BUCKET_SIZE = 113; // next prime > 2*number of SQL statements
 
 	[[nodiscard]] int loginsWaitingForLDAP() const;
 		/// Returns the number of logins that wait for the LDAP round trip
 		/// of another login of the same user, for example for a test that
 		/// must know that a login waits.
 
-	Poco::Data::Session& session() const;
+	[[nodiscard]] Poco::Data::Session& session() const;
 	static void setupSession(Poco::Data::Session& session, const Poco::Util::AbstractConfiguration& properties, const AuthParams& authParams, Poco::Logger& logger);
-	bool sessionExpired() const;
+	[[nodiscard]] bool sessionExpired() const;
 	[[nodiscard]] bool authenticateDB(Poco::Data::Session& session, const std::string& username,
 		const std::string& credentials, bool isLogin) const;
 		/// Returns true if the credentials match the stored password hash of
@@ -272,12 +267,13 @@ protected:
 		/// hash, the credentials are hashed all the same (see the class
 		/// documentation).
 	void changePasswordImpl(Poco::Data::Session& session, const std::string& username, const std::string& hashedCredentials) const;
-	bool userExistsImpl(Poco::Data::Session& session, const std::string& username) const;
-	bool roleExistsImpl(Poco::Data::Session& session, const std::string& rolename) const;
+	[[nodiscard]] bool userExistsImpl(Poco::Data::Session& session, const std::string& username) const;
+	[[nodiscard]] bool roleExistsImpl(Poco::Data::Session& session, const std::string& rolename) const;
 	void addUserImpl(Poco::Data::Session& session, const std::string& username, const std::string& password) const;
 	void removeUserImpl(Poco::Data::Session& session, const std::string& username) const;
 	void uncacheUserImpl(const std::string& username) const;
-	int attributesForUserImpl(Poco::Data::Session& sess, const std::string& username, std::map<std::string, std::string>& attributes) const;
+	[[nodiscard]] int attributesForUserImpl(Poco::Data::Session& sess, const std::string& username,
+		std::map<std::string, std::string>& attributes) const;
 	void createOrUpdateRoleImpl(Poco::Data::Session& session, const std::string& rolename) const;
 	void createOrUpdateUserImpl(Poco::Data::Session& session, const std::string& username, const std::string& credentials) const;
 	void replaceUserAttributeImpl(Poco::Data::Session& session, const std::string& username, const std::string& attribute, const std::string& value) const;
@@ -286,7 +282,7 @@ protected:
 	void replaceRolesForUserImpl(Poco::Data::Session& session, const std::string& username, const std::set<std::string>& permissions) const;
 	void replacePermissionsForRoleImpl(Poco::Data::Session& sess, const std::string& rolename, const std::set<std::string>& permissions) const;
 	void discoverInlineAttributes();
-	bool authorizeRole(const std::string& rolename, const std::string& permission) const;
+	[[nodiscard]] bool authorizeRole(const std::string& rolename, const std::string& permission) const;
 
 	// AbstractLDAPAuthAdminService
 	[[nodiscard]] bool acceptLDAPAccount(const std::string& userName, const std::string& accountName) const override;
@@ -310,8 +306,10 @@ protected:
 	void replacePermissionsForUserImpl(const std::string& username, const std::set<std::string>& permissions) const override;
 	void replaceRolesForUserImpl(const std::string& username, const std::set<std::string>& permissions) const override;
 	void replacePermissionsForRoleImpl(const std::string& rolename, const std::set<std::string>& permissions) const override;
-	std::string getUserAttributeImpl(const std::string& username, const std::string& attribute, const std::string& deflt = std::string()) const override;
-	std::string getRoleAttributeImpl(const std::string& rolename, const std::string& attribute, const std::string& deflt = std::string()) const override;
+	[[nodiscard]] std::string getUserAttributeImpl(const std::string& username, const std::string& attribute,
+		const std::string& deflt = std::string()) const override;
+	[[nodiscard]] std::string getRoleAttributeImpl(const std::string& rolename, const std::string& attribute,
+		const std::string& deflt = std::string()) const override;
 
 private:
 	struct AccountState
@@ -409,18 +407,20 @@ private:
 		/// Caches the credentials and the permissions of a user whose
 		/// credentials match the stored password hash, and clears the
 		/// lock-out and the failure count.
-	bool validateUserImpl(Poco::Data::Session& sess, const std::string& username, bool valid) const;
+	[[nodiscard]] bool validateUserImpl(Poco::Data::Session& sess, const std::string& username, bool valid) const;
 	PermissionsPtr loadPermissions(Poco::Data::Session& sess, const std::string& username) const;
 	void reloadPermissions(Poco::Data::Session& sess, const std::string& username) const;
-	bool isInlineAttribute(const std::string& attribute) const;
-	bool isAuthAttribute(const std::string& attribute) const;
+	[[nodiscard]] bool isInlineAttribute(const std::string& attribute) const;
+	[[nodiscard]] bool isAuthAttribute(const std::string& attribute) const;
 	[[nodiscard]] bool isAuthAttributeName(const std::string& attribute) const;
 		/// Returns true if the attribute name starts with the prefix auth_ in
 		/// lower case, as the names of authentication attributes are written.
 		/// isAuthAttribute() matches the prefix in any case, as the SQL
 		/// statements do, so that such names are not used for user attributes.
-	std::string getUserAttributeImpl(Poco::Data::Session& sess, const std::string& username, const std::string& attribute, const std::string& deflt) const;
-	std::string getRoleAttributeImpl(Poco::Data::Session& sess, const std::string& rolename, const std::string& attribute, const std::string& deflt) const;
+	[[nodiscard]] std::string getUserAttributeImpl(Poco::Data::Session& sess, const std::string& username,
+		const std::string& attribute, const std::string& deflt) const;
+	[[nodiscard]] std::string getRoleAttributeImpl(Poco::Data::Session& sess, const std::string& rolename,
+		const std::string& attribute, const std::string& deflt) const;
 	void removeUserAttributeImpl(Poco::Data::Session& sess, const std::string& username, const std::string& attribute) const;
 	void storeUserAttribute(const std::string& username, const std::string& attribute, const std::string& value);
 	void deleteUserAttribute(const std::string& username, const std::string& attribute);
@@ -428,30 +428,34 @@ private:
 	void resetFailureCountImpl(Poco::Data::Session& sess, const std::string& username) const;
 	void lockOutUserImpl(Poco::Data::Session& sess, const std::string& username, const Poco::DateTime& lockOutUntil) const;
 	void unlockOutUserImpl(Poco::Data::Session& sess, const std::string& username) const;
-	bool isUserLockedOutImpl(Poco::Data::Session& sess, const std::string& username) const;
+	[[nodiscard]] bool isUserLockedOutImpl(Poco::Data::Session& sess, const std::string& username) const;
 	[[nodiscard]] bool isLockedOutLoginImpl(Poco::Data::Session& sess, const std::string& accountName,
 		const std::string& username) const;
 		/// Returns true if the account of a login with username is in its
 		/// lock-out period, and logs the login attempt then.
 	[[nodiscard]] bool isInLockOutPeriod(const std::string& username, const std::string& lockout) const;
-	bool isLDAPUserImpl(Poco::Data::Session& sess, const std::string& username, std::string& ldapAttr) const;
-	bool isLDAPRoleImpl(Poco::Data::Session& sess, const std::string& rolename, std::string& ldapAttr) const;
-	std::string hashPersistentCredentials(Poco::Data::Session& sess, const std::string& username, const std::string& credentials) const;
+	[[nodiscard]] bool isLDAPUserImpl(Poco::Data::Session& sess, const std::string& username,
+		std::string& ldapAttr) const;
+	[[nodiscard]] bool isLDAPRoleImpl(Poco::Data::Session& sess, const std::string& rolename,
+		std::string& ldapAttr) const;
+	[[nodiscard]] std::string hashPersistentCredentials(Poco::Data::Session& sess, const std::string& username,
+		const std::string& credentials) const;
 	std::string saltAndHashCredentials(const std::string& username, const std::string& credentials) const;
 	[[nodiscard]] int pbkdf2Iterations() const;
 		/// Returns the number of PBKDF2 iterations for a new hash of the configured version.
-	std::string hashCachedCredentials(const std::string& username, const std::string& credentials) const;
-	std::string sqlFor(const std::string& action) const;
-	std::string fixPlaceholders(const std::string& clause) const;
-	StatementPlaceholderProvider::Ptr statementPlaceholderProvider() const;
-	std::string hashForUser(Poco::Data::Session& sess, const std::string& username) const;
+	[[nodiscard]] std::string hashCachedCredentials(const std::string& username, const std::string& credentials) const;
+	[[nodiscard]] std::string sqlFor(const std::string& action) const;
+	[[nodiscard]] std::string fixPlaceholders(const std::string& clause) const;
+	[[nodiscard]] StatementPlaceholderProvider::Ptr statementPlaceholderProvider() const;
+	[[nodiscard]] std::string hashForUser(Poco::Data::Session& sess, const std::string& username) const;
 	std::string saltForUser(Poco::Data::Session& sess, const std::string& username, int& version, int& iterations) const;
-	static std::string md5(const std::string& salt, const std::string& credentials);
-	static std::string sha1(const std::string& salt, const std::string& credentials);
-	static std::string pbkdf2(const std::string& salt, const std::string& credentials, int version, int iterations);
-	static std::map<std::string, std::string> parseKeyValueMap(const std::string& s);
-	static std::string translatePattern(const std::string& pattern);
-	static std::string generateCacheSalt();
+	[[nodiscard]] static std::string md5(const std::string& salt, const std::string& credentials);
+	[[nodiscard]] static std::string sha1(const std::string& salt, const std::string& credentials);
+	[[nodiscard]] static std::string pbkdf2(const std::string& salt, const std::string& credentials, int version,
+		int iterations);
+	[[nodiscard]] static std::map<std::string, std::string> parseKeyValueMap(const std::string& s);
+	[[nodiscard]] static std::string translatePattern(const std::string& pattern);
+	[[nodiscard]] static std::string generateCacheSalt();
 
 	const Poco::Util::AbstractConfiguration& _properties;
 	mutable Poco::SharedPtr<Poco::Data::Session> _pSession;
@@ -474,7 +478,7 @@ private:
 };
 
 
-} } } } // namespace Poco::OSP::Auth::Data
+} // namespace Poco::OSP::Auth::Data
 
 
 #endif // OSP_Auth_Data_AuthAdminServiceImpl_INCLUDED

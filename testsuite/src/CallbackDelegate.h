@@ -38,11 +38,11 @@ public:
 	CallbackDelegate& operator = (CallbackDelegate&&) = delete;
 
 	bool notify(const void* sender, Poco::OSP::BundleEvent& event) override;
-	Poco::AbstractDelegate<Poco::OSP::BundleEvent>* clone() const override;
+	[[nodiscard]] Poco::AbstractDelegate<Poco::OSP::BundleEvent>* clone() const override;
 	void disable() override;
 		/// Does nothing: the delegate is removed only when the
 		/// event is not fired.
-	bool equals(const Poco::AbstractDelegate<Poco::OSP::BundleEvent>& other) const override;
+	[[nodiscard]] bool equals(const Poco::AbstractDelegate<Poco::OSP::BundleEvent>& other) const override;
 		/// Returns true iff other is this delegate or one of its clones.
 
 private:

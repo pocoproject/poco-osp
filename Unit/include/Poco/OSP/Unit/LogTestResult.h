@@ -32,9 +32,7 @@ class TextTestResult;
 };
 
 
-namespace Poco {
-namespace OSP {
-namespace Unit {
+namespace Poco::OSP::Unit {
 
 
 class OSPUnit_API LogTestResult: public CppUnit::TextTestResult
@@ -42,35 +40,36 @@ class OSPUnit_API LogTestResult: public CppUnit::TextTestResult
 	/// CppUnit TextTestResult and bypass default output to std::cout.
 {
 public:	
+	LogTestResult() = delete;
+
 	LogTestResult(std::ostream& ostr);
 		/// Creates a LogTestResult with supplied ostream as destination.
 		/// Typically, ostr will be a Poco::LogStream.
 
-	~LogTestResult();
+	~LogTestResult() override;
 		/// Destroys the LogTestResult.
 	
-	virtual void startTest(CppUnit::Test* test);
+	void startTest(CppUnit::Test* test) override;
 		/// Calls TextTestResult::startTest() and appends std::endl to the stream.
 	
-	virtual void print(std::ostream& stream);
+	void print(std::ostream& stream) override;
 		/// Calls TextTestResult::print() and appends std::endl to the stream.
 
-	virtual void printErrors(std::ostream& stream);
+	void printErrors(std::ostream& stream) override;
 		/// Calls TextTestResult::printErrors() and appends std::endl to the stream.
 
-	virtual void printFailures(std::ostream& stream);
+	void printFailures(std::ostream& stream) override;
 		/// Calls TextTestResult::printFailures() and appends std::endl to the stream.
 
-	virtual void printHeader(std::ostream& stream);
+	void printHeader(std::ostream& stream) override;
 		/// Calls TextTestResult::printHeader() and appends std::endl to the stream.
 
 private:
-	LogTestResult();
 	std::ostream& _ostr;
 };
 
 
-} } } // namespace Poco::OSP::Unit
+} // namespace Poco::OSP::Unit
 
 
 #endif // OSP_Unit_LogTestResult_INCLUDED

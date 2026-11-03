@@ -15,23 +15,18 @@
 #include "Poco/OSP/ExtensionPoint.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
-ExtensionPoint::ExtensionPoint()
+ExtensionPoint::ExtensionPoint() = default;
+
+
+ExtensionPoint::~ExtensionPoint() = default;
+
+
+void ExtensionPoint::removeExtension(Bundle::ConstPtr /*pBundle*/, Poco::XML::Element* /*pExtensionElem*/)
 {
 }
 
 
-ExtensionPoint::~ExtensionPoint()
-{
-}
-
-
-void ExtensionPoint::removeExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem)
-{
-}
-
-
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

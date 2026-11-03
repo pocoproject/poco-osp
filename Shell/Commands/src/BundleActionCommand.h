@@ -25,9 +25,7 @@
 #include "Poco/OSP/Bundle.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class BundleActionCommand: public OSPCommand
@@ -39,12 +37,12 @@ public:
 		/// Creates the BundleActionCommand, using the given
 		/// bundle context and command name.
 		
-	~BundleActionCommand();
+	~BundleActionCommand() override;
 		/// Destroys the BundleActionCommand.
 
 protected:
 	// AbstractCommand
-	virtual int executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr);
+	[[nodiscard]] int executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr) override;
 	
 	[[nodiscard]] virtual int doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr) = 0;
 		/// Perform the requested action on the bundle.
@@ -55,7 +53,7 @@ protected:
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_BundleActionCommand_INCLUDED

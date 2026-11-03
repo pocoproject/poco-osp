@@ -26,8 +26,7 @@
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 namespace
@@ -88,9 +87,7 @@ BundleManifest::BundleManifest(std::istream& istr):
 }
 
 
-BundleManifest::~BundleManifest()
-{
-}
+BundleManifest::~BundleManifest() = default;
 
 
 void BundleManifest::parseManifest()
@@ -306,4 +303,4 @@ void BundleManifest::parseProvidedModules(const std::string& providedModules)
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

@@ -36,12 +36,12 @@ namespace
 	public:
 		using Ptr = Poco::AutoPtr<TestService>;
 
-		const std::type_info& type() const
+		[[nodiscard]] const std::type_info& type() const override
 		{
 			return typeid(TestService);
 		}
 
-		bool isA(const std::type_info& otherType) const
+		[[nodiscard]] bool isA(const std::type_info& otherType) const override
 		{
 			std::string name(typeid(TestService).name());
 			return name == otherType.name() || Service::isA(otherType);
@@ -55,9 +55,7 @@ ServiceListenerTest::ServiceListenerTest(const std::string& name): CppUnit::Test
 }
 
 
-ServiceListenerTest::~ServiceListenerTest()
-{
-}
+ServiceListenerTest::~ServiceListenerTest() = default;
 
 
 void ServiceListenerTest::testListenerReportsMatchingServices()

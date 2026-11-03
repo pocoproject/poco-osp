@@ -22,7 +22,7 @@ class VersionTest: public CppUnit::TestCase
 {
 public:
 	VersionTest(const std::string& name);
-	~VersionTest();
+	~VersionTest() override;
 
 	void testConstruct();
 	void testCompare();
@@ -33,8 +33,8 @@ public:
 	void testAssignFromStringKeepsValueOnError();
 	void testSwap();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 

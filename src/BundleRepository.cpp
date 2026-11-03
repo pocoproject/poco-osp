@@ -49,8 +49,7 @@ using Poco::Logger;
 using Poco::NumberFormatter;
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 namespace
@@ -161,9 +160,7 @@ BundleRepository::BundleRepository(const std::vector<std::string>& paths, Bundle
 }
 
 
-BundleRepository::~BundleRepository()
-{
-}
+BundleRepository::~BundleRepository() = default;
 
 
 void BundleRepository::loadBundles()
@@ -301,7 +298,7 @@ void BundleRepository::loadBundle(const std::string& path, BundleMap& bundles)
 {
 	Bundle::Ptr pBundle(_loader.createBundle(path));
 
-	if (_pFilter && !_pFilter->accept(pBundle))
+	if (_pFilter != nullptr && !_pFilter->accept(pBundle))
 	{
 		std::string msg("Bundle rejected by filter: ");
 		msg += pBundle->symbolicName();
@@ -415,7 +412,7 @@ Bundle::Ptr BundleRepository::installBundleImpl(std::istream& istr, const std::s
 			newName += "_";
 			newName += pBundle->version().toString();
 			newName += ".bndl";
-			pBundle = 0;
+			pBundle = nullptr;
 
 			Path np(p);
 			np.setFileName(newName);
@@ -431,7 +428,7 @@ Bundle::Ptr BundleRepository::installBundleImpl(std::istream& istr, const std::s
 				if (replaceBundle != symbolicName)
 				{
 					Bundle::Ptr pExistingBundle = _loader.findBundle(symbolicName);
-					if (pExistingBundle)
+					if (pExistingBundle != nullptr)
 					{
 						throw Poco::OSP::BundleInstallException("A bundle with the same symbolic name is already installed", symbolicName);
 					}
@@ -560,7 +557,7 @@ std::string BundleRepository::tempBundleName(const std::string& directory)
 void BundleRepository::removeBundle(const std::string& symbolicName, const std::string& repositoryPath, RemovedBundle& removed)
 {
 	Bundle::Ptr pBundle = _loader.findBundle(symbolicName);
-	if (pBundle)
+	if (pBundle != nullptr)
 	{
 		std::vector<Bundle::Ptr> requiringBundles;
 		_loader.listRequiringBundles(pBundle, requiringBundles);
@@ -668,4 +665,4 @@ void BundleRepository::startBundles(const std::vector<Bundle::Ptr>& bundles)
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

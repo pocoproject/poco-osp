@@ -29,9 +29,7 @@
 #include <string>
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class CommandProcessor;
@@ -107,11 +105,13 @@ public:
 		/// Creates the ShellConnection and adds its socket to the given
 		/// SessionTracker, which must exist as long as the connection.
 		
-	~ShellConnection();
+	~ShellConnection() override;
 		/// Destroys the ShellConnection.
+
+	ShellConnection() = delete;
 		
 	// TCPServerConnection
-	void run();
+	void run() override;
 
 	static constexpr int MAX_FAILED_LOGINS = 3;
 		/// The number of rejected logins after which the connection is closed.
@@ -121,8 +121,6 @@ protected:
 		/// Close the underlying socket if our bundle is stopping.
 	
 private:
-	ShellConnection();
-	
 	[[nodiscard]] bool stopped() const;
 		/// Returns true once the bundle of the shell is stopping or the
 		/// SessionTracker has been stopped.
@@ -133,7 +131,7 @@ private:
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_ShellConnection_INCLUDED

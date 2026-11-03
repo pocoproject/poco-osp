@@ -22,7 +22,7 @@ class BundleFileTest: public CppUnit::TestCase
 {
 public:
 	BundleFileTest(const std::string& name);
-	~BundleFileTest();
+	~BundleFileTest() override;
 
 	void testGetResourceOpensEntry();
 	void testListReturnsDirectoryEntries();
@@ -33,8 +33,8 @@ public:
 	void testStorageOpenReturnsBundleFile();
 	void testStorageOpenRejectsPathThatIsNoBundle();
 
-	void setUp();
-	void tearDown();
+	void setUp() override;
+	void tearDown() override;
 
 	static CppUnit::Test* suite();
 

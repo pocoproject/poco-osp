@@ -32,9 +32,7 @@
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
+namespace Poco::OSP::Auth {
 
 
 namespace
@@ -457,4 +455,4 @@ std::string LDAPClient::escapeFilterValue(const std::string& str)
 }
 
 
-} } } // namespace Poco::OSP::Auth
+} // namespace Poco::OSP::Auth

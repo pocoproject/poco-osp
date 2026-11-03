@@ -26,8 +26,7 @@
 #include "Poco/Exception.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 class OSP_API ServiceFinder
@@ -44,7 +43,7 @@ public:
 		/// Throws a Poco::BadCastException if the cast cannot be performed.
 	{
 		Poco::OSP::ServiceRef::Ptr pSvcRef = pContext->registry().findByName(name);
-		if (!pSvcRef) throw Poco::NotFoundException(name);
+		if (pSvcRef == nullptr) throw Poco::NotFoundException(name);
 		return pSvcRef->castedInstance<Svc>();
 	}
 	
@@ -61,7 +60,7 @@ public:
 };
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP
 
 
 #endif // OSP_ServiceFinder_INCLUDED

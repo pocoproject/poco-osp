@@ -49,7 +49,7 @@ public:
 	{
 	}
 	
-	void handlePart(const MessageHeader& header, std::istream& stream)
+	void handlePart(const MessageHeader& header, std::istream& stream) override
 		/// Installs the bundle of the first file part only.
 	{
 		if (header.has("Content-Disposition") && _pBundle == nullptr)
@@ -58,12 +58,12 @@ public:
 		}
 	}
 	
-	bool installed() const
+	[[nodiscard]] bool installed() const
 	{
 		return !_pBundle.isNull();
 	}
 	
-	Bundle::Ptr bundle() const
+	[[nodiscard]] Bundle::Ptr bundle() const
 	{
 		return _pBundle;
 	}
@@ -80,9 +80,7 @@ BundleInstallHandler::BundleInstallHandler(Poco::OSP::BundleContext::Ptr pContex
 }
 
 
-BundleInstallHandler::~BundleInstallHandler()
-{
-}
+BundleInstallHandler::~BundleInstallHandler() = default;
 
 	
 void BundleInstallHandler::handle()

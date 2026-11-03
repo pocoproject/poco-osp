@@ -38,10 +38,7 @@ using Poco::OSP::Properties;
 using namespace std::string_literals;
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace TwoFactor {
+namespace Poco::OSP::Auth::TwoFactor {
 
 
 class TwoFactorBundleActivator: public BundleActivator
@@ -51,9 +48,9 @@ class TwoFactorBundleActivator: public BundleActivator
 {
 public:
 	TwoFactorBundleActivator() = default;
-	~TwoFactorBundleActivator() = default;
+	~TwoFactorBundleActivator() override = default;
 
-	void start(BundleContext::Ptr pContext)
+	void start(BundleContext::Ptr pContext) override
 	{
 		PreferencesService::Ptr pPrefsService = Poco::OSP::ServiceFinder::find<Poco::OSP::PreferencesService>(pContext);
 
@@ -87,9 +84,9 @@ public:
 		}
 	}
 
-	void stop(BundleContext::Ptr pContext)
+	void stop(BundleContext::Ptr pContext) override
 	{
-		if (_pTwoFactorServiceRef)
+		if (_pTwoFactorServiceRef != nullptr)
 		{
 			pContext->registry().unregisterService(_pTwoFactorServiceRef);
 			_pTwoFactorServiceRef = nullptr;
@@ -125,7 +122,7 @@ std::string TwoFactorBundleActivator::keySalt(Poco::OSP::Preferences::Ptr pPrefs
 }
 
 
-} } } } // namespace Poco::OSP::Auth::TwoFactor
+} // namespace Poco::OSP::Auth::TwoFactor
 
 
 POCO_BEGIN_MANIFEST(BundleActivator)

@@ -25,7 +25,7 @@ public:
 	}
 
 protected:
-	Poco::Net::ServerSocket createServerSocket(const Poco::Net::SocketAddress& address) override
+	[[nodiscard]] Poco::Net::ServerSocket createServerSocket(const Poco::Net::SocketAddress& address) override
 	{
 		return Poco::Net::ServerSocket(address);
 	}

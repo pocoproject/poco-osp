@@ -77,9 +77,7 @@ using Poco::StreamCopier;
 using Poco::FastMutex;
 
 
-namespace Poco {
-namespace OSP {
-namespace Web {
+namespace Poco::OSP::Web {
 
 static std::set<std::string> parseResourceList(const std::string& s)
 {
@@ -300,7 +298,7 @@ void WebServerDispatcher::addVirtualPath(const VirtualPath& virtualPath)
 		_csrfTokenHeaders.insert(virtualPath.security.csrfTokenHeader);
 	}
 
-	if (virtualPath.pPattern)
+	if (virtualPath.pPattern != nullptr)
 	{
 		_patternVec.push_back(virtualPath);
 
@@ -506,14 +504,14 @@ void WebServerDispatcher::handleRequest(Poco::Net::HTTPServerRequest& request, P
 				}
 				else if (authorize(request, vPath, username, authenticated))
 				{
-					if (vPath.pFactory)
+					if (vPath.pFactory != nullptr)
 					{
 						if (vPath.methods.empty() || vPath.methods.count(request.getMethod()) == 1)
 						{
 							std::unique_ptr<HTTPRequestHandler> pHandler(vPath.pFactory->createRequestHandler(request));
 							try
 							{
-								if (pHandler.get())
+								if (pHandler != nullptr)
 									pHandler->handleRequest(request, response);
 								else
 									sendNotFound(request, path, vPath.responseFormat);
@@ -601,7 +599,7 @@ void WebServerDispatcher::handleRequest(Poco::Net::HTTPServerRequest& request, P
 						}
 						// REST endpoints always get a JSON 401 payload regardless of the Accept header;
 						// directory mappings keep their configured response format.
-						ResponseFormat format = vPath.pFactory ? RESPONSE_FORMAT_JSON : vPath.responseFormat;
+						ResponseFormat format = vPath.pFactory != nullptr ? RESPONSE_FORMAT_JSON : vPath.responseFormat;
 						sendNotAuthorized(request, vPath.path, format);
 					}
 				}
@@ -636,7 +634,7 @@ void WebServerDispatcher::handleRequest(Poco::Net::HTTPServerRequest& request, P
 			msg += request.clientAddress().toString();
 			msg += ": ";
 			msg += exc.displayText();
-			if (exc.nested())
+			if (exc.nested() != nullptr)
 			{
 				msg += ": ";
 				msg += exc.nested()->displayText();
@@ -801,12 +799,12 @@ void WebServerDispatcher::sendResource(Poco::Net::HTTPServerRequest& request, co
 	Poco::File::FileSize resourceSize = 0;
 	Poco::Timestamp lastModified;
 	std::unique_ptr<std::istream> pResourceStream(findResource(pBundle, resBase, resPath, index, mediaType, resolvedPath, canCache, &resourceSize, &lastModified));
-	if (pResourceStream.get())
+	if (pResourceStream != nullptr)
 	{
 		response.setContentType(mediaType);
 
 		Poco::SharedPtr<WebFilter> pFilter = findFilter(mediaType);
-		if (pFilter)
+		if (pFilter != nullptr)
 		{
 			response.setChunkedTransferEncoding(true);
 			pFilter->process(request, response, resolvedPath, *pResourceStream, pBundle);
@@ -1093,7 +1091,7 @@ const WebServerDispatcher::VirtualPath& WebServerDispatcher::mapPath(const std::
 			parent += p[i];
 			parent += '/';
 			PathMap::const_iterator it = _pathMap.find(parent);
-			if (it != _pathMap.end() && !it->second.pPattern)
+			if (it != _pathMap.end() && it->second.pPattern == nullptr)
 				foundIt = it;
 		}
 		if (foundIt != _pathMap.end())
@@ -1122,7 +1120,7 @@ std::istream* WebServerDispatcher::findResource(Bundle::ConstPtr pBundle, const 
 		try
 		{
 			Poco::OSP::BundleContext::Ptr pApiContext = _pContext->contextForBundle(pBundle);
-			if (pApiContext)
+			if (pApiContext != nullptr)
 			{
 				// FS root: <persistentDir>/<base>
 				Poco::Path fsRoot(pApiContext->persistentDirectory());
@@ -1188,7 +1186,7 @@ std::istream* WebServerDispatcher::findResource(Bundle::ConstPtr pBundle, const 
 
 	// 2) Fall back to bundle content (ZIP or directory), optionally using cache
 	if (pLastModified != nullptr) *pLastModified = Poco::File(pBundle->path()).getLastModified();
-	if (std::istream* p = getCachedResource(pBundle, resolvedPath, canCache, pSize)) return p;
+	if (std::istream* p = getCachedResource(pBundle, resolvedPath, canCache, pSize); p != nullptr) return p;
 
 	// 3) Index fallback in bundle
 	basePath.makeDirectory();
@@ -1218,7 +1216,7 @@ std::istream* WebServerDispatcher::getCachedResource(Bundle::ConstPtr pBundle, c
 		{
 			lockWithUnlock.unlock();
 			std::unique_ptr<std::istream> pResourceStream(pBundle->getResource(path));
-			if (pResourceStream.get())
+			if (pResourceStream != nullptr)
 			{
 				std::string cachedData;
 				Poco::StreamCopier::copyToString(*pResourceStream, cachedData);
@@ -1238,7 +1236,7 @@ std::istream* WebServerDispatcher::getCachedResource(Bundle::ConstPtr pBundle, c
 					return new Poco::MemoryInputStream(it->second.data(), it->second.size());
 				}
 			}
-			else return 0;
+			else return nullptr;
 		}
 	}
 	else
@@ -1445,10 +1443,10 @@ bool WebServerDispatcher::authorize(Poco::Net::HTTPServerRequest& request, const
 bool WebServerDispatcher::authorizeSession(Poco::Net::HTTPServerRequest& request, const VirtualPath& vPath, std::string& username, bool& authenticated) const
 {
 	WebSessionManager::Ptr pSessionManager = sessionManager();
-	if (pSessionManager)
+	if (pSessionManager != nullptr)
 	{
 		WebSession::Ptr pSession = pSessionManager->find(vPath.security.session, request);
-		if (pSession)
+		if (pSession != nullptr)
 		{
 			username = pSession->getValue<std::string>("username"s, ""s);
 			if (!username.empty())
@@ -1537,7 +1535,7 @@ bool WebServerDispatcher::authorizeSession(Poco::Net::HTTPServerRequest& request
 bool WebServerDispatcher::authorizeBasic(Poco::Net::HTTPServerRequest& request, const std::string& creds, const VirtualPath& vPath, std::string& username, bool& authenticated) const
 {
 	AuthService::Ptr pAuthService = authService();
-	if (pAuthService)
+	if (pAuthService != nullptr)
 	{
 		HTTPBasicCredentials cred(creds);
 		username = cred.getUsername();
@@ -2024,4 +2022,4 @@ Poco::Net::SocketAddress WebServerDispatcher::realClientAddress(const Poco::Net:
 }
 
 
-} } } // namespace Poco::OSP::Web
+} // namespace Poco::OSP::Web

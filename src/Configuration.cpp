@@ -16,8 +16,7 @@
 #include "Poco/Exception.h"
 
 
-namespace Poco {
-namespace OSP {
+namespace Poco::OSP {
 
 
 Configuration::Configuration(AbstractConfiguration* pConfig):
@@ -46,7 +45,7 @@ bool Configuration::getRaw(const std::string& key, std::string& value) const
 }
 
 
-void Configuration::setRaw(const std::string& key, const std::string& value)		
+void Configuration::setRaw(const std::string& /*key*/, const std::string& /*value*/)
 {
 	throw Poco::InvalidAccessException("Cannot change configuration properties");
 }
@@ -58,10 +57,10 @@ void Configuration::enumerate(const std::string& key, Keys& range) const
 }
 
 
-void Configuration::removeRaw(const std::string& key)
+void Configuration::removeRaw(const std::string& /*key*/)
 {
 	throw Poco::InvalidAccessException("Cannot change configuration properties");
 }
 
 
-} } // namespace Poco::OSP
+} // namespace Poco::OSP

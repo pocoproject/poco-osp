@@ -23,10 +23,7 @@
 #include "Poco/OSP/Auth/TwoFactor/TwoFactor.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Auth {
-namespace TwoFactor {
+namespace Poco::OSP::Auth::TwoFactor {
 
 
 class OSPAuthTwoFactor_API SecretGenerator
@@ -48,16 +45,20 @@ public:
 		/// The secret length should be from 80 to 160 bits.
 		/// Lengths shorter than 80 will be rejected.
 
-	std::string generate() const;
+	SecretGenerator(const SecretGenerator&) = delete;
+	SecretGenerator& operator = (const SecretGenerator&) = delete;
+
+	[[nodiscard]] std::string generate() const;
 		/// Generates a new secret and returns it in a binary string.
 
-	static std::string toBase32(const std::string& secret);
+	[[nodiscard]] static std::string toBase32(const std::string& secret);
 		/// Encodes a secret in Base32.
 
-	static std::string fromBase32(const std::string& base32);
+	[[nodiscard]] static std::string fromBase32(const std::string& base32);
 		/// Decodes the base32-encoded secret to a binary string.
 
-	static std::string toURI(const std::string& secret, const std::string& issuer, const std::string& account);
+	[[nodiscard]] static std::string toURI(const std::string& secret, const std::string& issuer,
+		const std::string& account);
 		/// Generates a URI suitable for displaying as a QR code.
 		///
 		/// See https://github.com/google/google-authenticator/wiki/Key-Uri-Format for
@@ -65,13 +66,10 @@ public:
 
 private:
 	std::size_t _secretLengthBits = 128U;
-
-	SecretGenerator(const SecretGenerator&) = delete;
-	SecretGenerator& operator = (const SecretGenerator&) = delete;
 };
 
 
-} } } } // namespace Poco::OSP::Auth::TwoFactor
+} // namespace Poco::OSP::Auth::TwoFactor
 
 
 #endif // OSP_Auth_TwoFactor_SecretGenerator_INCLUDED

@@ -40,9 +40,7 @@
 using Poco::Delegate;
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 namespace
@@ -198,7 +196,7 @@ void ShellConnection::run()
 }
 
 
-void ShellConnection::onBundleStopping(const void* pSender, Poco::OSP::BundleEvent& ev)
+void ShellConnection::onBundleStopping(const void* /*pSender*/, Poco::OSP::BundleEvent& ev)
 {
 	if (ev.bundle() == _config.commandProcessor.context()->thisBundle())
 	{
@@ -214,4 +212,4 @@ bool ShellConnection::stopped() const
 }
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell

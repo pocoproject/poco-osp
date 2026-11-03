@@ -24,9 +24,7 @@
 #include "Poco/OSP/Bundle.h"
 
 
-namespace Poco {
-namespace OSP {
-namespace Shell {
+namespace Poco::OSP::Shell {
 
 
 class InstallCommand: public OSPCommand
@@ -38,16 +36,16 @@ public:
 		/// Creates the InstallCommand, using the given
 		/// bundle context.
 		
-	~InstallCommand();
+	~InstallCommand() override;
 		/// Destroys the InstallCommand.
 
 protected:
 	// AbstractCommand
-	virtual int executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr);
+	[[nodiscard]] int executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr) override;
 };
 
 
-} } } // namespace Poco::OSP::Shell
+} // namespace Poco::OSP::Shell
 
 
 #endif // OSP_Shell_InstallCommand_INCLUDED
