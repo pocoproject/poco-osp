@@ -4,7 +4,7 @@
 // Copyright (c) 2025, Aleph ONE Software Engineering LLC
 // All rights reserved.
 //
-// License: Applied Informatics Software and Source Code License Agreement
+// SPDX-License-Identifier:	BSL-1.0
 //
 
 
