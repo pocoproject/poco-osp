@@ -33,7 +33,6 @@ namespace Poco {
 namespace OSP {
 namespace Auth {
 
-using namespace std::string_literals;
 
 class OSPAuth_API AuthAdminService: public Poco::OSP::Auth::AuthService
 	/// This service interface extends the basic AuthService
@@ -58,6 +57,9 @@ public:
 
 		std::map<std::string, std::string> attributes;
 			/// Attributes of user to validate.
+
+		int flags;
+			/// User flags, see UserFlags.
 
 		bool valid;
 			/// True if the account is valid, otherwise false.
@@ -93,6 +95,16 @@ public:
 		INVALIDATE_CACHED_PERMISSIONS = 2,
 		INVALIDATE_ALL = INVALIDATE_CACHED_PASSWORDS | INVALIDATE_CACHED_PASSWORDS
 	};
+
+	enum UserFlags
+	{
+		USER_LOCKED_OUT = 0x01,
+		USER_EXTERNAL   = 0x02
+	};
+
+	virtual bool verifyCredentials(const std::string& username, const std::string& credentials) = 0;
+		/// Perform verification of the credentials (password) only, without invoking the
+		/// validateUser event.
 
 	virtual void changePassword(const std::string& username, const std::string& password) = 0;
 		/// Changes the password for the user with the given username.
@@ -262,7 +274,7 @@ public:
 		///
 		/// Should be done when a user logs out of an application.
 
-	virtual std::string getUserAttribute(const std::string& username, const std::string& attribute, const std::string& deflt = ""s) const = 0;
+	virtual std::string getUserAttribute(const std::string& username, const std::string& attribute, const std::string& deflt = std::string()) const = 0;
 		/// Returns the value of a user attribute, or the specified default
 		/// value if the user attribute does not exist.
 
@@ -282,8 +294,9 @@ public:
 	virtual void attributesForUser(const std::string& username, std::set<std::string>& attributes) const = 0;
 		/// Returns the names of all attributes set for the given username.
 
-	virtual void attributesForUser(const std::string& username, std::map<std::string, std::string>& attributes) const = 0;
-		/// Returns the names and values of all attributes set for the given username.
+	virtual int attributesForUser(const std::string& username, std::map<std::string, std::string>& attributes) const = 0;
+		/// Returns the names and values of all attributes set for the given username and
+		/// returns flags indicating whether the user has been locked out or is an external user.
 
 	virtual std::vector<std::string> findUsersByAttribute(const std::string& attribute, const std::string& value) const = 0;
 		/// Returns the names of all users having an attribute with the given value.

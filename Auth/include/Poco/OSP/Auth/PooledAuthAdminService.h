@@ -54,6 +54,7 @@ public:
 		/// Destroys the AuthAdminServiceImpl.
 
 	// AuthAdminService
+	bool verifyCredentials(const std::string& username, const std::string& credentials);
 	void changePassword(const std::string& username, const std::string& password);
 	void permissionsForUser(const std::string& username, std::set<std::string>& permissions) const;
 	void effectivePermissionsForUser(const std::string& username, std::set<std::string>& permissions) const;
@@ -86,7 +87,7 @@ public:
 	void replaceUserAttributes(const std::string& username, const std::map<std::string, std::string>& attributes);
 	void updateUserAttributes(const std::string& username, const std::map<std::string, std::string>& attributes);
 	void attributesForUser(const std::string& username, std::set<std::string>& attributes) const;
-	void attributesForUser(const std::string& username, std::map<std::string, std::string>& attributes) const;
+	int attributesForUser(const std::string& username, std::map<std::string, std::string>& attributes) const;
 	std::vector<std::string> findUsersByAttribute(const std::string& attribute, const std::string& value) const;
 	void revokePermission(const std::string& permission);
 	void lockOutUser(const std::string& username, const Poco::DateTime& lockOutUntil);

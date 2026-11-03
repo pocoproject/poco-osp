@@ -148,8 +148,8 @@ protected:
 	virtual void replacePermissionsForUserImpl(const std::string& username, const std::set<std::string>& permissions) const = 0;
 	virtual void replaceRolesForUserImpl(const std::string& username, const std::set<std::string>& permissions) const = 0;
 	virtual void replacePermissionsForRoleImpl(const std::string& rolename, const std::set<std::string>& permissions) const = 0;
-	virtual std::string getUserAttributeImpl(const std::string& username, const std::string& attribute, const std::string& deflt = ""s) const = 0;
-	virtual std::string getRoleAttributeImpl(const std::string& rolename, const std::string& attribute, const std::string& deflt = ""s) const = 0;
+	virtual std::string getUserAttributeImpl(const std::string& username, const std::string& attribute, const std::string& deflt = std::string()) const = 0;
+	virtual std::string getRoleAttributeImpl(const std::string& rolename, const std::string& attribute, const std::string& deflt = std::string()) const = 0;
 
 
 protected:

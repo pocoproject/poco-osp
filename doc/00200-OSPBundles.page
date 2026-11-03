@@ -98,8 +98,11 @@ properties.
 
 After an extension bundle has been resolved, every request for a resource
 (Poco::OSP::Bundle::getResource() and Poco::OSP::Bundle::getLocalizedResource()) to the
-extended bundle will look for the requested resource in the extension bundle if the
-resource cannot be found in the extended bundle. Furthermore, the properties defined
+extended bundle will look for the requested resource in the extension bundles first, and
+then in the extended bundle itself. An extension bundle can therefore replace a resource of
+the extended bundle. The order in which several extension bundles of one bundle are searched
+is unspecified. Poco::OSP::Bundle::getLocalizedResource() does so for each localized path, from
+the most specific one to the plain name. Furthermore, the properties defined
 in the extension bundle will override the properties defined in the extended bundle.
 
 

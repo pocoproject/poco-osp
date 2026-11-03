@@ -159,7 +159,7 @@ protected:
 		helpFormatter.setHeader(
 			"\n"
 			"The Applied Informatics OSP Bundle Signing Utility.\n"
-			"Copyright (c) 2009-2024 by Applied Informatics Software Engineering GmbH.\n"
+			"Copyright (c) 2009-2026 by Applied Informatics Software Engineering GmbH.\n"
 			"All rights reserved.\n\n"
 			"This program builds adds a cryptographic signature "
 			"to a bundle, which can be used to verify the integrity "

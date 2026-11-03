@@ -5,7 +5,7 @@
     <symbolicName>com.appinf.osp.auth.command</symbolicName>
     <version>1.1.0</version>
     <vendor>Applied Informatics</vendor>
-    <copyright>(c) 2012-2024, Applied Informatics Software Engineering GmbH</copyright>
+    <copyright>(c) 2012-2026, Applied Informatics Software Engineering GmbH</copyright>
     <lazyStart>false</lazyStart>
     <runLevel>400</runLevel>
     <dependency>
@@ -14,7 +14,7 @@
     </dependency>
     <dependency>
       <symbolicName>com.appinf.osp.auth</symbolicName>
-      <version>[1.6.0,2.0.0)</version>
+      <version>[1.11.0,2.0.0)</version>
     </dependency>
   </manifest>
   <code>

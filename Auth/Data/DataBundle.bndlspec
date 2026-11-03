@@ -3,9 +3,9 @@
   <manifest>
     <name>OSP Authentication and Authorization Service (SQL)</name>
     <symbolicName>com.appinf.osp.auth.data</symbolicName>
-    <version>1.11.1</version>
+    <version>1.13.0</version>
     <vendor>Applied Informatics</vendor>
-    <copyright>(c) 2012-2024, Applied Informatics Software Engineering GmbH</copyright>
+    <copyright>(c) 2012-2026, Applied Informatics Software Engineering GmbH</copyright>
     <activator>
       <class>Poco::OSP::Auth::Data::AuthBundleActivator</class>
       <library>com.appinf.osp.auth.data</library>
@@ -14,11 +14,11 @@
     <runLevel>010</runLevel>
     <module>
       <symbolicName>osp.auth</symbolicName>
-      <version>1.7.0</version>
+      <version>1.8.0</version>
     </module>
     <dependency>
       <symbolicName>com.appinf.osp.auth</symbolicName>
-      <version>[1.5.0, 2.0.0)</version>
+      <version>[1.11.0, 2.0.0)</version>
     </dependency>
     <dependency>
       <symbolicName>poco.data</symbolicName>

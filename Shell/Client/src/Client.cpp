@@ -197,7 +197,7 @@ protected:
 		helpFormatter.setHeader(
 			"\n"
 			"The Open Service Platform Shell Client.\n"
-			"Copyright (c) 2009-2024 by Applied Informatics Software Engineering GmbH.\n"
+			"Copyright (c) 2009-2026 by Applied Informatics Software Engineering GmbH.\n"
 			"All rights reserved.\n\n"
 			"This program allows you to interact with the OSP Shell service "
 			"running within an OSP server application.\n\n"

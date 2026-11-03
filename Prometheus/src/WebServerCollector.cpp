@@ -10,6 +10,7 @@
 
 #include "WebServerCollector.h"
 #include "Poco/Prometheus/Exporter.h"
+#include "Poco/Net/HTTPBufferAllocator.h"
 #include "Poco/NumberFormatter.h"
 #include "Poco/Format.h"
 
@@ -113,6 +114,24 @@ void WebServerCollector::buildMetrics()
 		[pWebServerService]()
 		{
 			return pWebServerService->refusedConnections();
+		}));
+
+	_gauges.push_back(std::make_unique<Poco::Prometheus::CallbackIntGauge>(
+		"osp_web_buffer_pool_allocated_memory"s,
+		"Total memory allocated in HTTP buffer pool"s,
+		nullptr,
+		[]()
+		{
+			return Poco::Net::HTTPBufferAllocator::pool().blockSize()*Poco::Net::HTTPBufferAllocator::pool().allocated();
+		}));
+
+	_gauges.push_back(std::make_unique<Poco::Prometheus::CallbackIntGauge>(
+		"osp_web_buffer_pool_available_memory"s,
+		"Total memory available in HTTP buffer pool"s,
+		nullptr,
+		[]()
+		{
+			return Poco::Net::HTTPBufferAllocator::pool().blockSize()*Poco::Net::HTTPBufferAllocator::pool().available();
 		}));
 }
 

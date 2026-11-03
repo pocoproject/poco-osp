@@ -476,6 +476,10 @@ protected:
 		/// Configures response to return partial content defined with rangeStart and rangeLength
 		/// from resourceStream with status 206 Partial Content.
 
+	Poco::Net::SocketAddress realClientAddress(const Poco::Net::HTTPServerRequest& request) const;
+		/// Returns the client address obtained from the X-Forwarded-For header, if it exists,
+		/// otherwise the client address from the request.
+
 	static const std::string BEARER;
 	static const std::string X_OSP_AUTHORIZED_USER;
 	static const std::string X_OSP_AUTHORIZED_SCOPE;

@@ -89,7 +89,8 @@ Bundle::Bundle(int id, BundleLoader& loader, BundleStorage::Ptr pStorage, const 
 	_pStorage(pStorage),
 	_language(language),
 	_pProperties(new BundleProperties),
-	_pActivator(0)
+	_pActivator(0),
+	_extensionCount(0)
 {
 	poco_check_ptr (_pStorage);
 
@@ -132,8 +133,8 @@ const std::string& Bundle::stateString() const
 
 std::istream* Bundle::getResource(const std::string& name) const
 {
-	std::istream* pStream = _pStorage->getResource(name);
-	if (!pStream)
+	std::istream* pStream = nullptr;
+	if (_extensionCount.load() > 0)
 	{
 		Poco::FastMutex::ScopedLock lock(_extensionBundlesMutex);
 
@@ -144,6 +145,14 @@ std::istream* Bundle::getResource(const std::string& name) const
 			pStream = (*it)->getResource(name);
 			++it;
 		}
+		if (!pStream)
+		{
+			pStream = _pStorage->getResource(name);
+		}
+	}
+	else
+	{
+		pStream = _pStorage->getResource(name);
 	}
 	return pStream;
 }
@@ -325,6 +334,7 @@ void Bundle::addExtensionBundle(Bundle* pExtensionBundle)
 				Poco::FastMutex::ScopedLock lock(_extensionBundlesMutex);
 
 				_extensionBundles.insert(Bundle::Ptr(pExtensionBundle, true));
+				_extensionCount = static_cast<int>(_extensionBundles.size());
 			}
 			_pProperties->addProperties(pExtensionBundle->_pProperties, -static_cast<int>(_extensionBundles.size()));
 		}
@@ -339,6 +349,7 @@ void Bundle::removeExtensionBundle(Bundle* pExtensionBundle)
 	Poco::FastMutex::ScopedLock lock(_extensionBundlesMutex);
 
 	_extensionBundles.erase(Bundle::Ptr(pExtensionBundle, true));
+	_extensionCount = static_cast<int>(_extensionBundles.size());
 	_pProperties->removeProperties(pExtensionBundle->_pProperties);
 }
 

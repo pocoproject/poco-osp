@@ -5,7 +5,7 @@
     <symbolicName>com.appinf.osp.mail.secure</symbolicName>
     <version>1.0.2</version>
     <vendor>Applied Informatics</vendor>
-    <copyright>(c) 2017-2024, Applied Informatics Software Engineering GmbH</copyright>
+    <copyright>(c) 2017-2026, Applied Informatics Software Engineering GmbH</copyright>
     <activator>
       <class>Poco::OSP::Mail::SecureBundleActivator</class>
       <library>com.appinf.osp.mail.secure</library>

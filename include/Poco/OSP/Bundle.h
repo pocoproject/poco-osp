@@ -28,6 +28,7 @@
 #include "Poco/AutoPtr.h"
 #include "Poco/Mutex.h"
 #include <set>
+#include <atomic>
 
 
 namespace Poco {
@@ -198,7 +199,8 @@ public:
 		/// bundle. Also, all resources of the extension
 		/// bundle will become available through
 		/// getResource() and getLocalizedResource() on
-		/// the extended bundle.
+		/// the extended bundle, which look in the extension
+		/// bundles first (see getResource()).
 
 	Bundle::Ptr extendedBundle() const;
 		/// If the bundle is an extension bundle, returns
@@ -221,6 +223,13 @@ public:
 		///
 		/// Resources are ordinary files stored within the
 		/// bundle's directory or archive file.
+		///
+		/// If the bundle has been extended by extension bundles,
+		/// the resource is looked for in the extension bundles
+		/// first and then in the bundle itself, so an extension
+		/// bundle can replace a resource of the bundle. The order
+		/// in which several extension bundles are searched is
+		/// unspecified.
 		///
 		/// Returns NULL if the resource does not exist.
 		///
@@ -247,6 +256,12 @@ public:
 		///
 		/// Resources are ordinary files stored within the
 		/// bundle's directory or archive file.
+		///
+		/// The localized paths are tried from the most specific
+		/// one to the plain name, each as getResource() looks it
+		/// up, so a more specific resource of the bundle itself
+		/// takes precedence over a less specific one of an
+		/// extension bundle.
 		///
 		/// Returns NULL if the resource does not exist.
 		///
@@ -354,7 +369,8 @@ protected:
 		/// bundle. Also, all resources of the extension
 		/// bundle will become available through
 		/// getResource() and getLocalizedResource() on
-		/// the extended bundle.
+		/// the extended bundle, which look in the extension
+		/// bundles first (see getResource()).
 
 	void removeExtensionBundle(Bundle* pExtensionBundle);
 		/// Removes an extension bundle.
@@ -402,6 +418,7 @@ private:
 	BundleActivator*        _pActivator;
 	std::set<Bundle::Ptr>   _extensionBundles;
 	mutable Poco::FastMutex _extensionBundlesMutex;
+	std::atomic<int>        _extensionCount;
 	ResolvedDependencies    _resolvedDependencies;
 	ModuleProviders         _moduleProviders;
 	mutable Poco::FastMutex _resolutionMutex;

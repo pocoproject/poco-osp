@@ -153,6 +153,7 @@ public:
 		/// Checks whether the database connection is ok.
 
 	// AuthAdminService
+	bool verifyCredentials(const std::string& username, const std::string& credentials) override;
 	void changePassword(const std::string& username, const std::string& password) override;
 	void permissionsForUser(const std::string& username, std::set<std::string>& permissions) const override;
 	void effectivePermissionsForUser(const std::string& username, std::set<std::string>& permissions) const override;
@@ -187,7 +188,7 @@ public:
 	void replaceUserAttributes(const std::string& username, const std::map<std::string, std::string>& attributes) override;
 	void updateUserAttributes(const std::string& username, const std::map<std::string, std::string>& attributes) override;
 	void attributesForUser(const std::string& username, std::set<std::string>& attributes) const override;
-	void attributesForUser(const std::string& username, std::map<std::string, std::string>& attributes) const override;
+	int attributesForUser(const std::string& username, std::map<std::string, std::string>& attributes) const override;
 	std::vector<std::string> findUsersByAttribute(const std::string& attribute, const std::string& value) const override;
 	void revokePermission(const std::string& permission) override;
 	void lockOutUser(const std::string& username, const Poco::DateTime& lockOutUntil) override;
@@ -237,6 +238,7 @@ protected:
 	void addUserImpl(Poco::Data::Session& session, const std::string& username, const std::string& password) const;
 	void removeUserImpl(Poco::Data::Session& session, const std::string& username) const;
 	void uncacheUserImpl(const std::string& username) const;
+	int attributesForUserImpl(Poco::Data::Session& sess, const std::string& username, std::map<std::string, std::string>& attributes) const;
 	void createOrUpdateRoleImpl(Poco::Data::Session& session, const std::string& rolename) const;
 	void createOrUpdateUserImpl(Poco::Data::Session& session, const std::string& username, const std::string& credentials) const;
 	void replaceUserAttributeImpl(Poco::Data::Session& session, const std::string& username, const std::string& attribute, const std::string& value) const;
@@ -255,8 +257,8 @@ protected:
 	void replacePermissionsForUserImpl(const std::string& username, const std::set<std::string>& permissions) const override;
 	void replaceRolesForUserImpl(const std::string& username, const std::set<std::string>& permissions) const override;
 	void replacePermissionsForRoleImpl(const std::string& rolename, const std::set<std::string>& permissions) const override;
-	std::string getUserAttributeImpl(const std::string& username, const std::string& attribute, const std::string& deflt = ""s) const override;
-	std::string getRoleAttributeImpl(const std::string& rolename, const std::string& attribute, const std::string& deflt = ""s) const override;
+	std::string getUserAttributeImpl(const std::string& username, const std::string& attribute, const std::string& deflt = std::string()) const override;
+	std::string getRoleAttributeImpl(const std::string& rolename, const std::string& attribute, const std::string& deflt = std::string()) const override;
 
 private:
 	using Permissions = std::set<std::string>;
@@ -266,7 +268,10 @@ private:
 	using SQLCache = std::unordered_map<std::string, std::string>;
 
 	bool authenticateImpl(const std::string& username, const std::string& credentials) const;
-	bool validateUserImpl(const std::string& username, bool valid) const;
+	[[nodiscard]] bool authenticateImpl(Poco::Data::Session& sess, std::string& username, const std::string& credentials, bool& isLDAPUser) const;
+		/// On return, username holds the name the user is stored under,
+		/// which is lower case for an LDAP user.
+	bool validateUserImpl(Poco::Data::Session& sess, const std::string& username, bool valid) const;
 	PermissionsPtr loadPermissions(Poco::Data::Session& sess, const std::string& username) const;
 	void reloadPermissions(Poco::Data::Session& sess, const std::string& username) const;
 	bool isInlineAttribute(const std::string& attribute) const;
@@ -278,10 +283,12 @@ private:
 	void lockOutUserImpl(Poco::Data::Session& sess, const std::string& username, const Poco::DateTime& lockOutUntil) const;
 	void unlockOutUserImpl(Poco::Data::Session& sess, const std::string& username) const;
 	bool isUserLockedOutImpl(Poco::Data::Session& sess, const std::string& username) const;
+	static bool isInLockOutPeriod(const std::string& lockOutAttrValue);
 	bool isLDAPUserImpl(Poco::Data::Session& sess, const std::string& username, std::string& ldapAttr) const;
 	bool isLDAPRoleImpl(Poco::Data::Session& sess, const std::string& rolename, std::string& ldapAttr) const;
-	std::string hashCredentials(Poco::Data::Session& sess, const std::string& username, const std::string& credentials) const;
+	std::string hashPersistentCredentials(Poco::Data::Session& sess, const std::string& username, const std::string& credentials) const;
 	std::string saltAndHashCredentials(const std::string& username, const std::string& credentials) const;
+	std::string hashCachedCredentials(const std::string& username, const std::string& credentials) const;
 	std::string sqlFor(const std::string& action) const;
 	std::string fixPlaceholders(const std::string& clause) const;
 	StatementPlaceholderProvider::Ptr statementPlaceholderProvider() const;
@@ -292,6 +299,7 @@ private:
 	static std::string pbkdf2(const std::string& salt, const std::string& credentials, int version, int iterations);
 	static std::map<std::string, std::string> parseKeyValueMap(const std::string& s);
 	static std::string translatePattern(const std::string& pattern);
+	static std::string generateCacheSalt();
 
 	const Poco::Util::AbstractConfiguration& _properties;
 	mutable Poco::SharedPtr<Poco::Data::Session> _pSession;
@@ -303,7 +311,8 @@ private:
 	mutable SQLCache _sqlCache;
 	mutable PermissionsCache _permissionsCache;
 	mutable PasswordCache _passwordCache;
-	mutable PasswordCache _passwordCacheLDAP;
+	mutable PasswordCache _passwordPersistentHashCache;
+	std::string _cacheSalt;
 	mutable Poco::FastMutex _mutex;
 };
 

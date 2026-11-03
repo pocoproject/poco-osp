@@ -5,7 +5,7 @@
     <symbolicName>com.appinf.osp.auth.twofactor</symbolicName>
     <version>1.0.0</version>
     <vendor>Applied Informatics</vendor>
-    <copyright>(c) 2020-2024, Applied Informatics Software Engineering GmbH</copyright>
+    <copyright>(c) 2020-2026, Applied Informatics Software Engineering GmbH</copyright>
     <activator>
       <class>Poco::OSP::Auth::TwoFactor::TwoFactorBundleActivator</class>
       <library>com.appinf.osp.auth.twofactor</library>
@@ -14,7 +14,7 @@
     <runLevel>010</runLevel>
     <module-dependency>
       <symbolicName>osp.auth</symbolicName>
-      <version>[1.7.0, 2.0.0)</version>
+      <version>[1.8.0, 2.0.0)</version>
     </module-dependency>
     <dependency>
       <symbolicName>poco.crypto</symbolicName>

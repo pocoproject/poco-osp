@@ -39,6 +39,8 @@ public:
 	void testStopAll();
 	void testResolveStartStopUnloadAll();
 	void testExtensionBundle();
+	void testExtensionBundleReplacesResource();
+	void testExtensionBundleAfterUnloadingUnresolvedExtension();
 	void testSealedBundle();
 	void testStartAfterDependencyReplaced();
 	void testStartAfterDependencyReplacedSameVersion();

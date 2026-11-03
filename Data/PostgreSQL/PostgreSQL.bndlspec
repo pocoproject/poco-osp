@@ -3,9 +3,9 @@
   <manifest>
     <name>POCO Data PostgreSQL Connector</name>
     <symbolicName>poco.data.postgresql</symbolicName>
-    <version>1.11.8</version>
+    <version>1.11.10</version>
     <vendor>Applied Informatics</vendor>
-    <copyright>(c) 2020-2024, Applied Informatics Software Engineering GmbH</copyright>
+    <copyright>(c) 2020-2026, Applied Informatics Software Engineering GmbH</copyright>
     <activator>
       <class>PostgreSQLBundleActivator</class>
       <library>poco.data.postgresql</library>
@@ -14,7 +14,7 @@
     <runLevel>000</runLevel>
     <dependency>
       <symbolicName>poco.data</symbolicName>
-      <version>1.11.8</version>
+      <version>1.11.10</version>
     </dependency>
   </manifest>
   <code>

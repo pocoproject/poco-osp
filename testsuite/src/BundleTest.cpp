@@ -25,6 +25,7 @@
 #include "Poco/Path.h"
 #include "Poco/File.h"
 #include "Poco/FileStream.h"
+#include "Poco/StreamCopier.h"
 #include "Poco/Environment.h"
 #include "Poco/Delegate.h"
 #include "Poco/Logger.h"
@@ -705,6 +706,70 @@ void BundleTest::testExtensionBundle()
 }
 
 
+void BundleTest::testExtensionBundleReplacesResource()
+{
+	CodeCache cc("codeCache");
+	ServiceRegistry reg;
+	LanguageTag lang("fr", "FR");
+
+	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
+	Poco::OSP::SystemEvents systemEvents;
+	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
+	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+
+	Bundle::Ptr pBundle2 = loader.createBundle(findBundle("com.appinf.osp.bundle2_1.0.0"));
+	Bundle::Ptr pBundleX = loader.createBundle(findBundle("com.appinf.osp.bundleX_1.0.0"));
+
+	loader.loadBundle(pBundle2);
+	loader.loadBundle(pBundleX);
+
+	pBundle2->resolve();
+	pBundleX->resolve();
+
+	std::unique_ptr<std::istream> pExtensionStream(pBundle2->getResource("bundle.properties"));
+	assert (pExtensionStream != nullptr);
+	std::string extensionProperties;
+	Poco::StreamCopier::copyToString(*pExtensionStream, extensionProperties);
+	assert (extensionProperties.find("someProperty=overriddenValue") != std::string::npos);
+
+	loader.unloadBundle(pBundleX);
+
+	std::unique_ptr<std::istream> pOwnStream(pBundle2->getResource("bundle.properties"));
+	assert (pOwnStream != nullptr);
+	std::string ownProperties;
+	Poco::StreamCopier::copyToString(*pOwnStream, ownProperties);
+	assert (ownProperties.find("greeting=Hello, world!") != std::string::npos);
+}
+
+
+void BundleTest::testExtensionBundleAfterUnloadingUnresolvedExtension()
+{
+	CodeCache cc("codeCache");
+	ServiceRegistry reg;
+	LanguageTag lang("fr", "FR");
+
+	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
+	Poco::OSP::SystemEvents systemEvents;
+	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
+	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+
+	Bundle::Ptr pBundle2 = loader.loadBundle(findBundle("com.appinf.osp.bundle2_1.0.0"));
+	Bundle::Ptr pBundleX = loader.loadBundle(findBundle("com.appinf.osp.bundleX_1.0.0"));
+
+	pBundle2->resolve();
+	loader.unloadBundle(pBundleX);
+
+	Bundle::Ptr pBundleXAgain = loader.loadBundle(findBundle("com.appinf.osp.bundleX_1.0.0"));
+	pBundleXAgain->resolve();
+
+	std::unique_ptr<std::istream> pStream(pBundle2->getResource("bundle.properties"));
+	assert (pStream != nullptr);
+	std::string properties;
+	Poco::StreamCopier::copyToString(*pStream, properties);
+	assert (properties.find("someProperty=overriddenValue") != std::string::npos);
+}
+
+
 void BundleTest::testSealedBundle()
 {
 	CodeCache cc("codeCache");
@@ -1107,6 +1172,8 @@ CppUnit::Test* BundleTest::suite()
 	CppUnit_addTest(pSuite, BundleTest, testStopAll);
 	CppUnit_addTest(pSuite, BundleTest, testResolveStartStopUnloadAll);
 	CppUnit_addTest(pSuite, BundleTest, testExtensionBundle);
+	CppUnit_addTest(pSuite, BundleTest, testExtensionBundleReplacesResource);
+	CppUnit_addTest(pSuite, BundleTest, testExtensionBundleAfterUnloadingUnresolvedExtension);
 	CppUnit_addTest(pSuite, BundleTest, testSealedBundle);
 	CppUnit_addTest(pSuite, BundleTest, testStartAfterDependencyReplaced);
 	CppUnit_addTest(pSuite, BundleTest, testStartAfterDependencyReplacedSameVersion);

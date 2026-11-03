@@ -4,7 +4,7 @@
 		<symbolicName>com.appinf.osp.remotingng.rest</symbolicName>
 		<version>1.0.0</version>
 		<vendor>Applied Informatics</vendor>
-		<copyright>(c) 2017-2024, Applied Informatics Software Engineering GmbH</copyright>
+		<copyright>(c) 2017-2026, Applied Informatics Software Engineering GmbH</copyright>
 		<activator>
 			<class>Poco::OSP::RemotingNG::REST::BundleActivator</class>
 			<library>com.appinf.osp.remotingng.rest</library>

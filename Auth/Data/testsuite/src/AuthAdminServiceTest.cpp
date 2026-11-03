@@ -281,9 +281,11 @@ void AuthAdminServiceTest::testAuthenticate()
 	assert (_pAAS->authenticate("user1", "pass1"));
 	assert (_pAAS->authenticate("user2", "pass2"));
 	assert (_pAAS->authenticate("admin1", "pass3"));
+	assert (_pAAS->verifyCredentials("user1", "pass1"));
 
 	assert (!_pAAS->authenticate("admin1", "pass1"));
 	assert (!_pAAS->authenticate("admin2", "pass3"));
+	assert (!_pAAS->verifyCredentials("admin1", "pass1"));
 }
 
 
@@ -692,10 +694,16 @@ void AuthAdminServiceTest::testLockOut()
 	assert (_pAAS->authenticate("user1", "user"));
 	assert (!_pAAS->isUserLockedOut("user1"));
 
+	std::map<std::string, std::string> attrs;
+	int flags = _pAAS->attributesForUser("user1", attrs);
+	assert ((flags & AuthAdminService::USER_LOCKED_OUT) == 0);
+
 	_pAAS->lockOutUser("user1", Poco::DateTime() + Poco::Timespan(600, 0));
 
 	assert (_pAAS->isUserLockedOut("user1"));
 
+	flags = _pAAS->attributesForUser("user1", attrs);
+	assert ((flags & AuthAdminService::USER_LOCKED_OUT) != 0);
 	assert (!_pAAS->authenticate("user1", "user"));
 
 	_pAAS->unlockOutUser("user1");

@@ -3,9 +3,9 @@
   <manifest>
     <name>POCO JWT Library</name>
     <symbolicName>poco.jwt</symbolicName>
-    <version>1.11.8</version>
+    <version>1.11.10</version>
     <vendor>Applied Informatics</vendor>
-    <copyright>(c) 2019-2024, Applied Informatics Software Engineering GmbH</copyright>
+    <copyright>(c) 2019-2026, Applied Informatics Software Engineering GmbH</copyright>
     <activator>
       <class>Poco::OSP::JWT::BundleActivator</class>
       <library>poco.jwt</library>
@@ -14,7 +14,7 @@
     <runLevel>000</runLevel>
     <dependency>
       <symbolicName>poco.crypto</symbolicName>
-      <version>1.11.8</version>
+      <version>1.11.10</version>
     </dependency>
     <dependency>
       <symbolicName>osp.web</symbolicName>

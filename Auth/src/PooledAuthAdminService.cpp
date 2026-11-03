@@ -54,6 +54,12 @@ PooledAuthAdminService::~PooledAuthAdminService()
 }
 
 
+bool PooledAuthAdminService::verifyCredentials(const std::string& username, const std::string& credentials)
+{
+	return forUser(username)->verifyCredentials(username, credentials);
+}
+
+
 void PooledAuthAdminService::changePassword(const std::string& username, const std::string& password)
 {
 	forUser(username)->changePassword(username, password);
@@ -250,9 +256,9 @@ void PooledAuthAdminService::attributesForUser(const std::string& username, std:
 }
 
 
-void PooledAuthAdminService::attributesForUser(const std::string& username, std::map<std::string, std::string>& attributes) const
+int PooledAuthAdminService::attributesForUser(const std::string& username, std::map<std::string, std::string>& attributes) const
 {
-	forUser(username)->attributesForUser(username, attributes);
+	return forUser(username)->attributesForUser(username, attributes);
 }
 
 
