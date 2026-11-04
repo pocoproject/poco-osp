@@ -19,12 +19,23 @@
 #include "Poco/OSP/Shell/Session.h"
 #include "Poco/Exception.h"
 #include "Poco/SharedPtr.h"
+#include <string>
 
 
 using Poco::FastMutex;
 
 
 namespace Poco::OSP::Shell {
+
+
+namespace
+{
+	[[nodiscard]] bool runsBeforeLogin(const std::string& command)
+		/// Returns true for the commands that a session runs before a login.
+	{
+		return command == "login" || command == "help" || command == "quit";
+	}
+}
 
 
 CommandProcessor::CommandProcessor(Poco::OSP::BundleContext::Ptr pContext):
@@ -68,8 +79,7 @@ void CommandProcessor::addCommand(const std::string& command, const std::set<std
 {
 	FastMutex::ScopedLock lock(_mutex);
 
-	CommandMap::iterator it = _commandMap.find(command);
-	if (it == _commandMap.end())
+	if (!_commandMap.contains(command))
 	{
 		CommandInfo& info = _commandMap[command];
 		info.name        = command;
@@ -128,7 +138,7 @@ void CommandProcessor::listCommands(const Session& session, std::vector<std::str
 
 	for (const auto& [name, info]: _commandMap)
 	{
-		if (session.authenticated() || info.permission.empty())
+		if (session.authenticated() || runsBeforeLogin(name))
 		{
 			commands.push_back(name);
 		}
@@ -158,13 +168,15 @@ Command* CommandProcessor::createCommand(const Session& session, const std::stri
 		// look for aliases
 		for (it = _commandMap.begin(); it != _commandMap.end(); ++it)
 		{
-			if (it->second.aliases.find(command) != it->second.aliases.end())
+			if (it->second.aliases.contains(command))
 				break;
 		}
 	}
 
 	if (it != _commandMap.end())
 	{
+		if (!session.authenticated() && !runsBeforeLogin(it->first))
+			return nullptr;
 		if (it->second.permission.empty() || session.authorize(it->second.permission))
 			return it->second.pFactory->createCommand();
 		else

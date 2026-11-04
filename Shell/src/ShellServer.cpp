@@ -74,10 +74,11 @@ std::size_t ShellServer::stop(std::chrono::milliseconds timeout)
 	}
 	else
 	{
-		std::string msg = Poco::NumberFormatter::format(activeSessions);
-		msg += " shell sessions have not ended within ";
+		std::string msg("Shell sessions that have not ended within ");
 		msg += Poco::NumberFormatter::format(static_cast<Poco::Int64>(timeout.count()));
-		msg += " ms after the shell stopped; the objects they use are kept.";
+		msg += " ms after the shell stopped: ";
+		msg += Poco::NumberFormatter::format(activeSessions);
+		msg += "; the objects they use are kept.";
 		_config.commandProcessor.context()->logger().warning(msg);
 	}
 	return activeSessions;

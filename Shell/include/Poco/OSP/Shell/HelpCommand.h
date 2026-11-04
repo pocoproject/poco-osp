@@ -36,8 +36,8 @@ class OSPShell_API HelpCommand: public Command
 	///
 	/// The help command produces a list of commands
 	/// known by the CommandProcessor, as well as their aliases.
-	/// Before login, it lists only the commands that need
-	/// no permission.
+	/// Before login, it lists only the login, help and
+	/// quit commands.
 	///
 	/// The output of the command can be customized with
 	/// the following bundle properties:

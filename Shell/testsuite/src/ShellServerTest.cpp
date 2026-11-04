@@ -84,6 +84,7 @@ void ShellServerTest::testStopWaitsForSessionInCommand()
 {
 	ShellClient client(_pFixture->startServer());
 	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
+	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.send("login user any"s).status);
 	client.sendLine("block"s);
 	assertTrue (_entered.tryWait(WAIT_MS));
 
@@ -120,6 +121,7 @@ void ShellServerTest::testStopReturnsAfterTimeoutForSessionInCommand()
 	LogCapture capture(_pFixture->shellContext()->logger().name());
 	ShellClient client(_pFixture->startServer());
 	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
+	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.send("login user any"s).status);
 	client.sendLine("block"s);
 	assertTrue (_entered.tryWait(WAIT_MS));
 
@@ -135,7 +137,7 @@ void ShellServerTest::testStopReturnsAfterTimeoutForSessionInCommand()
 	for (const auto& msg: capture.channel().waitForMessages(0))
 	{
 		warned = warned || (msg.getPriority() == Poco::Message::PRIO_WARNING &&
-			msg.getText().find("1 shell sessions have not ended"s) == 0);
+			msg.getText().find("Shell sessions that have not ended within 500 ms after the shell stopped: 1;"s) == 0);
 	}
 	assertTrue (warned);
 
@@ -149,6 +151,7 @@ void ShellServerTest::testStopClosesServerSocketForSessionInCommand()
 	const Poco::UInt16 port = _pFixture->startServer();
 	ShellClient client(port);
 	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
+	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.send("login user any"s).status);
 	client.sendLine("block"s);
 	assertTrue (_entered.tryWait(WAIT_MS));
 	assertEqual (static_cast<std::size_t>(1), _pFixture->stopServer(std::chrono::milliseconds(100)));

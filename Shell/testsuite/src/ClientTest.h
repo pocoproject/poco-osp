@@ -41,6 +41,18 @@ public:
 	void testLoginWithOptions();
 	void testLoginWithEnvironmentVariables();
 	void testRejectedLoginIsReported();
+	void testCredentialsAndArgumentsKeepQuotesAndBackslashes();
+	void testUserNamedDoubleDashLogsIn();
+	void testLoginCommandSkipsLeadingDoubleDash();
+	void testLoginCommandShowsHelpOnlyForSingleOption();
+	void testPasswdCommandEndsOptionsBeforeUserName();
+	void testExitCodeShowsFailedLastCommand();
+	void testPasswordsThatDoNotMatchFailPasswd();
+	void testLongReplyLineIsNotReportedAsClosedConnection();
+	void testConnectionClosedByServerIsReported();
+	void testConnectionClosedWithinGreetingIsReported();
+	void testConnectionClosedWithinReplyIsReported();
+	void testConfiguredPortOutOfRangeIsRefused();
 
 	static CppUnit::Test* suite();
 
@@ -51,11 +63,15 @@ private:
 			/// What ospsh writes to standard output.
 		std::string error;
 			/// What ospsh writes to standard error.
+		int exitCode = 0;
+			/// The exit code of ospsh.
 	};
 
-	[[nodiscard]] Output runClient(const std::vector<std::string>& args, const Poco::Process::Env& env = {});
-		/// Runs ospsh with the given arguments and the given additional
-		/// environment variables and returns what it writes.
+	[[nodiscard]] Output runClient(const std::vector<std::string>& args, const Poco::Process::Env& env = {},
+		const std::string& input = {});
+		/// Runs ospsh with the given arguments, the given additional
+		/// environment variables and the given standard input and
+		/// returns what it writes and its exit code.
 
 	std::unique_ptr<ShellFixture> _pFixture;
 };

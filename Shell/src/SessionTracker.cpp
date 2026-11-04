@@ -13,8 +13,8 @@
 
 
 #include "Poco/OSP/Shell/SessionTracker.h"
+#include "ShellConnectionSupport.h"
 #include "Poco/Net/StreamSocket.h"
-#include "Poco/Exception.h"
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
@@ -34,7 +34,7 @@ void SessionTracker::add(const Poco::Net::StreamSocket& socket)
 {
 	std::lock_guard<std::mutex> lock(_mutex);
 	_sockets.push_back(socket);
-	if (_stopped) shutdown(_sockets.back());
+	if (_stopped) shutdownSocket(_sockets.back());
 }
 
 
@@ -56,7 +56,7 @@ void SessionTracker::stop()
 		_stopped = true;
 		for (auto& socket: _sockets)
 		{
-			shutdown(socket);
+			shutdownSocket(socket);
 		}
 	}
 	_changed.notify_all();
@@ -82,19 +82,6 @@ std::size_t SessionTracker::waitUntilEnded(std::chrono::milliseconds timeout)
 	std::unique_lock<std::mutex> lock(_mutex);
 	_changed.wait_for(lock, timeout, [this]() { return _sockets.empty(); });
 	return _sockets.size();
-}
-
-
-void SessionTracker::shutdown(Poco::Net::StreamSocket& socket)
-{
-	try
-	{
-		socket.shutdown();
-	}
-	catch (Poco::Exception&)
-	{
-		// The client has closed the connection already, so the session ends anyway.
-	}
 }
 
 

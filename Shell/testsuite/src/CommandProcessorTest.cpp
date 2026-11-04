@@ -91,6 +91,7 @@ void CommandProcessorTest::testExecuteDispatchesToCommand()
 {
 	_pFixture->addCommand("args"s, ""s, writeArguments);
 	Session session(_pFixture->shellContext(), AUTH_SERVICE_NAME);
+	assertTrue (session.login(TestAuthService::GUEST, TestAuthService::GUEST_PASSWORD));
 	std::ostringstream ostr;
 	assertEqual (static_cast<int>(Command::STATUS_OK),
 		_pFixture->processor().execute(session, "args one \"two three\""s, ostr));
@@ -104,7 +105,7 @@ void CommandProcessorTest::testAliasRunsCommand()
 	std::ostringstream ostr;
 	assertEqual (static_cast<int>(Command::STATUS_OK), _pFixture->processor().execute(session, "h"s, ostr));
 	assertTrue (ostr.str().find("The following commands are available:"s) != std::string::npos);
-	assertTrue (ostr.str().find("  bundles (ls, ss)\n"s) != std::string::npos);
+	assertTrue (ostr.str().find("  quit (exit)\n"s) != std::string::npos);
 }
 
 
@@ -176,13 +177,18 @@ void CommandProcessorTest::testPermissionIsChecked()
 }
 
 
-void CommandProcessorTest::testCommandWithoutPermissionRunsBeforeLogin()
+void CommandProcessorTest::testCommandWithoutPermissionRunsOnlyAfterLogin()
 {
 	_pFixture->addCommand("args"s, ""s, writeArguments);
 	Session session(_pFixture->shellContext(), AUTH_SERVICE_NAME);
-	std::ostringstream ostr;
-	assertEqual (static_cast<int>(Command::STATUS_OK), _pFixture->processor().execute(session, "args"s, ostr));
-	assertEqual ("[args]"s, ostr.str());
+	std::ostringstream before;
+	assertEqual (static_cast<int>(Command::STATUS_DENIED), _pFixture->processor().execute(session, "args"s, before));
+	assertTrue (before.str().empty());
+
+	assertTrue (session.login(TestAuthService::GUEST, TestAuthService::GUEST_PASSWORD));
+	std::ostringstream after;
+	assertEqual (static_cast<int>(Command::STATUS_OK), _pFixture->processor().execute(session, "args"s, after));
+	assertEqual ("[args]"s, after.str());
 }
 
 
@@ -213,19 +219,22 @@ void CommandProcessorTest::testUnknownCommandAfterLoginThrows()
 }
 
 
-void CommandProcessorTest::testHelpBeforeLoginListsCommandsWithoutPermission()
+void CommandProcessorTest::testHelpBeforeLoginListsLoginHelpAndQuit()
 {
 	Session session(_pFixture->shellContext(), AUTH_SERVICE_NAME);
 	std::ostringstream before;
 	assertEqual (static_cast<int>(Command::STATUS_OK), _pFixture->processor().execute(session, "help"s, before));
+	assertTrue (before.str().find("  help (?, h)\n"s) != std::string::npos);
 	assertTrue (before.str().find("  login\n"s) != std::string::npos);
-	assertTrue (before.str().find("  bundles (ls, ss)\n"s) != std::string::npos);
+	assertTrue (before.str().find("  quit (exit)\n"s) != std::string::npos);
+	assertTrue (before.str().find("  bundles (ls, ss)\n"s) == std::string::npos);
 	assertTrue (before.str().find("  stop\n"s) == std::string::npos);
 	assertTrue (before.str().find("  loglevel\n"s) == std::string::npos);
 
 	assertTrue (session.login(TestAuthService::GUEST, TestAuthService::GUEST_PASSWORD));
 	std::ostringstream after;
 	assertEqual (static_cast<int>(Command::STATUS_OK), _pFixture->processor().execute(session, "help"s, after));
+	assertTrue (after.str().find("  bundles (ls, ss)\n"s) != std::string::npos);
 	assertTrue (after.str().find("  stop\n"s) != std::string::npos);
 	assertTrue (after.str().find("  loglevel\n"s) != std::string::npos);
 }
@@ -261,10 +270,10 @@ CppUnit::Test* CommandProcessorTest::suite()
 	CppUnit_addTest(pSuite, CommandProcessorTest, testRemoveBundleRemovesItsCommands);
 	CppUnit_addTest(pSuite, CommandProcessorTest, testRemoveCommand);
 	CppUnit_addTest(pSuite, CommandProcessorTest, testPermissionIsChecked);
-	CppUnit_addTest(pSuite, CommandProcessorTest, testCommandWithoutPermissionRunsBeforeLogin);
+	CppUnit_addTest(pSuite, CommandProcessorTest, testCommandWithoutPermissionRunsOnlyAfterLogin);
 	CppUnit_addTest(pSuite, CommandProcessorTest, testUnknownCommandBeforeLoginIsDenied);
 	CppUnit_addTest(pSuite, CommandProcessorTest, testUnknownCommandAfterLoginThrows);
-	CppUnit_addTest(pSuite, CommandProcessorTest, testHelpBeforeLoginListsCommandsWithoutPermission);
+	CppUnit_addTest(pSuite, CommandProcessorTest, testHelpBeforeLoginListsLoginHelpAndQuit);
 	CppUnit_addTest(pSuite, CommandProcessorTest, testParseCommandLineQuotesAndEscapes);
 	CppUnit_addTest(pSuite, CommandProcessorTest, testParseCommandLineSeparators);
 

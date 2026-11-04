@@ -15,13 +15,10 @@
 
 
 #include "StopCommand.h"
-#include "Poco/OSP/BundleManifest.h"
 #include "Poco/OSP/Shell/Command.h"
 #include "Poco/OSP/Bundle.h"
+#include <algorithm>
 #include <ostream>
-
-
-using Poco::OSP::BundleManifest;
 
 
 namespace Poco::OSP::Shell {
@@ -47,7 +44,12 @@ int StopCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr)
 	BundleVec deps;
 	if (!_force)
 	{
-		dependingBundles(pBundle, deps);
+		context()->listRequiringBundles(pBundle, deps);
+		const auto itNotStarted = std::remove_if(deps.begin(), deps.end(), [](const Poco::OSP::Bundle::Ptr& pDep)
+		{
+			return !pDep->isStarted();
+		});
+		deps.erase(itNotStarted, deps.end());
 	}
 
 	if (deps.empty())
@@ -102,35 +104,14 @@ void StopCommand::handleAll(const std::string& /*name*/, const std::string& /*va
 }
 
 
-void StopCommand::dependingBundles(Poco::OSP::Bundle::Ptr pBundle, BundleVec& dependingBundles)
-{
-	BundleVec bundles;
-	context()->listBundles(bundles);
-	for (BundleVec::const_iterator it = bundles.begin(); it != bundles.end(); ++it)
-	{
-		if ((*it)->isStarted())
-		{
-			const BundleManifest::Dependencies& deps = (*it)->requiredBundles();
-			for (BundleManifest::Dependencies::const_iterator itDep = deps.begin(); itDep != deps.end(); ++itDep)
-			{
-				if (itDep->symbolicName == pBundle->symbolicName())
-				{
-					dependingBundles.push_back(*it);
-					break;
-				}
-			}
-		}
-	}
-}
-
-
 void StopCommand::stopAll(Poco::OSP::Bundle::Ptr pBundle)
 {
-	BundleVec depending;
-	dependingBundles(pBundle, depending);
-	for (BundleVec::iterator it = depending.begin(); it != depending.end(); ++it)
+	// In the order of the list, a bundle is stopped before the bundles it requires.
+	BundleVec requiring;
+	context()->listRequiringBundles(pBundle, requiring);
+	for (BundleVec::iterator it = requiring.begin(); it != requiring.end(); ++it)
 	{
-		if ((*it)->isStarted()) stopAll(*it);
+		if ((*it)->isStarted()) (*it)->stop();
 	}
 	pBundle->stop();
 }

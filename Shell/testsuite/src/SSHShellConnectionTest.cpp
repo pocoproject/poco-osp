@@ -33,6 +33,7 @@
 #include "Poco/Message.h"
 #include "Poco/Path.h"
 #include "Poco/Stopwatch.h"
+#include "Poco/Thread.h"
 #include "Poco/Types.h"
 #include <libssh/libssh.h>
 #if !defined(POCO_OS_FAMILY_WINDOWS)
@@ -45,6 +46,7 @@
 #include <cstdint>
 #include <memory>
 #include <ostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -63,7 +65,7 @@ namespace
 	constexpr std::chrono::seconds MAX_WAIT{10};
 	constexpr long WAIT_MS = static_cast<long>(std::chrono::milliseconds(MAX_WAIT).count());
 	constexpr int READ_TIMEOUT_MS = 100;
-	constexpr std::size_t READ_BUFFER_SIZE = 256;
+	constexpr std::uint32_t READ_BUFFER_SIZE = 256;
 	constexpr int MAX_CONNECTIONS = 4;
 
 	bool readUntil(ssh_channel channel, const std::string& marker)
@@ -76,7 +78,7 @@ namespace
 		while (received.find(marker) == std::string::npos)
 		{
 			if (std::chrono::steady_clock::now() >= deadline) return false;
-			const int length = ssh_channel_read_timeout(channel, buffer.data(), buffer.size(), 0, READ_TIMEOUT_MS);
+			const int length = ssh_channel_read_timeout(channel, buffer.data(), READ_BUFFER_SIZE, 0, READ_TIMEOUT_MS);
 			if (length == SSH_ERROR || ssh_channel_is_eof(channel) != 0) return false;
 			if (length > 0) received.append(buffer.data(), static_cast<std::size_t>(length));
 		}
@@ -91,11 +93,16 @@ namespace
 		std::array<char, READ_BUFFER_SIZE> buffer{};
 		while (std::chrono::steady_clock::now() < deadline)
 		{
-			const int length = ssh_channel_read_timeout(channel, buffer.data(), buffer.size(), 0, READ_TIMEOUT_MS);
+			const int length = ssh_channel_read_timeout(channel, buffer.data(), READ_BUFFER_SIZE, 0, READ_TIMEOUT_MS);
 			if (length == SSH_ERROR || ssh_channel_is_eof(channel) != 0 || ssh_channel_is_open(channel) == 0)
 				return true;
 		}
 		return false;
+	}
+
+	[[noreturn]] int throwStdException(Session&, const std::vector<std::string>&, std::ostream&)
+	{
+		throw std::runtime_error("test failure"s);
 	}
 
 	void writeLine(ssh_channel channel, const std::string& line)
@@ -118,10 +125,14 @@ namespace
 	constexpr int MAX_SCANNED_DESCRIPTOR = 1024;
 		/// The system gives out the lowest free descriptor, so those of the
 		/// test process are below this limit.
+	constexpr long POLL_INTERVAL_MS = 10;
+		/// The interval in which a test checks again for a state it waits for.
 
 	std::vector<int> descriptorsConnectedTo(const Poco::Net::SocketAddress& peer, int excluded)
 		/// Returns the descriptors of the process, other than excluded, that
-		/// are sockets connected to the given address.
+		/// are sockets connected to the given address. For a connection to the
+		/// SSH server, these are the descriptor of libssh, the duplicate of the
+		/// shell and the duplicates that the server keeps for itself.
 	{
 		std::vector<int> result;
 		for (int fd = 0; fd < MAX_SCANNED_DESCRIPTOR; ++fd)
@@ -279,6 +290,29 @@ void SSHShellConnectionTest::testPasswordLoginAuthorizesCommandsUnderAccountName
 }
 
 
+void SSHShellConnectionTest::testUserNameThatIsNoFileNameEndsSession()
+{
+	// Without an authentication service, every password login is accepted.
+	_pFixture = std::make_unique<ShellFixture>(""s);
+	LogCapture capture(_pFixture->shellContext()->logger().name());
+	const Poco::UInt16 port = startServer(ShellFixture::DEFAULT_SESSION_TIMEOUT);
+	const std::vector<std::string> userNames{"."s, ".."s, "../keys"s, "a/b"s, "a\\b"s, "a\tb"s};
+	for (const auto& userName: userNames)
+	{
+		SSHClient client;
+		client.connect("127.0.0.1"s, port);
+		assertTrue (client.authenticatePassword(userName, "any"s));
+		ssh_channel channel = client.openShellChannel();
+		if (channel != nullptr)
+		{
+			assertFalse (readUntil(channel, "osp> "s));
+			ssh_channel_free(channel);
+		}
+	}
+	assertEqual (userNames.size(), warnings(capture.channel()).size());
+}
+
+
 void SSHShellConnectionTest::testIdleSessionIsClosed()
 {
 	SSHClient client;
@@ -294,6 +328,7 @@ void SSHShellConnectionTest::testIdleSessionIsClosed()
 
 void SSHShellConnectionTest::testLongCommandLineEndsSession()
 {
+	LogCapture capture(_pFixture->shellContext()->logger().name());
 	SSHClient client;
 	client.connect("127.0.0.1"s, startServer(ShellFixture::DEFAULT_SESSION_TIMEOUT));
 	assertTrue (client.authenticatePassword(TestAuthService::GUEST, TestAuthService::GUEST_PASSWORD));
@@ -304,6 +339,10 @@ void SSHShellConnectionTest::testLongCommandLineEndsSession()
 	ssh_channel_write(channel, line.data(), static_cast<uint32_t>(line.size()));
 	assertTrue (waitForEnd(channel));
 	ssh_channel_free(channel);
+	const std::vector<Poco::Message> logged = warnings(capture.channel());
+	assertEqual (static_cast<std::size_t>(1), logged.size());
+	assertTrue (logged.front().getText().find(": a command line is longer than 4096 characters."s)
+		!= std::string::npos);
 }
 
 
@@ -323,6 +362,23 @@ void SSHShellConnectionTest::testCommandLineKeepsUTF8Text()
 	// "\xc5\xbe" is the UTF-8 encoding of a letter outside ASCII.
 	writeLine(channel, "show \xc5\xbe"s);
 	assertTrue (readUntil(channel, "[\xc5\xbe]"s));
+	ssh_channel_free(channel);
+}
+
+
+void SSHShellConnectionTest::testStdExceptionFromCommandIsServerError()
+{
+	_pFixture->addCommand("fail"s, ""s, throwStdException);
+	SSHClient client;
+	client.connect("127.0.0.1"s, startServer(ShellFixture::DEFAULT_SESSION_TIMEOUT));
+	assertTrue (client.authenticatePassword(TestAuthService::GUEST, TestAuthService::GUEST_PASSWORD));
+	ssh_channel channel = client.openShellChannel();
+	assertTrue (channel != nullptr);
+	assertTrue (readUntil(channel, "osp> "s));
+	writeLine(channel, "fail"s);
+	assertTrue (readUntil(channel, "500 test failure"s));
+	writeLine(channel, "help"s);
+	assertTrue (readUntil(channel, "200 OK"s));
 	ssh_channel_free(channel);
 }
 
@@ -469,15 +525,34 @@ void SSHShellConnectionTest::testConnectionWithoutShellSessionIsClosed()
 
 
 #if !defined(POCO_OS_FAMILY_WINDOWS)
-void SSHShellConnectionTest::testSecondDescriptorIsNotInherited()
+void SSHShellConnectionTest::testDuplicateDescriptorsAreNotInherited()
 {
 	const Poco::UInt16 port = startServer(ShellFixture::DEFAULT_SESSION_TIMEOUT);
-	const Poco::Net::StreamSocket socket(Poco::Net::SocketAddress("127.0.0.1"s, port));
+	Poco::Net::StreamSocket socket(Poco::Net::SocketAddress("127.0.0.1"s, port));
+	const Poco::Net::SocketAddress address = socket.address();
 	assertTrue (_connectionCreated.tryWait(WAIT_MS));
-	const std::vector<int> duplicates = descriptorsConnectedTo(socket.address(), _sessionDescriptor);
-	assertEqual (static_cast<std::size_t>(1), duplicates.size());
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg): POSIX fcntl()
-	assertTrue ((::fcntl(duplicates.front(), F_GETFD) & FD_CLOEXEC) != 0);
+	// The duplicate of the shell exists once the connection has been created.
+	const std::vector<int> duplicates = descriptorsConnectedTo(address, _sessionDescriptor);
+	assertFalse (duplicates.empty());
+	for (const int fd: duplicates)
+	{
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg): POSIX fcntl()
+		assertTrue ((::fcntl(fd, F_GETFD) & FD_CLOEXEC) != 0);
+	}
+
+	// Every descriptor of the connection is closed once the client has ended
+	// the connection. The client only shuts down sending: closing its socket
+	// with the unread greeting of the server would reset the connection, and
+	// a reset socket that the server still holds no longer reports its peer.
+	socket.shutdownSend();
+	bool closed = false;
+	const auto deadline = std::chrono::steady_clock::now() + MAX_WAIT;
+	while (!closed && std::chrono::steady_clock::now() < deadline)
+	{
+		closed = descriptorsConnectedTo(address, -1).empty();
+		if (!closed) Poco::Thread::sleep(POLL_INTERVAL_MS);
+	}
+	assertTrue (closed);
 }
 #endif
 
@@ -490,16 +565,18 @@ CppUnit::Test* SSHShellConnectionTest::suite()
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testPasswordLoginsFailedByAuthServiceAreLoggedAndClose);
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testLoginCommandIsThrottled);
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testPasswordLoginAuthorizesCommandsUnderAccountName);
+	CppUnit_addTest(pSuite, SSHShellConnectionTest, testUserNameThatIsNoFileNameEndsSession);
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testIdleSessionIsClosed);
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testLongCommandLineEndsSession);
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testCommandLineKeepsUTF8Text);
+	CppUnit_addTest(pSuite, SSHShellConnectionTest, testStdExceptionFromCommandIsServerError);
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testSessionWithoutCompleteCommandLineIsClosed);
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testStopEndsWaitingSession);
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testStopReturnsAfterTimeoutForSessionInCommand);
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testConnectionsWithoutLoginAreClosed);
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testConnectionWithoutShellSessionIsClosed);
 #if !defined(POCO_OS_FAMILY_WINDOWS)
-	CppUnit_addTest(pSuite, SSHShellConnectionTest, testSecondDescriptorIsNotInherited);
+	CppUnit_addTest(pSuite, SSHShellConnectionTest, testDuplicateDescriptorsAreNotInherited);
 #endif
 
 	return pSuite;

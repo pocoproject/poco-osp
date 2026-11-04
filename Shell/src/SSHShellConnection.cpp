@@ -24,6 +24,7 @@
 #include "Poco/Net/StreamSocket.h"
 #include "Poco/Net/StreamSocketImpl.h"
 #include "Poco/Net/NetException.h"
+#include "Poco/Ascii.h"
 #include "Poco/Bugcheck.h"
 #include "Poco/Error.h"
 #include "Poco/Exception.h"
@@ -38,7 +39,9 @@
 #endif
 #include <algorithm>
 #include <chrono>
+#include <exception>
 #include <memory>
+#include <ostream>
 #include <string>
 
 
@@ -66,6 +69,19 @@ namespace
 				Poco::Error::getMessage(Poco::Error::last()));
 		}
 		return Poco::Net::StreamSocket(new Poco::Net::StreamSocketImpl(duplicate));
+	}
+
+	[[nodiscard]] bool isFileName(const std::string& name)
+		/// Returns true if the name is a single file name. The SSH server reads the public keys of a user
+		/// from the file named after the user in the authorized keys directory; another name may select a
+		/// file outside that directory.
+	{
+		return !name.empty() && name != "." && name != ".." &&
+			std::none_of(name.begin(), name.end(), [](char ch)
+			{
+				return ch == '/' || ch == '\\' ||
+					Poco::Ascii::hasProperties(static_cast<unsigned char>(ch), Poco::Ascii::ACP_CONTROL);
+			});
 	}
 }
 
@@ -98,12 +114,21 @@ SSHShellConnection::SSHShellConnection(
 	_clientAddress(clientAddressOf(session)),
 	_socket(duplicateSocket(session))
 {
+	_sessions.add(_socket);
 	if (loginGraceTime.count() > 0)
 	{
-		_loginTimer.startFunc([this, loginGraceTime]()
+		try
 		{
-			closeWithoutLogin(loginGraceTime);
-		});
+			_loginTimer.startFunc([this, loginGraceTime]()
+			{
+				closeWithoutLogin(loginGraceTime);
+			});
+		}
+		catch (...)
+		{
+			_sessions.remove(_socket);
+			throw;
+		}
 	}
 }
 
@@ -114,6 +139,14 @@ SSHShellConnection::~SSHShellConnection()
 	{
 		_loginEnded.set();
 		_loginTimer.join();
+	}
+	catch (...)
+	{
+		poco_unexpected();
+	}
+	try
+	{
+		_sessions.remove(_socket);
 	}
 	catch (...)
 	{
@@ -142,6 +175,14 @@ void SSHShellConnection::handleSession(ssh_channel channel, const std::string& s
 		_sessionStarted = true;
 	}
 	_loginEnded.set();
+	if (!isFileName(sshUserName))
+	{
+		std::string msg("Closing the SSH connection from ");
+		msg += _clientAddress.toString();
+		msg += ": the SSH user name is empty, \".\" or \"..\", or contains '/', '\\' or a control character.";
+		_shellConfig.commandProcessor.context()->logger().warning(msg);
+		return;
+	}
 	// A public key login has no account name from the authentication service,
 	// so its session keeps the SSH user name.
 	const std::string& accountName = _pAccountName->empty() ? sshUserName : *_pAccountName;
@@ -178,12 +219,7 @@ void SSHShellConnection::handleSession(ssh_channel channel, const std::string& s
 		}
 		if (result == ReadResult::TOO_LONG)
 		{
-			std::string msg("Closing the shell session from ");
-			msg += _clientAddress.toString();
-			msg += ": a command line is longer than ";
-			msg += Poco::NumberFormatter::format(MAX_COMMAND_LINE_LENGTH);
-			msg += " characters.";
-			logger.error(msg);
+			logLongCommandLine(_shellConfig, _clientAddress);
 			break;
 		}
 		if (result == ReadResult::END) break;
@@ -220,6 +256,11 @@ void SSHShellConnection::handleSession(ssh_channel channel, const std::string& s
 		{
 			responseStream.setStatus(500 /*STATUS_SERVER_ERROR*/);
 			responseStream << exc.displayText() << std::endl;
+		}
+		catch (std::exception& exc)
+		{
+			responseStream.setStatus(ShellConnection::STATUS_SERVER_ERROR);
+			responseStream << exc.what() << '\n' << std::flush;
 		}
 
 		outStream << "osp> " << std::flush;
@@ -338,14 +379,7 @@ void SSHShellConnection::closeWithoutLogin(std::chrono::seconds loginGraceTime)
 	msg += Poco::NumberFormatter::format(static_cast<Poco::Int64>(loginGraceTime.count()));
 	msg += " seconds; the client has not logged in or has not opened a shell.";
 	_shellConfig.commandProcessor.context()->logger().information(msg);
-	try
-	{
-		_socket.shutdown();
-	}
-	catch (Poco::Exception&)
-	{
-		// The client has closed the connection already, so the session ends anyway.
-	}
+	shutdownSocket(_socket);
 }
 
 

@@ -22,6 +22,7 @@
 #include "Poco/DOM/Document.h"
 #include "Poco/DOM/Element.h"
 #include "Poco/AutoPtr.h"
+#include "Poco/Exception.h"
 #include "Poco/Message.h"
 #include "Poco/Platform.h"
 #include "Poco/TemporaryFile.h"
@@ -160,6 +161,46 @@ void CommandExtensionPointTest::testCommandRunsToEndWhenItsBundleStops()
 }
 
 
+void CommandExtensionPointTest::testFactoryClassComesFromBundleLibrary()
+{
+	// Both libraries export LibraryNameCommandFactory; each command writes the name of its library.
+	_pFixture->addCommandBundle("osp.shell.test.first"s, "testsuite/bundles/first"s, OSPSHELL_TEST_FIRST_LIBRARY);
+	_pFixture->addCommandBundle("osp.shell.test.second"s, "testsuite/bundles/second"s, OSPSHELL_TEST_SECOND_LIBRARY);
+
+	Session session(_pFixture->shellContext(), ""s);
+	assertTrue (session.login("user"s, ""s));
+	for (const auto& name: {"first"s, "second"s})
+	{
+		std::ostringstream ostr;
+		assertEqual (static_cast<int>(Command::STATUS_OK), _pFixture->processor().execute(session, name, ostr));
+		assertEqual (name, ostr.str());
+	}
+}
+
+
+void CommandExtensionPointTest::testFactoryClassNotInBundleLibraryIsNotFound()
+{
+	// LogLevelCommandFactory is exported by the library of the loglevel bundle only.
+	Poco::AutoPtr<Poco::XML::Document> pDocument(new Poco::XML::Document);
+	Poco::AutoPtr<Poco::XML::Element> pElement(pDocument->createElement("extension"s));
+	pElement->setAttribute(Poco::OSP::ExtensionPointService::POINT_ATTR, CommandExtensionPoint::EXTPOINT);
+	pElement->setAttribute("command"s, "otherloglevel"s);
+	pElement->setAttribute("class"s, "LogLevelCommandFactory"s);
+	pElement->setAttribute("library"s, ShellFixture::COMMANDS_BUNDLE);
+	try
+	{
+		_pFixture->extensionPoint().handleExtension(_pFixture->bundle(ShellFixture::COMMANDS_BUNDLE), pElement);
+		fail("a class that the library does not export must not be used");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+	std::vector<std::string> commands;
+	_pFixture->processor().listCommands(commands);
+	assertTrue (std::find(commands.begin(), commands.end(), "otherloglevel"s) == commands.end());
+}
+
+
 CppUnit::Test* CommandExtensionPointTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("CommandExtensionPointTest");
@@ -167,6 +208,8 @@ CppUnit::Test* CommandExtensionPointTest::suite()
 	CppUnit_addTest(pSuite, CommandExtensionPointTest, testDuplicateCommandIsLoggedAndNotAdded);
 	CppUnit_addTest(pSuite, CommandExtensionPointTest, testCommandsOfStoppedBundleAreRemoved);
 	CppUnit_addTest(pSuite, CommandExtensionPointTest, testCommandsOfStoppedBundleAreNotAdded);
+	CppUnit_addTest(pSuite, CommandExtensionPointTest, testFactoryClassComesFromBundleLibrary);
+	CppUnit_addTest(pSuite, CommandExtensionPointTest, testFactoryClassNotInBundleLibraryIsNotFound);
 #if defined(POCO_OS_FAMILY_UNIX)
 	CppUnit_addTest(pSuite, CommandExtensionPointTest, testCommandRunsToEndWhenItsBundleStops);
 #endif

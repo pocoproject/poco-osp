@@ -20,12 +20,15 @@
 #include "Poco/Net/StreamSocket.h"
 #include "Poco/Net/DialogSocket.h"
 #include "Poco/Net/SocketAddress.h"
+#include "Poco/Net/NetException.h"
 #include "Poco/FileStream.h"
 #include "Poco/File.h"
 #include "Poco/Path.h"
 #include "Poco/String.h"
+#include "Poco/Ascii.h"
 #include "Poco/NumberParser.h"
 #include "Poco/Environment.h"
+#include "Poco/Exception.h"
 #include "Poco/TextIterator.h"
 #include "Poco/Unicode.h"
 #include "Poco/UTF8Encoding.h"
@@ -36,6 +39,9 @@
 #include <algorithm>
 #include <array>
 #include <iterator>
+#include <limits>
+#include <optional>
+#include <cerrno>
 #if defined(POCO_OS_FAMILY_WINDOWS)
 #include <windows.h>
 #elif defined(POCO_OS_FAMILY_UNIX)
@@ -75,6 +81,8 @@ protected:
 	static const Poco::UInt16 SERVER_PORT = 22023;
 	static const std::string SERVER_HOST;
 	static const std::string PROMPT;
+	static constexpr int CONNECTION_CLOSED = 0;
+		/// The status of a request that has no response, because the server has closed the connection.
 
 	void defineOptions(OptionSet& options) override
 	{
@@ -166,7 +174,7 @@ protected:
 
 	void handlePort(const std::string& /*name*/, const std::string& value)
 	{
-		_port = Poco::NumberParser::parse(value);
+		_port = static_cast<Poco::UInt16>(Poco::NumberParser::parse(value));
 	}
 
 	void handleFile(const std::string& /*name*/, const std::string& value)
@@ -226,7 +234,7 @@ protected:
 			while (it != end && *it != '\n') ++it;
 			writeText(std::string(lineBegin, it), ostr);
 			while (it != end && std::isspace(*it)) ++it;
-			ostr << std::endl;
+			ostr << '\n';
 		}
 	}
 
@@ -264,7 +272,7 @@ protected:
 		case ShellConnection::STATUS_CLIENT_USAGE:
 			break;
 		case ShellConnection::STATUS_CLIENT_DENIED:
-			ostr << "Not authorized." << std::endl;
+			ostr << "Not authorized." << '\n';
 			break;
 		default:
 			writeResponse(response, ostr);
@@ -288,31 +296,82 @@ protected:
 
 	[[nodiscard]] int sendRequest(const std::string& request, std::ostream& out, std::ostream& err)
 	{
-		_socket.sendMessage(request);
+		int status = CONNECTION_CLOSED;
 		std::string response;
-		int status = _socket.receiveStatusMessage(response);
-		while (status == ShellConnection::STATUS_INTERMEDIATE)
+		try
 		{
-			writeResponse(response, out);
-			status = _socket.receiveStatusMessage(response);
+			_socket.sendMessage(request);
+			status = receiveReply(response);
+			while (status == ShellConnection::STATUS_INTERMEDIATE)
+			{
+				writeResponse(response, out);
+				status = receiveReply(response);
+			}
 		}
-		if (status >= ShellConnection::STATUS_CLIENT_ERROR)
+		catch (Poco::Net::ConnectionResetException&)
+		{
+			// A request that arrives after the server has closed the connection is answered with a reset.
+			status = CONNECTION_CLOSED;
+		}
+		catch (Poco::Net::ConnectionAbortedException&)
+		{
+			status = CONNECTION_CLOSED;
+		}
+		catch (const Poco::IOException& exc)
+		{
+			// A request sent after the reset fails with a broken pipe.
+			if (exc.code() != EPIPE) throw;
+			status = CONNECTION_CLOSED;
+		}
+		if (status == CONNECTION_CLOSED)
+		{
+			err << "The server has closed the connection.\n";
+		}
+		else if (status >= ShellConnection::STATUS_CLIENT_ERROR)
 		{
 			writeResponse(status, response, err);
 		}
 		return status;
 	}
 
+	[[nodiscard]] int receiveReply(std::string& reply)
+		/// Receives a reply, stores its lines, separated by newline characters, in reply and returns
+		/// its status code, or CONNECTION_CLOSED if the connection ends before the last line.
+		/// Not DialogSocket::receiveStatusMessage(), which does not return when the connection ends after a '-' line.
+	{
+		reply.clear();
+		std::string line;
+		while (_socket.receiveMessage(line))
+		{
+			int status = 0;
+			if (line.size() >= 3 && std::all_of(line.begin(), line.begin() + 3, Poco::Ascii::isDigit))
+			{
+				status = Poco::NumberParser::parse(line.substr(0, 3));
+			}
+			if (reply.empty() && status == 0)
+			{
+				throw Poco::ProtocolException("The server has sent a reply without a status code");
+			}
+			if (!reply.empty()) reply += '\n';
+			reply += line;
+			if (status != 0 && (line.size() == 3 || line[3] != '-')) return status;
+		}
+		return CONNECTION_CLOSED;
+	}
+
 	[[nodiscard]] int login(const std::vector<std::string>& items, std::ostream& out, std::ostream& err)
 	{
-		std::string username;
-		if (items.size() > 1)
+		const std::optional<std::size_t> operand = firstOperand(items);
+		if (!operand.has_value())
 		{
-			if (items[1] == "-h" || items[1] == "--help")
-			{
-				return sendRequest("login --help", out, err);
-			}
-			username = items[1];
+			return sendRequest("login --help", out, err);
+		}
+		const std::size_t first = *operand;
+
+		std::string username;
+		if (items.size() > first)
+		{
+			username = items[first];
 		}
 		else
 		{
@@ -321,9 +380,9 @@ protected:
 		}
 
 		std::string password;
-		if (items.size() > 2)
+		if (items.size() > first + 1)
 		{
-			password = items[2];
+			password = items[first + 1];
 		}
 		else
 		{
@@ -331,16 +390,10 @@ protected:
 			echo(false);
 			std::getline(std::cin, password);
 			echo(true);
-			std::cout << std::endl;
+			std::cout << '\n';
 		}
 
-		std::string command = "login \"";
-		command += escape(username);
-		command += "\" \"";
-		command += escape(password);
-		command += "\"";
-
-		int status = sendRequest(command, out, err);
+		int status = sendRequest(loginRequest(username, password), out, err);
 		if (status == ShellConnection::STATUS_OK)
 		{
 			_username = username;
@@ -351,14 +404,17 @@ protected:
 
 	[[nodiscard]] int passwd(const std::vector<std::string>& items, std::ostream& out, std::ostream& err)
 	{
-		std::string username;
-		if (items.size() > 1)
+		const std::optional<std::size_t> operand = firstOperand(items);
+		if (!operand.has_value())
 		{
-			if (items[1] == "-h" || items[1] == "--help")
-			{
-				return sendRequest("passwd --help", out, err);
-			}
-			username = items[1];
+			return sendRequest("passwd --help", out, err);
+		}
+		const std::size_t first = *operand;
+
+		std::string username;
+		if (items.size() > first)
+		{
+			username = items[first];
 		}
 		else
 		{
@@ -366,9 +422,9 @@ protected:
 		}
 
 		std::string password;
-		if (items.size() > 2)
+		if (items.size() > first + 1)
 		{
-			password = items[2];
+			password = items[first + 1];
 		}
 		else
 		{
@@ -376,27 +432,28 @@ protected:
 			out << "New Password: " << std::flush;
 			echo(false);
 			std::getline(std::cin, password);
-			out << std::endl;
+			out << '\n';
 
 			if (password.empty())
 			{
-				err << "Password not changed." << std::endl;
+				err << "Password not changed." << '\n';
 				return ShellConnection::STATUS_OK;
 			}
 
 			out << "Retype New Password: " << std::flush;
 			std::getline(std::cin, confirm);
 			echo(true);
-			out << std::endl;
+			out << '\n';
 
 			if (password != confirm)
 			{
-				err << "Passwords do not match." << std::endl;
-				return ShellConnection::STATUS_OK;
+				err << "Passwords do not match." << '\n';
+				return ShellConnection::STATUS_CLIENT_ERROR;
 			}
 		}
 
-		std::string command = "passwd \"";
+		// "--" ends the options, as in loginRequest().
+		std::string command = "passwd -- \"";
 		command += escape(username);
 		command += "\" \"";
 		command += escape(password);
@@ -418,7 +475,7 @@ protected:
 			echo(false);
 			std::getline(std::cin, _password);
 			echo(true);
-			std::cout << std::endl;
+			std::cout << '\n';
 		}
 	}
 
@@ -458,12 +515,37 @@ protected:
 			case '\'':
 				result += "\\'";
 				break;
+			case '\\':
+				result += "\\\\";
+				break;
 			default:
 				result += *it;
 				break;
 			}
 		}
 		return result;
+	}
+
+	[[nodiscard]] static std::optional<std::size_t> firstOperand(const std::vector<std::string>& items)
+		/// Returns the index of the first operand of a login or passwd command, after a leading "--",
+		/// or no value for a single -h or --help option, the only arguments for which the server shows the help.
+	{
+		if (items.size() == 2 && (items[1] == "-h" || items[1] == "--help")) return std::nullopt;
+		return (items.size() > 1 && items[1] == "--") ? std::size_t{2} : std::size_t{1};
+	}
+
+	[[nodiscard]] static std::string loginRequest(const std::string& username, const std::string& password)
+		/// Returns the login command for the given user name and password, after a "--",
+		/// so that credentials that start with '-' are not taken as options.
+	{
+		return "login -- \"" + escape(username) + "\" \"" + escape(password) + "\"";
+	}
+
+	[[nodiscard]] static int exitCode(int status)
+		/// Returns the exit code of ospsh for the status of the last request.
+	{
+		if (status == CONNECTION_CLOSED) return Application::EXIT_UNAVAILABLE;
+		return status >= ShellConnection::STATUS_CLIENT_ERROR ? Application::EXIT_SOFTWARE : Application::EXIT_OK;
 	}
 
 	[[nodiscard]] static std::vector<std::string> splitCommandLine(const std::string& commandLine)
@@ -549,7 +631,16 @@ protected:
 			if (_username.empty()) _username = config().getString("username"s, ""s);
 			if (_password.empty()) _password = config().getString("password"s, ""s);
 			if (_host.empty()) _host = config().getString("host"s, SERVER_HOST);
-			if (!_port) _port = config().getInt("port"s, SERVER_PORT);
+			if (!_port)
+			{
+				const int port = config().getInt("port"s, SERVER_PORT);
+				if (port < 1 || port > std::numeric_limits<Poco::UInt16>::max())
+				{
+					std::cerr << "The port " << port << " is not between 1 and 65535.\n";
+					return Application::EXIT_CONFIG;
+				}
+				_port = static_cast<Poco::UInt16>(port);
+			}
 
 			if (_prompt && _auth) promptLogin();
 
@@ -574,18 +665,22 @@ protected:
 			_socket.connect(sa);
 
 			std::string greeting;
-			_socket.receiveStatusMessage(greeting);
+			if (receiveReply(greeting) == CONNECTION_CLOSED)
+			{
+				std::cerr << "The server has closed the connection.\n";
+				return Application::EXIT_UNAVAILABLE;
+			}
 			if (_prompt)
 			{
 				std::cout << "\n";
 				writeResponse(greeting, std::cout);
-				std::cout << std::endl;
+				std::cout << '\n';
 			}
 
 			int status(ShellConnection::STATUS_OK);
 			if (_auth)
 			{
-				status = sendRequest("login \"" + escape(_username) + "\" \"" + escape(_password) + "\"", std::cout, std::cerr);
+				status = sendRequest(loginRequest(_username, _password), std::cout, std::cerr);
 			}
 			if (status == ShellConnection::STATUS_OK)
 			{
@@ -626,24 +721,31 @@ protected:
 					{
 						std::string request(line);
 						Poco::trimRightInPlace(request);
-						int status = processCommand(request, std::cout, std::cerr);
-						if (status == ShellConnection::STATUS_GOODBYE) break;
-						if (elHist != nullptr && !request.empty()) history(elHist, &elHistEvent, H_ENTER, line);
+						// An empty line is not sent, so that the exit code is that of the last command.
+						if (request.empty()) continue;
+						status = processCommand(request, std::cout, std::cerr);
+						if (status == ShellConnection::STATUS_GOODBYE || status == CONNECTION_CLOSED) break;
+						if (elHist != nullptr) history(elHist, &elHistEvent, H_ENTER, line);
 					}
 					if (elHist != nullptr) history_end(elHist);
 					el_end(editLine);
-					return Application::EXIT_OK;
+					return exitCode(status);
 				}
 #endif
 				std::string request;
 				while (std::getline(*pStream, request))
 				{
 					Poco::trimRightInPlace(request);
-					int status = processCommand(request, std::cout, std::cerr);
-					if (status == ShellConnection::STATUS_GOODBYE) break;
+					if (!request.empty())
+					{
+						status = processCommand(request, std::cout, std::cerr);
+						if (status == ShellConnection::STATUS_GOODBYE || status == CONNECTION_CLOSED) break;
+					}
 					if (_prompt) std::cout << PROMPT << std::flush;
 				}
+				return exitCode(status);
 			}
+			return status == CONNECTION_CLOSED ? Application::EXIT_UNAVAILABLE : Application::EXIT_NOPERM;
 		}
 		return Application::EXIT_OK;
 	}

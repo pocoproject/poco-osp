@@ -22,6 +22,9 @@
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/OSP/BundleEvents.h"
 #include "Poco/OSP/Properties.h"
+#include "Poco/Net/NetException.h"
+#include "Poco/Net/ServerSocket.h"
+#include "Poco/Net/SocketAddress.h"
 #if defined(OSP_SHELL_ENABLE_SSH)
 #include "Poco/OSP/PreferencesService.h"
 #include "Poco/SSH/SSHClient.h"
@@ -29,6 +32,7 @@
 #endif
 #include "Poco/AutoPtr.h"
 #include "Poco/Event.h"
+#include "Poco/Exception.h"
 #include "Poco/Message.h"
 #include "Poco/Stopwatch.h"
 #include "Poco/Thread.h"
@@ -44,6 +48,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 // GCC defines __SANITIZE_ADDRESS__ in an AddressSanitizer build; clang reports it through __has_feature.
 #if defined(__SANITIZE_ADDRESS__)
@@ -220,7 +225,7 @@ void ShellBundleActivatorTest::testStopReturnsAfterTimeoutAndKeepsObjectsOfSessi
 	assertTrue (std::chrono::microseconds(stopwatch.elapsed()) >= STOP_TIMEOUT - tolerance);
 	assertTrue (std::chrono::microseconds(stopwatch.elapsed()) < 5 * STOP_TIMEOUT);
 	assertTrue (contains(capture.channel().waitForMessages(0), Poco::Message::PRIO_WARNING,
-		"1 shell sessions have not ended within 1000 ms"s));
+		"Shell sessions that have not ended within 1000 ms after the shell stopped: 1;"s));
 
 	// The session ends when the login returns, with the objects that the shell
 	// has kept. The test waits until its connection is destroyed, which is the
@@ -236,6 +241,100 @@ void ShellBundleActivatorTest::testStopReturnsAfterTimeoutAndKeepsObjectsOfSessi
 	assertTrue (events.bundleStopping.empty());
 	assertTrue (contains(capture.channel().waitForMessages(0), Poco::Message::PRIO_INFORMATION,
 		"Closing connection from 127.0.0.1:"s));
+}
+
+
+void ShellBundleActivatorTest::testStartAfterFailedStartSucceeds()
+{
+	// The port is held by a socket without SO_REUSEADDR and SO_REUSEPORT, so
+	// the shell server cannot bind it.
+	Poco::Net::ServerSocket portHolder;
+	portHolder.bind(Poco::Net::SocketAddress("127.0.0.1"s, 0), false, false);
+	portHolder.listen();
+	const Poco::UInt16 port = portHolder.address().port();
+	const std::string properties =
+		"interface = 127.0.0.1\n"
+		"port = "s + std::to_string(port) + "\n"s;
+	try
+	{
+		(void) _pFixture->addShellBundle(ACTIVATOR_BUNDLE, properties);
+		fail("the shell must not start on a port that is in use");
+	}
+	catch (Poco::Net::NetException&)
+	{
+	}
+#if defined(POCO_OS_FAMILY_WINDOWS)
+	catch (Poco::IOException&)
+	{
+		// SO_EXCLUSIVEADDRUSE of the port holder: WSAEACCES, "Permission denied".
+	}
+#endif
+	Poco::OSP::Bundle::Ptr pBundle = _pFixture->bundle(ACTIVATOR_BUNDLE);
+	assertEqual (static_cast<int>(Poco::OSP::Bundle::BUNDLE_RESOLVED), static_cast<int>(pBundle->state()));
+
+	portHolder.close();
+	pBundle->start();
+	ShellClient client(port);
+	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
+	// An extension point left from the failed start would remove the commands
+	// of a stopping bundle from the command processor that the start has replaced.
+	_pFixture->bundle(ShellFixture::OTHER_BUNDLE)->stop();
+	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.send("help"s).status);
+	pBundle->stop();
+}
+
+
+void ShellBundleActivatorTest::testOutOfRangeSettingFailsStart()
+{
+	const std::string validSettings = "interface = 127.0.0.1\nport = "s
+		+ std::to_string(ShellFixture::freePort()) + "\n"s;
+	const std::vector<std::string> settings{
+		"port = 65536"s, "port = 0"s, "maxConnections = 0"s, "sessionTimeout = -1"s, "sessionTimeout = 86401"s,
+		"stopTimeout = -1"s, "stopTimeout = 86401"s};
+	for (const auto& setting: settings)
+	{
+		ShellFixture fixture(AUTH_SERVICE_NAME);
+		Poco::OSP::Bundle::Ptr pBundle;
+		try
+		{
+			pBundle = fixture.addShellBundle(ACTIVATOR_BUNDLE, validSettings + setting);
+		}
+		catch (Poco::InvalidArgumentException&)
+		{
+			continue;
+		}
+		pBundle->stop();
+		failmsg(setting + " has not failed the start"s);
+	}
+
+#if defined(OSP_SHELL_ENABLE_SSH)
+	const std::vector<std::pair<std::string, int>> sshSettings{
+		{"openSSH.server.port"s, 65536}, {"openSSH.server.maxConnections"s, 0},
+		{"openSSH.server.loginGraceTime"s, -1}, {"openSSH.server.loginGraceTime"s, 86401}};
+	for (const auto& [name, value]: sshSettings)
+	{
+		ShellFixture fixture(AUTH_SERVICE_NAME);
+		Poco::AutoPtr<Poco::Util::MapConfiguration> pConfig = new Poco::Util::MapConfiguration;
+		pConfig->setBool("openSSH.server.enabled"s, true);
+		pConfig->setString("openSSH.server.interface"s, "127.0.0.1"s);
+		pConfig->setUInt("openSSH.server.port"s, ShellFixture::freePort());
+		pConfig->setInt(name, value);
+		fixture.registry().registerService(Poco::OSP::PreferencesService::SERVICE_NAME,
+			new Poco::OSP::PreferencesService(fixture.shellContext()->persistentDirectory(), pConfig.get()),
+			Poco::OSP::Properties());
+		Poco::OSP::Bundle::Ptr pBundle;
+		try
+		{
+			pBundle = fixture.addShellBundle(ACTIVATOR_BUNDLE, ""s);
+		}
+		catch (Poco::InvalidArgumentException&)
+		{
+			continue;
+		}
+		pBundle->stop();
+		failmsg(name + " = "s + std::to_string(value) + " has not failed the start"s);
+	}
+#endif
 }
 
 
@@ -326,6 +425,8 @@ CppUnit::Test* ShellBundleActivatorTest::suite()
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("ShellBundleActivatorTest");
 
 	CppUnit_addTest(pSuite, ShellBundleActivatorTest, testStopReturnsAfterTimeoutAndKeepsObjectsOfSession);
+	CppUnit_addTest(pSuite, ShellBundleActivatorTest, testStartAfterFailedStartSucceeds);
+	CppUnit_addTest(pSuite, ShellBundleActivatorTest, testOutOfRangeSettingFailsStart);
 #if defined(OSP_SHELL_ENABLE_SSH)
 	CppUnit_addTest(pSuite, ShellBundleActivatorTest, testSSHStopReturnsAfterTimeoutAndKeepsObjectsOfSession);
 #endif

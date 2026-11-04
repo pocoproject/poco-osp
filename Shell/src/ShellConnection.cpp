@@ -22,16 +22,19 @@
 #include "ShellConnectionSupport.h"
 #include "Poco/OSP/BundleEvent.h"
 #include "Poco/OSP/BundleEvents.h"
+#include "Poco/Net/NetException.h"
 #include "Poco/Net/Socket.h"
 #include "Poco/Net/SocketAddress.h"
 #include "Poco/Net/SocketStream.h"
 #include "Poco/Net/StreamSocket.h"
+#include "Poco/Bugcheck.h"
 #include "Poco/Delegate.h"
 #include "Poco/Exception.h"
 #include "Poco/Timespan.h"
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include <exception>
 #include <functional>
 #include <ostream>
 #include <string>
@@ -54,8 +57,8 @@ namespace
 		///
 		/// Returns false if the client has closed the connection or stopped()
 		/// returns true. Throws a Poco::TimeoutException if the line does not
-		/// arrive in time, and a Poco::IOException if it is longer than
-		/// MAX_COMMAND_LINE_LENGTH.
+		/// arrive in time, and a Poco::Net::MessageException if it is longer
+		/// than MAX_COMMAND_LINE_LENGTH.
 	{
 		constexpr std::size_t RECEIVE_BUFFER_SIZE = 1024;
 		// A receive that waits does not end on Windows when another thread shuts
@@ -66,7 +69,7 @@ namespace
 		{
 			const std::size_t end = received.find_first_of("\r\n");
 			if ((end == std::string::npos ? received.size() : end) > MAX_COMMAND_LINE_LENGTH)
-				throw Poco::IOException("Line too long");
+				throw Poco::Net::MessageException("Line too long");
 
 			// A line feed after a carriage return belongs to the line end, so a
 			// carriage return at the end of the received data needs the next character.
@@ -129,7 +132,19 @@ ShellConnection::~ShellConnection()
 void ShellConnection::run()
 {
 	// Taken once: after the socket has been shut down, the system no longer reports the peer address.
-	const Poco::Net::SocketAddress peerAddress = this->socket().peerAddress();
+	Poco::Net::SocketAddress peerAddress;
+	try
+	{
+		peerAddress = this->socket().peerAddress();
+	}
+	catch (Poco::Exception& exc)
+	{
+		// For example, the client has reset the connection before the session started.
+		_config.commandProcessor.context()->logger().information(
+			"Closing a shell connection before its session starts: the client address is not available: " +
+			exc.displayText());
+		return;
+	}
 	_config.commandProcessor.context()->logger().information("New connection from " + peerAddress.toString());
 	
 	try
@@ -178,17 +193,35 @@ void ShellConnection::run()
 				responseStream.setStatus(STATUS_SERVER_ERROR);
 				responseStream << exc.displayText() << '\n' << std::flush;
 			}
+			catch (std::exception& exc)
+			{
+				responseStream.setStatus(STATUS_SERVER_ERROR);
+				responseStream << exc.what() << '\n' << std::flush;
+			}
 		}
 	}
 	catch (Poco::TimeoutException&)
 	{
 		logIdleSessionClosed(_config, peerAddress);
 	}
+	catch (Poco::Net::MessageException&)
+	{
+		logLongCommandLine(_config, peerAddress);
+	}
+	catch (Poco::IOException& exc)
+	{
+		// The client or the network has ended the connection, for example with a reset.
+		std::string msg("The connection of the shell session from ");
+		msg += peerAddress.toString();
+		msg += " has failed: ";
+		msg += exc.displayText();
+		_config.commandProcessor.context()->logger().information(msg);
+	}
 	catch (Poco::Exception& exc)
 	{
-		std::string msg("Error handling connection from ");
+		std::string msg("The shell session from ");
 		msg += peerAddress.toString();
-		msg += ": ";
+		msg += " ends after an error: ";
 		msg += exc.displayText();
 		_config.commandProcessor.context()->logger().error(msg);
 	}

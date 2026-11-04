@@ -16,6 +16,9 @@
 
 #include "Poco/OSP/Shell/LoginCommand.h"
 #include "Poco/OSP/Shell/Session.h"
+#include <ostream>
+#include <string>
+#include <vector>
 
 
 namespace Poco::OSP::Shell {
@@ -31,6 +34,17 @@ LoginCommand::LoginCommand(Poco::OSP::BundleContext::Ptr pContext):
 
 
 LoginCommand::~LoginCommand() = default;
+
+
+int LoginCommand::execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr)
+{
+	if (args.size() == 2 && (args.back() == "--help" || args.back() == "-h"))
+		return AbstractCommand::execute(session, args, ostr);
+
+	auto first = args.begin() + 1;
+	if (first != args.end() && *first == "--") ++first;
+	return executeImpl(session, std::vector<std::string>(first, args.end()), ostr);
+}
 
 
 int LoginCommand::executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr)

@@ -46,16 +46,18 @@ public:
 	void testPasswordLoginsFailedByAuthServiceAreLoggedAndClose();
 	void testLoginCommandIsThrottled();
 	void testPasswordLoginAuthorizesCommandsUnderAccountName();
+	void testUserNameThatIsNoFileNameEndsSession();
 	void testIdleSessionIsClosed();
 	void testLongCommandLineEndsSession();
 	void testCommandLineKeepsUTF8Text();
+	void testStdExceptionFromCommandIsServerError();
 	void testSessionWithoutCompleteCommandLineIsClosed();
 	void testStopEndsWaitingSession();
 	void testStopReturnsAfterTimeoutForSessionInCommand();
 	void testConnectionsWithoutLoginAreClosed();
 	void testConnectionWithoutShellSessionIsClosed();
 #if !defined(POCO_OS_FAMILY_WINDOWS)
-	void testSecondDescriptorIsNotInherited();
+	void testDuplicateDescriptorsAreNotInherited();
 #endif
 
 	static CppUnit::Test* suite();

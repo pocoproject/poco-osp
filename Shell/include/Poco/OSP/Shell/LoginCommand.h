@@ -35,6 +35,10 @@ class OSPShell_API LoginCommand: public AbstractCommand
 	/// name and a password, and passes them to the
 	/// login() member function of Session.
 	///
+	/// The arguments are not processed as options, also if
+	/// they start with '-': only a single --help or -h argument
+	/// shows the help, and a leading -- argument is skipped.
+	///
 	/// The help text of the login command can be
 	/// customized by providing the following bundle
 	/// properties:
@@ -47,6 +51,9 @@ public:
 		
 	~LoginCommand() override;
 		/// Destroys the LoginCommand.
+
+	// Command
+	[[nodiscard]] int execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr) override;
 
 protected:		
 	// AbstractCommand

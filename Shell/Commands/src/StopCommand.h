@@ -32,8 +32,9 @@ class StopCommand: public BundleActionCommand
 	///
 	/// Before stopping the bundle, dependencies are
 	/// checked. The bundle is not stopped if there are
-	/// other started bundles that require this bundle,
-	/// unless the --force option is specified.
+	/// other started bundles that require this bundle or
+	/// a module it provides, directly or through other
+	/// bundles, unless the --force option is specified.
 {
 public:
 	StopCommand(Poco::OSP::BundleContext::Ptr pContext);
@@ -50,7 +51,6 @@ protected:
 
 	using BundleVec = std::vector<Poco::OSP::Bundle::Ptr>;
 
-	void dependingBundles(Poco::OSP::Bundle::Ptr pBundle, BundleVec& dependingBundles);
 	void stopAll(Poco::OSP::Bundle::Ptr pBundle);
 
 	void handleForce(const std::string& name, const std::string& value);

@@ -45,10 +45,11 @@ class OSPShell_API ShellConnection: public Poco::Net::TCPServerConnection
 	/// RFC 2821-style response chunks. Every command can send
 	/// multiple response chunks. Intermediate response chunks have a
 	/// status code of 100, and can occur more than once.
-	/// The final chunk has a status code has a 200, 4xx or 500 status code
+	/// The final chunk has a 200, 201, 4xx or 500 status code
 	/// and is exactly one line long.
 	/// If the command was successful, the status code is 200 and the
-	/// response text is "OK". If the command was not successful
+	/// response text is "OK". A command that ends the session, such as
+	/// quit, ends with 201 and "GOODBYE". If the command was not successful
 	/// (its return code was not 0), the status code is 400 + return code.
 	/// If the comand resulted in an exception, the status code is 500.
 	///

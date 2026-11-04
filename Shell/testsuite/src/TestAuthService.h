@@ -28,7 +28,9 @@ class TestAuthService: public Poco::OSP::Auth::AuthService
 	/// "failingPermission" and a std::runtime_error for the permission
 	/// "failingStdPermission". authenticateAccount() also accepts "admin"
 	/// under the name "Admin@example.com", which authenticate() refuses, and
-	/// returns the account name "admin" for it.
+	/// returns the account name "admin" for it. The users "dash", "--" and
+	/// "quote" have no permission; their user names or passwords start with
+	/// '-' or contain quotes and backslashes.
 {
 public:
 	using Ptr = Poco::AutoPtr<TestAuthService>;
@@ -55,6 +57,12 @@ public:
 	static const std::string ADMIN_OTHER_NAME;
 	static const std::string GUEST;
 	static const std::string GUEST_PASSWORD;
+	static const std::string DASH_USER;
+	static const std::string DASH_PASSWORD;
+	static const std::string DOUBLE_DASH_USER;
+	static const std::string DOUBLE_DASH_PASSWORD;
+	static const std::string QUOTE_USER;
+	static const std::string QUOTE_PASSWORD;
 	static const std::string FAILING_USER;
 	static const std::string STD_FAILING_USER;
 	static const std::string ADMIN_PERMISSION;

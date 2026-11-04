@@ -8,7 +8,7 @@ if(MSVC)
 	list(APPEND SRCS ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
 endif()
 
-add_executable(OSPShellClient ${SRCS})
+poco_add_executable(OSPShellClient ${SRCS})
 set_target_properties(OSPShellClient
 	PROPERTIES
 	OUTPUT_NAME ospsh
@@ -39,9 +39,6 @@ endif()
 unset(_poco_osp_libedit)
 
 install(
-	TARGETS OSPShellClient EXPORT OSPShellClientTargets
-	LIBRARY DESTINATION lib${LIB_SUFFIX}
-	ARCHIVE DESTINATION lib${LIB_SUFFIX}
-	RUNTIME DESTINATION bin
-	INCLUDES DESTINATION include
+	TARGETS OSPShellClient
+	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime
 )

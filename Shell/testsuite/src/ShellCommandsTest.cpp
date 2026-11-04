@@ -18,11 +18,16 @@
 #include "Poco/OSP/Shell/Command.h"
 #include "Poco/OSP/Shell/Session.h"
 #include "Poco/OSP/Bundle.h"
+#include "Poco/OSP/BundleContext.h"
+#include "Poco/OSP/BundleEvent.h"
+#include "Poco/OSP/BundleEvents.h"
 #include "Poco/OSP/Properties.h"
+#include "Poco/Delegate.h"
 #include "Poco/NumberFormatter.h"
 #include <memory>
 #include <sstream>
 #include <string>
+#include <vector>
 
 
 using Poco::OSP::Shell::Command;
@@ -35,6 +40,10 @@ namespace
 {
 	const std::string AUTH_SERVICE_NAME("osp.shell.test.auth");
 	const std::string DEPENDENT_BUNDLE("osp.shell.test.dependent");
+	const std::string PROVIDER_BUNDLE("osp.shell.test.provider");
+	const std::string MODULE_USER_BUNDLE("osp.shell.test.moduleuser");
+	const std::string PROVIDE_MODULE("Provide-Module: osp.shell.test.module;module-version=1.0.0\n");
+	const std::string REQUIRE_MODULE("Require-Module: osp.shell.test.module\n");
 }
 
 
@@ -68,6 +77,12 @@ ShellCommandsTest::Result ShellCommandsTest::execute(const std::string& commandL
 	result.status = _pFixture->processor().execute(session, commandLine, ostr);
 	result.output = ostr.str();
 	return result;
+}
+
+
+void ShellCommandsTest::onBundleStopping(const void* /*pSender*/, Poco::OSP::BundleEvent& event)
+{
+	_stoppingBundles.push_back(event.bundle()->symbolicName());
 }
 
 
@@ -148,6 +163,37 @@ void ShellCommandsTest::testStopOfBundleWithDependentsIsRefused()
 }
 
 
+void ShellCommandsTest::testStopOfBundleWithModuleDependentsIsRefused()
+{
+	_pFixture->addBundle(PROVIDER_BUNDLE, ""s, PROVIDE_MODULE);
+	_pFixture->addBundle(MODULE_USER_BUNDLE, ""s, REQUIRE_MODULE);
+	const Result result = execute("stop "s + PROVIDER_BUNDLE);
+	assertEqual (static_cast<int>(Command::STATUS_ERROR), result.status);
+	assertTrue (result.output.find("Cannot stop bundle "s + PROVIDER_BUNDLE
+		+ " as the following bundles depend on it:\n"s + MODULE_USER_BUNDLE + " ("s) == 0);
+	assertTrue (_pFixture->bundle(PROVIDER_BUNDLE)->isActive());
+	assertTrue (_pFixture->bundle(MODULE_USER_BUNDLE)->isActive());
+}
+
+
+void ShellCommandsTest::testStopAllStopsModuleDependentsFirst()
+{
+	_pFixture->addBundle(PROVIDER_BUNDLE, ""s, PROVIDE_MODULE);
+	_pFixture->addBundle(MODULE_USER_BUNDLE, ""s, REQUIRE_MODULE);
+	Poco::OSP::BundleEvents& events = _pFixture->shellContext()->events();
+	events.bundleStopping += Poco::delegate(this, &ShellCommandsTest::onBundleStopping);
+	const Result result = execute("stop --all "s + PROVIDER_BUNDLE);
+	events.bundleStopping -= Poco::delegate(this, &ShellCommandsTest::onBundleStopping);
+	assertEqual (static_cast<int>(Command::STATUS_OK), result.status);
+	const std::vector<std::string> expected{MODULE_USER_BUNDLE, PROVIDER_BUNDLE};
+	assertTrue (_stoppingBundles == expected);
+	assertEqual (static_cast<int>(Bundle::BUNDLE_RESOLVED),
+		static_cast<int>(_pFixture->bundle(PROVIDER_BUNDLE)->state()));
+	assertEqual (static_cast<int>(Bundle::BUNDLE_RESOLVED),
+		static_cast<int>(_pFixture->bundle(MODULE_USER_BUNDLE)->state()));
+}
+
+
 void ShellCommandsTest::testBundlesListsStateAndVersion()
 {
 	assertEqual (static_cast<int>(Command::STATUS_OK), execute("stop "s + ShellFixture::OTHER_BUNDLE).status);
@@ -163,6 +209,19 @@ void ShellCommandsTest::testBundlesListsStateAndVersion()
 }
 
 
+void ShellCommandsTest::testReadCommandsAreDeniedBeforeLogin()
+{
+	Session session(_pFixture->shellContext(), AUTH_SERVICE_NAME);
+	for (const auto& commandLine: {"bundles"s, "ls *"s, "services -p"s, "info "s + ShellFixture::SHELL_BUNDLE})
+	{
+		std::ostringstream ostr;
+		assertEqual (static_cast<int>(Command::STATUS_DENIED),
+			_pFixture->processor().execute(session, commandLine, ostr));
+		assertTrue (ostr.str().empty());
+	}
+}
+
+
 CppUnit::Test* ShellCommandsTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("ShellCommandsTest");
@@ -174,7 +233,10 @@ CppUnit::Test* ShellCommandsTest::suite()
 	CppUnit_addTest(pSuite, ShellCommandsTest, testUpgradeOfShellBundleIsRefused);
 	CppUnit_addTest(pSuite, ShellCommandsTest, testStopOfOtherBundle);
 	CppUnit_addTest(pSuite, ShellCommandsTest, testStopOfBundleWithDependentsIsRefused);
+	CppUnit_addTest(pSuite, ShellCommandsTest, testStopOfBundleWithModuleDependentsIsRefused);
+	CppUnit_addTest(pSuite, ShellCommandsTest, testStopAllStopsModuleDependentsFirst);
 	CppUnit_addTest(pSuite, ShellCommandsTest, testBundlesListsStateAndVersion);
+	CppUnit_addTest(pSuite, ShellCommandsTest, testReadCommandsAreDeniedBeforeLogin);
 
 	return pSuite;
 }

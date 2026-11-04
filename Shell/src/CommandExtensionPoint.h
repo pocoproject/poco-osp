@@ -54,16 +54,21 @@ class CommandExtensionPoint: public ExtensionPoint
 	///    * command: the name of the command (e.g., "bundles").
 	///    * aliases: a comma-separated list of alias names for the command (e.g., "ls").
 	///    * permission: the permission required to run this command.
-	///      Without a permission, the command runs in every session, also
-	///      before a login; such a command must check the session itself
-	///      (Session::authenticated(), Session::authorize()) before it
-	///      changes anything or acts for a user.
+	///      Without a permission, the command runs in every session after the login.
 	///    * class: the class name of the command factory (see the Command class).
 	///    * library: the name of the shared library containing the command factory.
+	///
+	/// The command factory is created from the Shell manifest of the given library. handleExtension()
+	/// throws a Poco::LibraryLoadException if the library cannot be opened or has no Shell manifest,
+	/// and a Poco::NotFoundException if the manifest does not contain the class.
+	///
+	/// On Linux, unless the libraries are built with hidden visibility, the command factory classes
+	/// and command classes of different bundles need different qualified names; otherwise a class
+	/// may use the code of the library that was loaded first.
 {
 public:
 	CommandExtensionPoint(CommandProcessor& processor);
-		/// Creates the CommandExtensionPoint, using the given command processor and bundle context.
+		/// Creates the CommandExtensionPoint, using the given command processor and its bundle context.
 
 	~CommandExtensionPoint() override;
 		/// Destroys the CommandExtensionPoint.

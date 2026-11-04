@@ -20,12 +20,19 @@
 #include "CppUnit/Test.h"
 #include "Poco/OSP/Shell/Command.h"
 #include "Poco/OSP/Shell/Session.h"
+#include "Poco/OSP/Shell/SessionTracker.h"
 #include "Poco/OSP/Shell/ShellConnection.h"
 #include "Poco/OSP/Properties.h"
+#include "Poco/Net/ServerSocket.h"
+#include "Poco/Net/Socket.h"
+#include "Poco/Net/SocketAddress.h"
+#include "Poco/Net/StreamSocket.h"
+#include "Poco/Net/TCPServerConnection.h"
 #include "Poco/ErrorHandler.h"
 #include "Poco/Exception.h"
 #include "Poco/Message.h"
 #include "Poco/Stopwatch.h"
+#include "Poco/Timespan.h"
 #include "Poco/Types.h"
 #include <algorithm>
 #include <atomic>
@@ -35,6 +42,7 @@
 #include <iterator>
 #include <memory>
 #include <ostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -64,6 +72,11 @@ namespace
 	[[noreturn]] int throwIOException(Session&, const std::vector<std::string>&, std::ostream&)
 	{
 		throw Poco::IOException("test failure"s);
+	}
+
+	[[noreturn]] int throwStdException(Session&, const std::vector<std::string>&, std::ostream&)
+	{
+		throw std::runtime_error("test failure"s);
 	}
 
 	class CountingErrorHandler: public Poco::ErrorHandler
@@ -109,6 +122,15 @@ namespace
 		Poco::ErrorHandler* _pPrevious;
 		std::atomic<int> _count{0};
 	};
+
+	class StartableConnection: public ShellConnection
+		/// Gives the tests start(), which runs the session in the calling
+		/// thread with the exception handling of the server.
+	{
+	public:
+		using ShellConnection::ShellConnection;
+		using Poco::Net::TCPServerConnection::start;
+	};
 }
 
 
@@ -152,6 +174,7 @@ void ShellConnectionTest::testCommandResponse()
 	});
 	ShellClient client(_pFixture->startServer());
 	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
+	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.send("login admin secret"s).status);
 	const ShellClient::Response response = client.send("lines"s);
 	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), response.status);
 	assertEqual ("one\ntwo\n"s, response.text);
@@ -175,7 +198,21 @@ void ShellConnectionTest::testExceptionFromCommandIsServerError()
 	_pFixture->addCommand("fail"s, ""s, throwIOException);
 	ShellClient client(_pFixture->startServer());
 	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
+	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.send("login admin secret"s).status);
 	assertEqual (static_cast<int>(ShellConnection::STATUS_SERVER_ERROR), client.send("fail"s).status);
+	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.send("help"s).status);
+}
+
+
+void ShellConnectionTest::testStdExceptionFromCommandIsServerError()
+{
+	_pFixture->addCommand("fail"s, ""s, throwStdException);
+	ShellClient client(_pFixture->startServer());
+	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
+	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.send("login admin secret"s).status);
+	const ShellClient::Response response = client.send("fail"s);
+	assertEqual (static_cast<int>(ShellConnection::STATUS_SERVER_ERROR), response.status);
+	assertEqual ("test failure"s, response.final);
 	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.send("help"s).status);
 }
 
@@ -195,6 +232,34 @@ void ShellConnectionTest::testLoginGrantsPermission()
 }
 
 
+void ShellConnectionTest::testLoginTakesCredentialsStartingWithDash()
+{
+	_pFixture->addCommand("user"s, ""s, [](Session& session, const std::vector<std::string>&, std::ostream& ostr)
+	{
+		ostr << session.user() << '\n';
+		return Command::STATUS_OK;
+	});
+	ShellClient client(_pFixture->startServer());
+	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
+	for (const auto& helpLine: {"login --help"s, "login -h"s})
+	{
+		const ShellClient::Response help = client.send(helpLine);
+		assertEqual (static_cast<int>(ShellConnection::STATUS_OK), help.status);
+		assertTrue (help.text.find("usage: login"s) == 0);
+	}
+	assertEqual (static_cast<int>(ShellConnection::STATUS_CLIENT_DENIED),
+		client.send("login "s + TestAuthService::DASH_USER + " -x"s).status);
+	const std::string credentials = TestAuthService::DASH_USER + " "s + TestAuthService::DASH_PASSWORD;
+	for (const auto& loginLine: {"login "s, "login -- "s})
+	{
+		assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.send(loginLine + credentials).status);
+		const ShellClient::Response response = client.send("user"s);
+		assertEqual (static_cast<int>(ShellConnection::STATUS_OK), response.status);
+		assertEqual (TestAuthService::DASH_USER + "\n"s, response.text);
+	}
+}
+
+
 void ShellConnectionTest::testBundleStopEndsSessionWithoutError()
 {
 	CountingErrorHandler errorHandler;
@@ -204,6 +269,33 @@ void ShellConnectionTest::testBundleStopEndsSessionWithoutError()
 	assertTrue (client.closedByServer());
 	_pFixture->stopServer();
 	assertEqual (0, errorHandler.count());
+}
+
+
+void ShellConnectionTest::testClientResetBeforeSessionStartIsNoError()
+{
+	CountingErrorHandler errorHandler;
+	LogCapture capture(_pFixture->shellContext()->logger().name());
+	Poco::Net::ServerSocket serverSocket(Poco::Net::SocketAddress("127.0.0.1"s, 0));
+	Poco::Net::StreamSocket client(serverSocket.address());
+	Poco::Net::StreamSocket accepted = serverSocket.acceptConnection();
+	// With a linger time of zero, closing the socket resets the connection.
+	client.setLinger(true, 0);
+	client.close();
+	assertTrue (accepted.poll(Poco::Timespan(MAX_WAIT), Poco::Net::Socket::SELECT_READ));
+
+	Poco::OSP::Shell::SessionTracker sessions;
+	StartableConnection connection(accepted, _pFixture->connectionConfig(ShellFixture::DEFAULT_SESSION_TIMEOUT),
+		sessions);
+	connection.start();
+	assertEqual (0, errorHandler.count());
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(0);
+	assertTrue (messagesWithPriority(messages, Poco::Message::PRIO_ERROR).empty());
+	assertTrue (messagesWithPriority(messages, Poco::Message::PRIO_WARNING).empty());
+	for (const auto& message: messages)
+	{
+		assertTrue (message.getText().find("0.0.0.0:0"s) == std::string::npos);
+	}
 }
 
 
@@ -341,12 +433,14 @@ void ShellConnectionTest::testLongCommandLineEndsSession()
 	}
 
 	_pFixture->stopServer();
-	const std::vector<Poco::Message> errors =
-		messagesWithPriority(capture.channel().waitForMessages(0), Poco::Message::PRIO_ERROR);
-	assertEqual (static_cast<std::size_t>(2), errors.size());
-	for (const auto& error: errors)
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(0);
+	assertTrue (messagesWithPriority(messages, Poco::Message::PRIO_ERROR).empty());
+	const std::vector<Poco::Message> warnings = messagesWithPriority(messages, Poco::Message::PRIO_WARNING);
+	assertEqual (static_cast<std::size_t>(2), warnings.size());
+	for (const auto& warning: warnings)
 	{
-		assertTrue (error.getText().find("Error handling connection from 127.0.0.1:"s) == 0);
+		assertTrue (warning.getText().find("Closing the shell session from 127.0.0.1:"s) == 0);
+		assertTrue (warning.getText().find(": a command line is longer than 4096 characters."s) != std::string::npos);
 	}
 }
 
@@ -385,8 +479,11 @@ CppUnit::Test* ShellConnectionTest::suite()
 	CppUnit_addTest(pSuite, ShellConnectionTest, testCommandResponse);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testQuitEndsSession);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testExceptionFromCommandIsServerError);
+	CppUnit_addTest(pSuite, ShellConnectionTest, testStdExceptionFromCommandIsServerError);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testLoginGrantsPermission);
+	CppUnit_addTest(pSuite, ShellConnectionTest, testLoginTakesCredentialsStartingWithDash);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testBundleStopEndsSessionWithoutError);
+	CppUnit_addTest(pSuite, ShellConnectionTest, testClientResetBeforeSessionStartIsNoError);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testRejectedLoginsAreDelayedAndCloseConnection);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testLoginsFailedByAuthServiceAreDelayedAndCloseConnection);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testLoginsFailedByStdExceptionAreDelayedAndCloseConnection);

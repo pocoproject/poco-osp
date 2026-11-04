@@ -22,7 +22,6 @@
 #include "Poco/OSP/BundleEvents.h"
 #include "Poco/OSP/OSPException.h"
 #include "Poco/StringTokenizer.h"
-#include "Poco/String.h"
 #include "Poco/Bugcheck.h"
 #include "Poco/Delegate.h"
 #include "Poco/Exception.h"
@@ -191,7 +190,12 @@ void CommandExtensionPoint::handleCommand(Bundle::ConstPtr pBundle, Poco::XML::E
 		}
 	});
 	
-	std::unique_ptr<CommandFactory> pLibraryFactory(_pLoader->create(className));
+	// Not _pLoader->create(): it would also find a class of the same name in the library of another bundle.
+	const Loader::Manif& manifest = _pLoader->manifestFor(libraryPath);
+	const auto itClass = manifest.find(className);
+	if (itClass == manifest.end())
+		throw Poco::NotFoundException("class " + className + " in library " + libraryPath);
+	std::unique_ptr<CommandFactory> pLibraryFactory(itClass->create());
 	Poco::OSP::BundleContext::Ptr pContext = _pContext->contextForBundle(pBundle);
 	pLibraryFactory->init(pContext);
 	FactoryPtr pFactory = new LibraryCommandFactory(pLibrary, std::move(pLibraryFactory));

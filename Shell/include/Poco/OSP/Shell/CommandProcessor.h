@@ -51,10 +51,11 @@ public:
 	int execute(Session& session, const std::string& commandLine, std::ostream& ostr);
 		/// Executes the command given in commandLine in the given session.
 		///
-		/// Returns Command::STATUS_DENIED if the user is not authorized to
-		/// run the command, and also if the command is not known and the
-		/// session is not authenticated. Throws a Poco::NotFoundException
-		/// if the command is not known in an authenticated session.
+		/// Before a login, the session runs only the login, help and quit
+		/// commands; every other command, also one that is not known, returns
+		/// Command::STATUS_DENIED. After the login, Command::STATUS_DENIED is
+		/// returned if the user is not authorized to run the command, and a
+		/// Poco::NotFoundException is thrown if the command is not known.
 
 	void addCommand(const std::string& command, const std::set<std::string>& aliases, FactoryPtr pFactory, const std::string& permission);
 		/// Adds a command to the command processor.
@@ -77,8 +78,8 @@ public:
 
 	void listCommands(const Session& session, std::vector<std::string>& commands) const;
 		/// Fills the given vector with the names of the commands that the help
-		/// shows in the given session: before login only the commands that need
-		/// no permission, after login all registered commands.
+		/// shows in the given session: before login only the login, help and
+		/// quit commands, after login all registered commands.
 
 	void aliases(const std::string& command, std::set<std::string>& aliases) const;
 		/// Fills the given set with all aliases for the given command.
@@ -92,7 +93,8 @@ protected:
 		///
 		/// Throws a Poco::NotFoundException if the given command is unknown.
 		/// Returns a new command object, or a null pointer if the user
-		/// is not authorized to call the command.
+		/// is not authorized to call the command or the session is not
+		/// authenticated and the command is not login, help or quit.
 
 	void parseCommandLine(const std::string& commandLine, std::vector<std::string>& items);
 		/// Parses the command line into single items.

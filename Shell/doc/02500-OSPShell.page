@@ -55,7 +55,7 @@ In the following example, the authentication service knows a user named "admin".
     Password:
 
     OSP Command Shell Service ready.
-    Copyright (c) 2009-2023, Applied Informatics Software Engineering GmbH.
+    Copyright (c) 2009-2026, Applied Informatics Software Engineering GmbH.
     Enter "h" or "help" for a list of commands.
 
     osp> _
@@ -65,12 +65,13 @@ After the connection to the OSP Shell Service has been established,
 a greeting message from the OSP Shell Service is displayed, followed
 by a command prompt. Entering the <[help]> command shows a list of
 all available commands. Before login, the list contains only the
-commands that need no permission.
+<[help]>, <[login]> and <[quit]> commands, the only commands that the shell
+runs before login.
 
     osp> help
     The following commands are available:
       bundles (ls, ss)
-      help
+      help (?, h)
       info
       install
       login
@@ -82,7 +83,7 @@ commands that need no permission.
       uninstall (rm)
       upgrade
 
-    Enter <command> --help for more information about a command.
+    Enter "help <command>" or "<command> --help" for more information about a command.
     osp> _
 ----
 
@@ -94,7 +95,8 @@ command, the <[ls]> command can be entered with the same effect.
 All standard commands provide a <[--help]> (or <[-h]> in short) option.
 Starting a command
 with this option shows a small help screen, including the supported
-command options.
+command options. The <[login]> command shows the help only if the option is
+its only argument.
 
     osp> bundles --help
     usage: bundles [--help] [pattern ...]
@@ -245,7 +247,8 @@ stopped with the <[stop]> bundle. A stopped bundle
 (<*resolved*> or <*installed*> state) can be uninstalled with
 the <[uninstall]> (or <[rm]>) command.
 
-Note that all bundles that change the state of a bundle
+Note that all commands that change the state of a bundle
+(<[install]>, <[resolve]>, <[start]>, <[stop]>, <[uninstall]>, <[upgrade]>)
 require the <*bundleAdmin*> permission for the current
 user.
 
@@ -254,15 +257,13 @@ user.
 
 Stopping a bundle can be a dangerous operation, as other bundles may require the bundle to do their work. Therefore,
 the <[stop]> command checks the dependencies of a bundle to be stopped and displays a warning message if there
-are other bundles depending on the bundle to be stopped. To nevertheless stop such a bundle, the
-<[--force]> option can be specified.
+are other bundles depending on the bundle to be stopped. The <[--all]> option stops such a bundle together
+with the bundles that depend on it; the <[--force]> option stops it although other bundles depend on it.
 
-    osp> stop 22
-    Cannot stop bundle poco.net as the following bundles depend on it:
-    com.appinf.osp.shell (13)
-    osp.web (17)
-    poco.net.ssl (21)
-    Use the --force option to override at your own risk.
+    osp> stop 5
+    Cannot stop bundle com.appinf.osp.samples.greetingservice as the following bundles depend on it:
+    com.appinf.osp.samples.greeter (4)
+    Use the --all option to stop all depending bundles, or --force to override at your own risk.
     osp> _
 ----
 
@@ -325,9 +326,17 @@ The <[ospsh]> command accepts the following command-line options:
   - <[/noprompt]>, <[-n]>, <[--noprompt]>: Do not display a prompt. Also do not show
     welcome message.
   - <[/noauth]>, <[-N]>, <[--noauth]>: Do not authenticate against the server (no
-    <[login]> command is send after establishing the connection).
+    <[login]> command is sent after establishing the connection). The shell then
+    runs only the <[help]>, <[login]> and <[quit]> commands until a <[login]>
+    command succeeds.
   - <[/config-file=<file>]>, <[-C<file>]>, <[--config-file=<file>]>: Read configuration
     properties from the given file.
+
+<[ospsh]> exits with status 0 if the last command has succeeded, 70 if it has failed,
+77 if the login at the start is rejected, 69 if the server has closed the connection, and 78 if
+the port in the configuration is not between 1 and 65535. The server
+closes a session in which no command arrives within the <[sessionTimeout]>, in which a command
+line is longer than 4096 characters, after three rejected logins, and when the shell stops.
 
 
 !!! Adding Custom Commands to the OSP Command Shell Service
@@ -359,7 +368,7 @@ Poco::OSP::Shell::OSPCommand class.
 
 The following sample code implements an <[echo]> command that simply
 echoes back all command-line arguments. The command is registered without a
-permission, so it checks itself that the user has logged in.
+permission, so every user who has logged in can run it.
 
 
     #include "Poco/ClassLibrary.h"
@@ -425,11 +434,9 @@ of attributes is given below:
   - <[command]>: the name of the command (e.g., "bundles").
   - <[aliases]>: a comma-separated list of alias names for the command (e.g., "ls").
   - <[permission]>: the permission required to run this command.
-    Without a permission, the command runs in every session, also before
-    a login. Such a command must check the session itself, with
-    Poco::OSP::Shell::Session::authenticated() or
-    Poco::OSP::Shell::Session::authorize(), before it changes anything or
-    acts for a user.
+    Without a permission, the command runs in every session after the
+    login. Before a login, a session runs only the <[help]>, <[login]> and
+    <[quit]> commands of the shell bundle.
   - <[class]>: the class name of the command factory (see the Poco::OSP::Shell::CommandFactory class).
   - <[library]>: the name of the shared library containing the command factory
     (can be omitted if the name of the library matches the name of the bundle).
@@ -452,15 +459,15 @@ The following settings can be customized:
     localhost interface only. For access from other hosts, use the SSH
     server of the shell (setting <[openSSH.server.enabled]>), which a build
     with SSH support provides.
-  - <[port]>: The TCP port number of the shell service. Defaults
-    to 22023.
+  - <[port]>: The TCP port number of the shell service, from 1 to 65535.
+    Defaults to 22023.
   - <[maxConnections]>: The maximum number of simultaneous connections
-    to the shell service. Defaults to 4.
+    to the shell service, at least 1. Defaults to 4.
   - <[sessionTimeout]>: The time in seconds after which the shell service
-    closes a session in which no command has arrived. Defaults to 600.
-    A value of 0 disables the timeout.
+    closes a session in which no command has arrived, at most 86400.
+    Defaults to 600. A value of 0 disables the timeout.
   - <[stopTimeout]>: The time in seconds for which stopping the shell bundle
-    waits for the sessions to end. Defaults to 10. A session that still runs a
+    waits for the sessions to end, at most 86400. Defaults to 10. A session that still runs a
     command after this time ends when the command ends; the objects that it
     uses and the library of the shell bundle are kept until the process ends.
   - <[authServiceName]>: The name of the authentication/authorization service
@@ -477,6 +484,9 @@ in the OSP application's global configuration file:
   - <[com.appinf.osp.shell.stopTimeout]>
   - <[com.appinf.osp.shell.authServiceName]>
 
+A value outside its range fails the start of the shell bundle, also for the
+settings of the SSH server below.
+
 !! The SSH Server
 
 In a build with SSH support, the following settings in the OSP application's global
@@ -487,13 +497,13 @@ configuration file control the SSH server of the shell. The SSH sessions use the
     service. Defaults to false.
   - <[openSSH.server.interface]>: The network interface where the SSH server listens.
     Defaults to the <[interface]> setting.
-  - <[openSSH.server.port]>: The TCP port number of the SSH server. Defaults to the
-    <[port]> setting.
+  - <[openSSH.server.port]>: The TCP port number of the SSH server, from 1 to 65535.
+    Defaults to the <[port]> setting.
   - <[openSSH.server.maxConnections]>: The maximum number of simultaneous SSH
-    connections. Defaults to the <[maxConnections]> setting.
+    connections, at least 1. Defaults to the <[maxConnections]> setting.
   - <[openSSH.server.loginGraceTime]>: The time in seconds within which a client must
-    log in and open the shell session; the connection is closed otherwise. Defaults
-    to 60. A value of 0 disables the limit.
+    log in and open the shell session, at most 86400; the connection is closed
+    otherwise. Defaults to 60. A value of 0 disables the limit.
   - <[openSSH.server.maxAuthAttempts]>: The number of rejected authentication attempts
     after which a connection is closed. Defaults to 3; a larger value is reduced to 3.
   - <[openSSH.server.passwordAuth]>: Accepts password logins, which the
@@ -505,7 +515,9 @@ configuration file control the SSH server of the shell. The SSH sessions use the
     under the SSH user name. Defaults to true.
   - <[openSSH.server.authorizedKeysDir]>: The directory with the public keys of the
     users: one file per user, named after the user name, with one key per line.
-    An empty value, the default, disables public key logins.
+    An empty value, the default, disables public key logins. The shell closes a
+    connection whose SSH user name is empty, "." or "..", or contains '/', '\' or
+    a control character.
   - <[openSSH.server.hostKeyDir]>: The directory of the host key of the SSH server.
     If the directory has no valid host key, a new key is created. Defaults to the
     persistent directory of the shell bundle.

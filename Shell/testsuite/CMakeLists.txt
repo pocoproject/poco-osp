@@ -16,13 +16,9 @@ file(GLOB_RECURSE HDRS_G "src/*.h")
 POCO_HEADERS_AUTO(TEST_SRCS ${HDRS_G})
 
 # The command extension point is part of the shell bundle, not of the library.
-# The log capture of the Web tests is shared rather than copied.
-list(APPEND TEST_SRCS
-	${CMAKE_CURRENT_SOURCE_DIR}/../src/CommandExtensionPoint.cpp
-	${PROJECT_SOURCE_DIR}/Web/testsuite/src/LogCapture.cpp
-)
+list(APPEND TEST_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/../src/CommandExtensionPoint.cpp)
 
-add_executable(OSPShell-testrunner ${TEST_SRCS})
+poco_add_executable(OSPShell-testrunner ${TEST_SRCS})
 add_test(
 	NAME OSPShell
 	WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
@@ -30,13 +26,9 @@ add_test(
 )
 
 target_link_libraries(OSPShell-testrunner
-	PRIVATE Poco::OSPShell Poco::OSP Poco::Net Poco::Util Poco::XML Poco::Foundation Poco::CppUnit
+	PRIVATE OSPTestSupport Poco::OSPShell Poco::OSP Poco::Net Poco::Util Poco::XML Poco::Foundation Poco::CppUnit
 )
-target_include_directories(OSPShell-testrunner
-	PRIVATE
-		${CMAKE_CURRENT_SOURCE_DIR}/../src
-		${PROJECT_SOURCE_DIR}/Web/testsuite/src
-)
+target_include_directories(OSPShell-testrunner PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
 # The tests load the shell and command bundles that the build creates, with
 # the bundle properties and extensions of their source directories.
@@ -51,6 +43,24 @@ target_compile_definitions(OSPShell-testrunner
 		"OSPSHELL_TEST_SHELL_LIBRARY=\"$<TARGET_FILE:com.appinf.osp.shell>\""
 		"OSPSHELL_TEST_COMMANDS_LIBRARY=\"$<TARGET_FILE:com.appinf.osp.shell.commands>\""
 		"OSPSHELL_TEST_LOGLEVEL_LIBRARY=\"$<TARGET_FILE:com.appinf.osp.shell.loglevelcommand>\""
+)
+
+# Two libraries that export a command factory class with the same name, whose
+# commands write the name of their library.
+foreach(name first second)
+	add_library(OSPShellTestLibrary_${name} MODULE library/TestCommandLibrary.cpp)
+	# Hidden symbols, so that the two libraries do not use each other's code.
+	set_target_properties(OSPShellTestLibrary_${name}
+		PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON
+	)
+	target_compile_definitions(OSPShellTestLibrary_${name} PRIVATE "OSPSHELL_TEST_LIBRARY_NAME=\"${name}\"")
+	target_link_libraries(OSPShellTestLibrary_${name} PRIVATE Poco::OSPShell Poco::Foundation)
+	add_dependencies(OSPShell-testrunner OSPShellTestLibrary_${name})
+endforeach()
+target_compile_definitions(OSPShell-testrunner
+	PRIVATE
+		"OSPSHELL_TEST_FIRST_LIBRARY=\"$<TARGET_FILE:OSPShellTestLibrary_first>\""
+		"OSPSHELL_TEST_SECOND_LIBRARY=\"$<TARGET_FILE:OSPShellTestLibrary_second>\""
 )
 
 # The client tests run ospsh against a shell server of the test runner.

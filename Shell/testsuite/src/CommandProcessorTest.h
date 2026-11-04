@@ -39,10 +39,10 @@ public:
 	void testRemoveBundleRemovesItsCommands();
 	void testRemoveCommand();
 	void testPermissionIsChecked();
-	void testCommandWithoutPermissionRunsBeforeLogin();
+	void testCommandWithoutPermissionRunsOnlyAfterLogin();
 	void testUnknownCommandBeforeLoginIsDenied();
 	void testUnknownCommandAfterLoginThrows();
-	void testHelpBeforeLoginListsCommandsWithoutPermission();
+	void testHelpBeforeLoginListsLoginHelpAndQuit();
 	void testParseCommandLineQuotesAndEscapes();
 	void testParseCommandLineSeparators();
 

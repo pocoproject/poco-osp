@@ -36,6 +36,8 @@ public:
 	void testCommandsOfStoppedBundleAreRemoved();
 	void testCommandsOfStoppedBundleAreNotAdded();
 	void testCommandRunsToEndWhenItsBundleStops();
+	void testFactoryClassComesFromBundleLibrary();
+	void testFactoryClassNotInBundleLibraryIsNotFound();
 
 	static CppUnit::Test* suite();
 

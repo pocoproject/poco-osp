@@ -66,7 +66,7 @@ using namespace std::string_literals;
 namespace
 {
 	std::string manifest(const std::string& symbolicName, const std::string& requiredBundle,
-		const std::string& activator)
+		const std::string& activator, const std::string& headers)
 	{
 		std::string text =
 			"Manifest-Version: 1.0\n"
@@ -83,7 +83,7 @@ namespace
 		{
 			text += "Bundle-Activator: " + activator + "\n";
 		}
-		return text;
+		return text + headers;
 	}
 
 	std::string sharedCodeCachePath()
@@ -187,9 +187,10 @@ void ShellFixture::addCommand(const std::string& command, const std::string& per
 }
 
 
-void ShellFixture::addBundle(const std::string& symbolicName, const std::string& requiredBundle)
+void ShellFixture::addBundle(const std::string& symbolicName, const std::string& requiredBundle,
+	const std::string& headers)
 {
-	createBundle(symbolicName, requiredBundle, ""s);
+	createBundle(symbolicName, requiredBundle, ""s, ""s, ""s, headers);
 	Poco::OSP::Bundle::Ptr pBundle = bundle(symbolicName);
 	pBundle->resolve();
 	pBundle->start();
@@ -290,7 +291,7 @@ void ShellFixture::stopServer()
 
 void ShellFixture::createBundle(const std::string& symbolicName, const std::string& requiredBundle,
 	const std::string& sourceDirectory,
-	const std::string& activator, const std::string& properties)
+	const std::string& activator, const std::string& properties, const std::string& headers)
 {
 	Path bundlePath(_directory.path());
 	bundlePath.makeDirectory();
@@ -319,7 +320,7 @@ void ShellFixture::createBundle(const std::string& symbolicName, const std::stri
 	const Path manifestPath(bundlePath, Path("META-INF/manifest.mf"s, Path::PATH_UNIX));
 	Poco::File(manifestPath.parent()).createDirectories();
 	Poco::FileOutputStream ostr(manifestPath.toString());
-	ostr << manifest(symbolicName, requiredBundle, activator);
+	ostr << manifest(symbolicName, requiredBundle, activator, headers);
 	ostr.close();
 	_pLoader->loadBundle(bundlePath.toString());
 }

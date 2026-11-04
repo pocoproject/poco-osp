@@ -85,8 +85,8 @@ public:
 
 	void loginWithKey(const std::string& userName);
 		/// Marks the user as authenticated without checking credentials.
-		/// Used for SSH public key authentication where key possession
-		/// has already been verified.
+		/// Used for the SSH sessions, whose user the SSH server has already
+		/// authenticated with a password or a public key.
 
 	[[nodiscard]] bool authenticated() const;
 		/// Returns true if the user is authenticated.

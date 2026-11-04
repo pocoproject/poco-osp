@@ -5,7 +5,7 @@
 // Package: Shell
 // Module:  Shell
 //
-// Basic definitions for the Poco OSP Shell library.
+// Basic definitions for the POCO OSP Shell library.
 // This file must be the first file included by every other OSP Shell
 // header file.
 //

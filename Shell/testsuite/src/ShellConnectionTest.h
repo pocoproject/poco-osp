@@ -38,8 +38,11 @@ public:
 	void testCommandResponse();
 	void testQuitEndsSession();
 	void testExceptionFromCommandIsServerError();
+	void testStdExceptionFromCommandIsServerError();
 	void testLoginGrantsPermission();
+	void testLoginTakesCredentialsStartingWithDash();
 	void testBundleStopEndsSessionWithoutError();
+	void testClientResetBeforeSessionStartIsNoError();
 	void testRejectedLoginsAreDelayedAndCloseConnection();
 	void testLoginsFailedByAuthServiceAreDelayedAndCloseConnection();
 	void testLoginsFailedByStdExceptionAreDelayedAndCloseConnection();

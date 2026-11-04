@@ -24,6 +24,9 @@
 #include "Poco/OSP/Shell/LoginFailures.h"
 #include "Poco/OSP/Shell/SessionTracker.h"
 #include "Poco/Net/SocketAddress.h"
+#include "Poco/Net/SocketDefs.h"
+#include "Poco/Net/StreamSocket.h"
+#include "Poco/Exception.h"
 #include "Poco/NumberFormatter.h"
 #include "Poco/Types.h"
 #include <chrono>
@@ -55,6 +58,14 @@ void handleRejectedLogin(const ShellConnection::Config& config, SessionTracker& 
 void logIdleSessionClosed(const ShellConnection::Config& config, const Poco::Net::SocketAddress& clientAddress);
 	/// Logs that the session from the given client address is closed because
 	/// no command has arrived within the session timeout.
+
+void logLongCommandLine(const ShellConnection::Config& config, const Poco::Net::SocketAddress& clientAddress);
+	/// Logs that the session from the given client address is closed because
+	/// a command line is longer than MAX_COMMAND_LINE_LENGTH.
+
+void shutdownSocket(Poco::Net::StreamSocket& socket);
+	/// Shuts the connection of a session down in both directions, so that
+	/// the session ends. An error is ignored: the connection has ended then.
 
 
 //
@@ -120,6 +131,35 @@ inline void logIdleSessionClosed(const ShellConnection::Config& config, const Po
 	msg += Poco::NumberFormatter::format(static_cast<Poco::Int64>(config.sessionTimeout.count()));
 	msg += " seconds.";
 	config.commandProcessor.context()->logger().information(msg);
+}
+
+
+inline void logLongCommandLine(const ShellConnection::Config& config, const Poco::Net::SocketAddress& clientAddress)
+{
+	std::string msg("Closing the shell session from ");
+	msg += clientAddress.toString();
+	msg += ": a command line is longer than ";
+	msg += Poco::NumberFormatter::format(MAX_COMMAND_LINE_LENGTH);
+	msg += " characters.";
+	config.commandProcessor.context()->logger().warning(msg);
+}
+
+
+inline void shutdownSocket(Poco::Net::StreamSocket& socket)
+{
+	try
+	{
+		socket.shutdown();
+#if defined(POCO_OS_FAMILY_WINDOWS)
+		// On Windows, a shutdown does not end the select() that libssh waits in; cancelling
+		// the I/O of the socket does, also through a duplicate descriptor.
+		::CancelIoEx(reinterpret_cast<HANDLE>(socket.impl()->sockfd()), nullptr);
+#endif
+	}
+	catch (Poco::Exception&)
+	{
+		// The client has closed the connection already, so the session ends anyway.
+	}
 }
 
 

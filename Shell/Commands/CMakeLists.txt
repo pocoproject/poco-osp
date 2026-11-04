@@ -10,18 +10,9 @@ file(GLOB_RECURSE HDRS_G "src/*.h")
 POCO_HEADERS_AUTO(SRCS ${HDRS_G})
 
 # Dynamic Library
-add_library(${TARGET} MODULE ${SRCS})
-set_target_properties(${TARGET}
-	PROPERTIES
-	PREFIX ""
-)
+poco_osp_bundle_module(${TARGET} ${SRCS})
 
-# On macOS, use .dylib instead of .so
-if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
-	set_target_properties(${TARGET} PROPERTIES SUFFIX ".dylib")
-endif()
-
-target_link_libraries(${TARGET} PRIVATE Poco::OSPShell Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation)
+target_link_libraries(${TARGET} PRIVATE Poco::OSPShell Poco::OSP Poco::Util Poco::XML Poco::Foundation)
 
 # Build Bundle
 poco_osp_bundle(${TARGET}-bundle
@@ -29,11 +20,5 @@ poco_osp_bundle(${TARGET}-bundle
 	SPEC ${BUNDLE_SPEC}
 	CODE $<TARGET_FILE:${TARGET}>
 	DESTINATION ${POCO_OSP_BUNDLE_DIR}
-)
-
-install(
-	DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
-	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
-	COMPONENT    Bundles
-	FILES_MATCHING PATTERN "${TARGET}*.bndl"
+	INSTALL_COMPONENT Bundles
 )

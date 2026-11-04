@@ -15,8 +15,10 @@
 
 
 #include "CppUnit/TestCase.h"
+#include "Poco/OSP/BundleEvent.h"
 #include <memory>
 #include <string>
+#include <vector>
 
 
 class ShellFixture;
@@ -40,7 +42,10 @@ public:
 	void testUpgradeOfShellBundleIsRefused();
 	void testStopOfOtherBundle();
 	void testStopOfBundleWithDependentsIsRefused();
+	void testStopOfBundleWithModuleDependentsIsRefused();
+	void testStopAllStopsModuleDependentsFirst();
 	void testBundlesListsStateAndVersion();
+	void testReadCommandsAreDeniedBeforeLogin();
 
 	static CppUnit::Test* suite();
 
@@ -54,7 +59,11 @@ private:
 	[[nodiscard]] Result execute(const std::string& commandLine);
 		/// Executes the command line in a session of the administrator.
 
+	void onBundleStopping(const void* pSender, Poco::OSP::BundleEvent& event);
+		/// Records the symbolic name of the bundle that is stopping.
+
 	std::unique_ptr<ShellFixture> _pFixture;
+	std::vector<std::string> _stoppingBundles;
 };
 
 

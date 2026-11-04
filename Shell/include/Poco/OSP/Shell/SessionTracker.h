@@ -71,8 +71,6 @@ public:
 		/// time, and returns the number of sessions that are still active.
 
 private:
-	static void shutdown(Poco::Net::StreamSocket& socket);
-
 	mutable std::mutex _mutex;
 	std::condition_variable _changed;
 	std::vector<Poco::Net::StreamSocket> _sockets;

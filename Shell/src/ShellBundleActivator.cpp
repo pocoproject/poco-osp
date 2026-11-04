@@ -33,10 +33,12 @@
 #include "Poco/Types.h"
 #include "CommandExtensionPoint.h"
 #include <chrono>
+#include <limits>
 #include <memory>
 #include <string>
 #if defined(OSP_SHELL_ENABLE_SSH)
 #include "Poco/SSH/SSHServer.h"
+#include "Poco/SSH/SSHServerConfig.h"
 #include "Poco/SSH/SSHHostKeyManager.h"
 #include "Poco/SSH/SSHTypes.h"
 #include "Poco/OSP/Shell/SessionTracker.h"
@@ -76,7 +78,7 @@ public:
 		ServiceRef::Ptr pPrefsSvcRef = pContext->registry().findByName("osp.core.preferences");
 		std::string authServiceName  = pContext->thisBundle()->properties().getString("authServiceName");
 		std::string interfc          = pContext->thisBundle()->properties().getString("interface");
-		Poco::UInt16 port            = pContext->thisBundle()->properties().getInt("port");
+		int port                     = pContext->thisBundle()->properties().getInt("port");
 		int maxConnections           = pContext->thisBundle()->properties().getInt("maxConnections", 4);
 		int sessionTimeout           = pContext->thisBundle()->properties().getInt("sessionTimeout",
 			static_cast<int>(DEFAULT_SESSION_TIMEOUT.count()));
@@ -93,6 +95,10 @@ public:
 				sessionTimeout);
 			stopTimeout     = pPrefsSvc->configuration()->getInt("com.appinf.osp.shell.stopTimeout", stopTimeout);
 		}
+		checkSetting("port", port, 1, MAX_PORT);
+		checkSetting("maxConnections", maxConnections, 1, std::numeric_limits<int>::max());
+		checkSetting("sessionTimeout", sessionTimeout, 0, static_cast<int>(MAX_TIMEOUT.count()));
+		checkSetting("stopTimeout", stopTimeout, 0, static_cast<int>(MAX_TIMEOUT.count()));
 		_stopTimeout = std::chrono::seconds(stopTimeout);
 
 		_pCommandProcessor = std::make_unique<CommandProcessor>(pContext);
@@ -110,57 +116,81 @@ public:
 			AutoPtr<ExtensionPointService> pXPS = pXPSRef->castedInstance<ExtensionPointService>();
 			_pCommandExtensionPoint = new CommandExtensionPoint(*_pCommandProcessor);
 			pXPS->registerExtensionPoint(pContext->thisBundle(), CommandExtensionPoint::EXTPOINT, _pCommandExtensionPoint);
-
+			try
+			{
 #if defined(OSP_SHELL_ENABLE_SSH)
-			bool sshEnabled = false;
-			if (pPrefsSvcRef != nullptr)
-			{
-				Poco::AutoPtr<PreferencesService> pPrefsSvc = pPrefsSvcRef->castedInstance<PreferencesService>();
-				sshEnabled = pPrefsSvc->configuration()->getBool("openSSH.server.enabled", false);
-			}
-			if (sshEnabled)
-			{
-				Poco::AutoPtr<PreferencesService> pPrefsSvc = pPrefsSvcRef->castedInstance<PreferencesService>();
-				Poco::SSH::SSHServerConfig sshConfig;
-				sshConfig.bindAddress       = pPrefsSvc->configuration()->getString("openSSH.server.interface", interfc);
-				sshConfig.port              = pPrefsSvc->configuration()->getInt("openSSH.server.port", port);
-				sshConfig.maxConnections    = pPrefsSvc->configuration()->getInt("openSSH.server.maxConnections", maxConnections);
-				sshConfig.maxAuthAttempts   = pPrefsSvc->configuration()->getInt("openSSH.server.maxAuthAttempts", 3);
-				sshConfig.enablePasswordAuth = pPrefsSvc->configuration()->getBool("openSSH.server.passwordAuth", true);
-				sshConfig.enablePubkeyAuth  = pPrefsSvc->configuration()->getBool("openSSH.server.pubkeyAuth", true);
-				sshConfig.authorizedKeysDir = pPrefsSvc->configuration()->getString("openSSH.server.authorizedKeysDir", "");
-				const std::chrono::seconds loginGraceTime(pPrefsSvc->configuration()->getInt(
-					"openSSH.server.loginGraceTime", static_cast<int>(DEFAULT_LOGIN_GRACE_TIME.count())));
-				std::string hostKeyDir      = pPrefsSvc->configuration()->getString("openSSH.server.hostKeyDir",
-				                               pContext->persistentDirectory().toString());
-				sshConfig.hostKeyPath = Poco::SSH::SSHHostKeyManager::ensureHostKey(hostKeyDir);
+				bool sshEnabled = false;
+				if (pPrefsSvcRef != nullptr)
+				{
+					Poco::AutoPtr<PreferencesService> pPrefsSvc = pPrefsSvcRef->castedInstance<PreferencesService>();
+					sshEnabled = pPrefsSvc->configuration()->getBool("openSSH.server.enabled", false);
+				}
+				if (sshEnabled)
+				{
+					Poco::AutoPtr<PreferencesService> pPrefsSvc = pPrefsSvcRef->castedInstance<PreferencesService>();
+					Poco::SSH::SSHServerConfig sshConfig;
+					sshConfig.bindAddress       = pPrefsSvc->configuration()->getString(
+						"openSSH.server.interface", interfc);
+					const int sshPort           = pPrefsSvc->configuration()->getInt("openSSH.server.port", port);
+					checkSetting("openSSH.server.port", sshPort, 1, MAX_PORT);
+					sshConfig.port              = static_cast<Poco::UInt16>(sshPort);
+					sshConfig.maxConnections    = pPrefsSvc->configuration()->getInt(
+						"openSSH.server.maxConnections", maxConnections);
+					checkSetting("openSSH.server.maxConnections", sshConfig.maxConnections,
+						1, std::numeric_limits<int>::max());
+					sshConfig.maxAuthAttempts   = pPrefsSvc->configuration()->getInt(
+						"openSSH.server.maxAuthAttempts", 3);
+					sshConfig.enablePasswordAuth = pPrefsSvc->configuration()->getBool(
+						"openSSH.server.passwordAuth", true);
+					sshConfig.enablePubkeyAuth  = pPrefsSvc->configuration()->getBool(
+						"openSSH.server.pubkeyAuth", true);
+					sshConfig.authorizedKeysDir = pPrefsSvc->configuration()->getString(
+						"openSSH.server.authorizedKeysDir", "");
+					const int loginGraceSeconds = pPrefsSvc->configuration()->getInt(
+						"openSSH.server.loginGraceTime", static_cast<int>(DEFAULT_LOGIN_GRACE_TIME.count()));
+					checkSetting("openSSH.server.loginGraceTime", loginGraceSeconds,
+						0, static_cast<int>(MAX_TIMEOUT.count()));
+					const std::chrono::seconds loginGraceTime(loginGraceSeconds);
+					std::string hostKeyDir      = pPrefsSvc->configuration()->getString("openSSH.server.hostKeyDir",
+					                               pContext->persistentDirectory().toString());
+					sshConfig.hostKeyPath = Poco::SSH::SSHHostKeyManager::ensureHostKey(hostKeyDir);
 
-				// SSHShellConnection checks the passwords with the authentication service.
-				const ShellConnection::Config config{
-					*_pCommandProcessor, authServiceName, *_pLoginFailures, std::chrono::seconds(sessionTimeout)};
-				_pSSHSessions = std::make_unique<SessionTracker>();
-				SessionTracker& sessions = *_pSSHSessions;
-				_pSSHServer.reset(new Poco::SSH::SSHServer(sshConfig,
-					[config, &sessions, loginGraceTime](
-						ssh_session s, const Poco::SSH::SSHServerConfig& cfg, Poco::SSH::SSHServer& srv)
-						-> Poco::SSH::SSHSession*
-					{
-						return new SSHShellConnection(s, cfg, srv, config, sessions, loginGraceTime);
-					}
-				));
-				_pSSHServer->start();
-				pContext->logger().information("SSH shell server listening on " +
-					sshConfig.bindAddress + ":" + std::to_string(sshConfig.port));
-			}
-			else
+					// SSHShellConnection checks the passwords with the authentication service.
+					const ShellConnection::Config config{
+						*_pCommandProcessor, authServiceName, *_pLoginFailures, std::chrono::seconds(sessionTimeout)};
+					_pSSHSessions = std::make_unique<SessionTracker>();
+					SessionTracker& sessions = *_pSSHSessions;
+					_pSSHServer.reset(new Poco::SSH::SSHServer(sshConfig,
+						[config, &sessions, loginGraceTime](
+							ssh_session s, const Poco::SSH::SSHServerConfig& cfg, Poco::SSH::SSHServer& srv)
+							-> Poco::SSH::SSHSession*
+						{
+							return new SSHShellConnection(s, cfg, srv, config, sessions, loginGraceTime);
+						}
+					));
+					_pSSHServer->start();
+					pContext->logger().information("SSH shell server listening on " +
+						sshConfig.bindAddress + ":" + std::to_string(sshConfig.port));
+				}
+				else
 #endif
+				{
+					Poco::Net::SocketAddress addr(interfc, static_cast<Poco::UInt16>(port));
+					Poco::Net::ServerSocket serverSocket(addr);
+					const ShellConnection::Config config{
+						*_pCommandProcessor, authServiceName, *_pLoginFailures, std::chrono::seconds(sessionTimeout)};
+					_pShellServer = std::make_unique<ShellServer>(serverSocket, maxConnections, config);
+					_pShellServer->start();
+				}
+			}
+			catch (...)
 			{
-				Poco::Net::SocketAddress addr(interfc, port);
-				Poco::Net::ServerSocket serverSocket(addr);
-				const ShellConnection::Config config{
-					*_pCommandProcessor, authServiceName, *_pLoginFailures, std::chrono::seconds(sessionTimeout)};
-				_pShellServer = std::make_unique<ShellServer>(serverSocket, maxConnections, config);
-				_pShellServer->start();
+				// Bundle::start() does not stop a bundle whose start fails, so the
+				// extension point service would keep the extension point, which
+				// refers to the command processor that the next start replaces.
+				pXPS->unregisterExtensionPoint(CommandExtensionPoint::EXTPOINT);
+				_pCommandExtensionPoint.reset();
+				throw;
 			}
 		}
 		else
@@ -171,6 +201,10 @@ public:
 		
 	void stop(BundleContext::Ptr pContext) override
 	{
+		// The extension point service releases the extension point when the
+		// bundle has stopped. It must not outlive the command processor, which
+		// the next start replaces.
+		_pCommandExtensionPoint.reset();
 		bool sessionsEnded = true;
 #if defined(OSP_SHELL_ENABLE_SSH)
 		if (_pSSHServer != nullptr)
@@ -243,8 +277,23 @@ public:
 	}
 	
 private:
+	static void checkSetting(const std::string& name, int value, int minimum, int maximum)
+		/// Throws a Poco::InvalidArgumentException if the value of the setting
+		/// with the given name is outside the range from minimum to maximum.
+	{
+		if (value < minimum || value > maximum)
+		{
+			throw Poco::InvalidArgumentException("The shell setting " + name + " is " + std::to_string(value) +
+				"; it must be from " + std::to_string(minimum) + " to " + std::to_string(maximum) + ".");
+		}
+	}
+
 	static constexpr std::chrono::seconds DEFAULT_SESSION_TIMEOUT{600};
 	static constexpr std::chrono::seconds DEFAULT_STOP_TIMEOUT{10};
+	static constexpr int MAX_PORT = 65535;
+	static constexpr std::chrono::seconds MAX_TIMEOUT{86400};
+		/// The longest timeout. The SSH sessions pass the remaining session
+		/// time to libssh in milliseconds, as an int.
 
 	AutoPtr<CommandExtensionPoint>    _pCommandExtensionPoint;
 	std::unique_ptr<CommandProcessor> _pCommandProcessor;

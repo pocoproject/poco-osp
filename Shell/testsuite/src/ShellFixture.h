@@ -103,9 +103,11 @@ public:
 		/// Adds a command that calls the given function to the command processor,
 		/// with the given permission and a factory in the context of the shell bundle.
 
-	void addBundle(const std::string& symbolicName, const std::string& requiredBundle);
+	void addBundle(const std::string& symbolicName, const std::string& requiredBundle,
+		const std::string& headers = std::string());
 		/// Creates and starts a bundle with the given symbolic name, which
-		/// requires the given bundle.
+		/// requires the given bundle unless it is empty, with the given
+		/// manifest headers (each ending in a newline) added to its manifest.
 
 	void addCommandBundle(const std::string& symbolicName, const std::string& sourceDirectory,
 		const std::string& libraryPath);
@@ -168,13 +170,15 @@ public:
 private:
 	void createBundle(const std::string& symbolicName, const std::string& requiredBundle,
 		const std::string& sourceDirectory,
-		const std::string& activator = std::string(), const std::string& properties = std::string());
+		const std::string& activator = std::string(), const std::string& properties = std::string(),
+		const std::string& headers = std::string());
 		/// Creates the directory bundle with the given symbolic name, which requires
 		/// the given bundle unless it is empty, with the files of the given directory
 		/// (relative to the shell source directory) unless it is empty.
 		///
 		/// A non-empty activator is the class name of the bundle activator, and
-		/// non-empty properties are added to the bundle.properties file.
+		/// non-empty properties are added to the bundle.properties file. The given
+		/// manifest headers are added to the manifest.
 
 	void installLibrary(const std::string& symbolicName, const std::string& path);
 		/// Copies the library at the given path to the code cache, as the library

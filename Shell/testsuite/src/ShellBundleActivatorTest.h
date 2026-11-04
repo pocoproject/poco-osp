@@ -34,6 +34,8 @@ public:
 	void tearDown() override;
 
 	void testStopReturnsAfterTimeoutAndKeepsObjectsOfSession();
+	void testStartAfterFailedStartSucceeds();
+	void testOutOfRangeSettingFailsStart();
 #if defined(OSP_SHELL_ENABLE_SSH)
 	void testSSHStopReturnsAfterTimeoutAndKeepsObjectsOfSession();
 #endif
