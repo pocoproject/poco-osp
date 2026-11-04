@@ -15,12 +15,27 @@
 
 
 #include "Poco/OSP/BundleSign/SignatureFile.h"
+#include "Poco/Ascii.h"
 #include "Poco/Exception.h"
+#include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <string>
+#include <string_view>
+#include <vector>
 
 
 namespace Poco::OSP::BundleSign {
+
+
+namespace {
+
+
+constexpr std::string_view VALUE_SEPARATOR = ": ";
+constexpr std::string_view LINE_END = "\n";
+
+
+} // anonymous namespace
 
 
 const std::string SignatureFile::SIGNATURE_VERSION("Signature-Version");
@@ -44,21 +59,23 @@ SignatureFile::~SignatureFile() = default;
 
 void SignatureFile::write(const Signatures& signatures, std::ostream& ostr) const
 {
-	ostr << SIGNATURE_VERSION << ": " << _version << "\n";
+	ostr << SIGNATURE_VERSION << VALUE_SEPARATOR << _version << LINE_END;
 	if (!_creator.empty())
 	{
-	     ostr << CREATED_BY << ": " << _creator << "\n";
+		ostr << CREATED_BY << VALUE_SEPARATOR << _creator << LINE_END;
 	}
-	ostr << "\n";
+	ostr << LINE_END;
 	for (Signatures::const_iterator it = signatures.begin(); it != signatures.end(); ++it)
 	{
 		if (it->first.size() > MAX_PATH_LENGTH)
 			throw Poco::InvalidArgumentException("Path is too long for a signature file", it->first);
+		if (!preservesPath(it->first))
+			throw Poco::InvalidArgumentException("Path cannot be written to a signature file", it->first);
 		if (it->second.size() > MAX_DIGEST_LENGTH)
 			throw Poco::InvalidArgumentException("Signature is too long for a signature file", it->first);
-		ostr << NAME << ": " << it->first << "\n"
-		     << _digestType << ": " << it->second << "\n"
-		     << "\n";
+		ostr << NAME << VALUE_SEPARATOR << it->first << LINE_END
+		     << _digestType << VALUE_SEPARATOR << it->second << LINE_END
+		     << LINE_END;
 	}
 }
 
@@ -90,9 +107,30 @@ void SignatureFile::read(Signatures& signatures, std::istream& istr)
 }
 
 
-std::size_t SignatureFile::maxSize(std::size_t fileCount)
+std::size_t SignatureFile::maxSize(const std::vector<std::string>& paths, const std::string& digestType,
+	std::size_t digestLength)
 {
-	return (fileCount + HEADER_ENTRIES)*MAX_ENTRY_LENGTH;
+	// write() writes "Name: <path>\n<digestType>: <hexadecimal digest>\n\n" for each path.
+	const std::size_t entriesLength = NAME.size() + VALUE_SEPARATOR.size() + LINE_END.size()
+		+ digestType.size() + VALUE_SEPARATOR.size() + 2*digestLength + 2*LINE_END.size();
+	std::size_t size = HEADER_ENTRIES*MAX_ENTRY_LENGTH;
+	for (const auto& path: paths)
+	{
+		size += entriesLength + path.size();
+	}
+	return size;
+}
+
+
+bool SignatureFile::preservesPath(const std::string& path)
+{
+	// read() ends a value at a line feed and drops the white space at its start.
+	const auto isControl = [](char c)
+	{
+		return Poco::Ascii::hasProperties(static_cast<unsigned char>(c), Poco::Ascii::ACP_CONTROL);
+	};
+	return !path.empty() && !Poco::Ascii::isSpace(static_cast<unsigned char>(path.front()))
+		&& std::none_of(path.begin(), path.end(), isControl);
 }
 
 

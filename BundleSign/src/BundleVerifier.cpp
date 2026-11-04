@@ -25,6 +25,7 @@
 #include "Poco/Crypto/CryptoException.h"
 #include "Poco/Crypto/X509Certificate.h"
 #include "Poco/DigestEngine.h"
+#include "Poco/MemoryStream.h"
 #include "Poco/SharedPtr.h"
 #include "Poco/Path.h"
 #include "Poco/DateTime.h"
@@ -120,7 +121,8 @@ BundleVerifier::CertificatePtr BundleVerifier::extractCertificate(const std::str
 }
 
 
-BundleVerifier::VerificationResult BundleVerifier::verify(const std::string& alias, const Poco::Crypto::X509Certificate::List& trustedCertificates, std::vector<std::string>& messages)
+BundleVerifier::VerificationResult BundleVerifier::verify(const std::string& alias,
+	const Poco::Crypto::X509Certificate::List& trustedCertificates, std::vector<std::string>& messages)
 {
 	messages.clear();
 
@@ -132,7 +134,8 @@ BundleVerifier::VerificationResult BundleVerifier::verify(const std::string& ali
 		if (!isTrusted(*pCertificate, trustedCertificates, signerMessages))
 		{
 			messages = signerMessages;
-			messages.push_back(Poco::format("The certificate of signer %s (%s) is not trusted", alias, pCertificate->subjectName()));
+			messages.push_back(Poco::format("The certificate of signer %s (%s) is not trusted", alias,
+				pCertificate->subjectName()));
 			return BUNDLE_VERIFICATION_FAILED;
 		}
 		signerCertificates.push_back(*pCertificate);
@@ -179,7 +182,8 @@ BundleVerifier::VerificationResult BundleVerifier::verify(const std::string& ali
 }
 
 
-BundleVerifier::VerificationResult BundleVerifier::verify(const std::string& alias, const Poco::Crypto::X509Certificate& certificate, std::vector<std::string>& messages)
+BundleVerifier::VerificationResult BundleVerifier::verify(const std::string& alias,
+	const Poco::Crypto::X509Certificate& certificate, std::vector<std::string>& messages)
 {
 	messages.clear();
 
@@ -197,7 +201,8 @@ BundleVerifier::VerificationResult BundleVerifier::verify(const std::string& ali
 }
 
 
-BundleVerifier::VerificationResult BundleVerifier::readSignatureFiles(const std::string& alias, SignatureFiles& signatureFiles, std::vector<std::string>& messages) const
+BundleVerifier::VerificationResult BundleVerifier::readSignatureFiles(const std::string& alias,
+	SignatureFiles& signatureFiles, std::vector<std::string>& messages) const
 {
 	std::string rsaPath(META_INF);
 	rsaPath += "/";
@@ -208,7 +213,8 @@ BundleVerifier::VerificationResult BundleVerifier::readSignatureFiles(const std:
 	try
 	{
 		std::string rsaContent;
-		if (!readSignatureFile(rsaPath, SignatureFile::MAX_SIGNATURE_BLOCK_SIZE, rsaContent)) return BUNDLE_VERIFICATION_NO_SIGNATURE;
+		if (!readSignatureFile(rsaPath, SignatureFile::MAX_SIGNATURE_BLOCK_SIZE, rsaContent))
+			return BUNDLE_VERIFICATION_NO_SIGNATURE;
 		std::istringstream rsaStream(rsaContent);
 		SignatureFile rsaFile;
 		SignatureFile::Signatures rsaSignatures;
@@ -217,7 +223,8 @@ BundleVerifier::VerificationResult BundleVerifier::readSignatureFiles(const std:
 		const std::string& signatureType = rsaFile.digestType();
 		for (const auto& algorithm: SignUtility::digestAlgorithms())
 		{
-			if (signatureType == Poco::format("RSA-%s-Signature", algorithm)) signatureFiles.digestAlgorithm = algorithm;
+			if (signatureType == Poco::format("RSA-%s-Signature", algorithm))
+				signatureFiles.digestAlgorithm = algorithm;
 		}
 		if (signatureFiles.digestAlgorithm.empty())
 		{
@@ -226,7 +233,8 @@ BundleVerifier::VerificationResult BundleVerifier::readSignatureFiles(const std:
 		}
 		if (signatureFiles.digestAlgorithm == BundleSigner::SHA1 && !_allowSHA1)
 		{
-			messages.push_back(Poco::format("The signature of %s uses the SHA1 digest algorithm, which is not allowed", alias));
+			messages.push_back(Poco::format("The signature of %s uses the SHA1 digest algorithm, which is not allowed",
+				alias));
 			return BUNDLE_VERIFICATION_FAILED;
 		}
 
@@ -242,7 +250,7 @@ BundleVerifier::VerificationResult BundleVerifier::readSignatureFiles(const std:
 		else
 			return BUNDLE_VERIFICATION_INVALID_SIGNATURE;
 
-		// The size of the signature file is limited by the number of files it can list.
+		// The size of the signature file is limited to what the signer writes for the files of the bundle.
 		std::vector<std::string> files;
 		try
 		{
@@ -253,9 +261,13 @@ BundleVerifier::VerificationResult BundleVerifier::readSignatureFiles(const std:
 			messages.push_back(exc.message());
 			return BUNDLE_VERIFICATION_FAILED;
 		}
-		if (!readSignatureFile(sfPath, SignatureFile::maxSize(files.size()), signatureFiles.content)) return BUNDLE_VERIFICATION_INVALID_SIGNATURE;
+		const std::size_t maxSize = SignatureFile::maxSize(files,
+			Poco::format("%s-Digest", signatureFiles.digestAlgorithm),
+			Poco::Crypto::DigestEngine(signatureFiles.digestAlgorithm).digestLength());
+		if (!readSignatureFile(sfPath, maxSize, signatureFiles.content)) return BUNDLE_VERIFICATION_INVALID_SIGNATURE;
 
-		std::istringstream sfStream(signatureFiles.content);
+		Poco::MemoryInputStream sfStream(signatureFiles.content.data(),
+			static_cast<std::streamsize>(signatureFiles.content.size()));
 		SignatureFile sfFile;
 		sfFile.read(signatureFiles.signatures, sfStream);
 		if (!sfStream.eof()) return BUNDLE_VERIFICATION_INVALID_SIGNATURE;
@@ -277,7 +289,9 @@ BundleVerifier::VerificationResult BundleVerifier::readSignatureFiles(const std:
 }
 
 
-BundleVerifier::VerificationResult BundleVerifier::verifySignature(const std::string& alias, const Poco::Crypto::X509Certificate& certificate, const SignatureFiles& signatureFiles, std::vector<std::string>& messages)
+BundleVerifier::VerificationResult BundleVerifier::verifySignature(const std::string& alias,
+	const Poco::Crypto::X509Certificate& certificate, const SignatureFiles& signatureFiles,
+	std::vector<std::string>& messages)
 {
 	std::unique_ptr<Poco::Crypto::RSAKey> pRSAKey;
 	try
@@ -286,7 +300,8 @@ BundleVerifier::VerificationResult BundleVerifier::verifySignature(const std::st
 	}
 	catch (Poco::Crypto::OpenSSLException&)
 	{
-		messages.push_back(Poco::format("The certificate %s has no RSA key and cannot verify the signature of %s", certificate.subjectName(), alias));
+		messages.push_back(Poco::format("The certificate %s has no RSA key and cannot verify the signature of %s",
+			certificate.subjectName(), alias));
 		return BUNDLE_VERIFICATION_FAILED;
 	}
 	Poco::Crypto::RSADigestEngine rsaEngine(*pRSAKey, signatureFiles.digestAlgorithm);
@@ -300,7 +315,8 @@ BundleVerifier::VerificationResult BundleVerifier::verifySignature(const std::st
 }
 
 
-BundleVerifier::VerificationResult BundleVerifier::verifyFiles(const std::string& digestAlgorithm, SignatureFile::Signatures& signatures, std::vector<std::string>& messages) const
+BundleVerifier::VerificationResult BundleVerifier::verifyFiles(const std::string& digestAlgorithm,
+	SignatureFile::Signatures& signatures, std::vector<std::string>& messages) const
 {
 	SignUtility::Digests digests;
 	Poco::Crypto::DigestEngine digestEngine(digestAlgorithm);
@@ -353,7 +369,8 @@ BundleVerifier::VerificationResult BundleVerifier::verifyFiles(const std::string
 }
 
 
-bool BundleVerifier::isTrusted(const Poco::Crypto::X509Certificate& certificate, const Poco::Crypto::X509Certificate::List& trustedCertificates, std::vector<std::string>& messages)
+bool BundleVerifier::isTrusted(const Poco::Crypto::X509Certificate& certificate,
+	const Poco::Crypto::X509Certificate::List& trustedCertificates, std::vector<std::string>& messages)
 {
 	for (const auto& trustedCertificate: trustedCertificates)
 	{
@@ -364,7 +381,8 @@ bool BundleVerifier::isTrusted(const Poco::Crypto::X509Certificate& certificate,
 		}
 		catch (Poco::InvalidArgumentException&)
 		{
-			messages.push_back(Poco::format("The trusted certificate %s has no public key and is skipped", trustedCertificate.subjectName()));
+			messages.push_back(Poco::format("The trusted certificate %s has no public key and is skipped",
+				trustedCertificate.subjectName()));
 		}
 	}
 	return false;
@@ -376,14 +394,16 @@ bool BundleVerifier::isValidSigner(const Poco::Crypto::X509Certificate& certific
 	const Poco::DateTime now;
 	if (now < certificate.validFrom() || now >= certificate.expiresOn())
 	{
-		messages.push_back(Poco::format("The signer certificate %s is not valid at the current time", certificate.subjectName()));
+		messages.push_back(Poco::format("The signer certificate %s is not valid at the current time",
+			certificate.subjectName()));
 		return false;
 	}
 	// Without an extended key usage extension, OpenSSL reports all usages as allowed.
 	X509* pCertificate = const_cast<X509*>(certificate.certificate());
 	if ((X509_get_extended_key_usage(pCertificate) & XKU_CODE_SIGN) == 0)
 	{
-		messages.push_back(Poco::format("The signer certificate %s does not allow code signing", certificate.subjectName()));
+		messages.push_back(Poco::format("The signer certificate %s does not allow code signing",
+			certificate.subjectName()));
 		return false;
 	}
 	return true;

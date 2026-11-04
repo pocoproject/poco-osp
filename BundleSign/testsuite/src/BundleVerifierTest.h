@@ -18,6 +18,7 @@
 
 #include "Poco/OSP/BundleSign/BundleSign.h"
 #include "Poco/OSP/BundleSign/BundleVerifier.h"
+#include "Poco/Path.h"
 #include "CppUnit/TestCase.h"
 
 
@@ -33,6 +34,9 @@ public:
 	void testVerifyFailModifyFile();
 	void testVerifyFailRemoveFile();
 	void testVerifyFailAddFile();
+	void testVerifyFailFileRenamedInLetterCase();
+	void testVerifyFailModifyFileInDirectoryNamedTilde();
+	void testVerifyFailModifyFileInDirectoryNamedLikeDevice();
 	void testVerifyFailBadSignature();
 	void testVerifyFailMissingSignature();
 	void testVerifyFailUnsupportedSignatureType();
@@ -40,7 +44,14 @@ public:
 	void testVerifyFailSignatureNotHexadecimal();
 	void testVerifyFailOversizedSignatureBlockFile();
 	void testVerifyFailSignatureFileWithMoreEntriesThanFiles();
+	void testVerifyFailSignatureFileLargerThanSignerWrites();
 	void testVerifyBundleWithManyFiles();
+	void testVerifyFailSignatureBlockFileWithoutSignatureFileEntry();
+	void testVerifyFailMissingSignatureFile();
+	void testVerifyFailContentAfterLastSignatureFileEntry();
+	void testVerifyFailSignatureFileWithCRLF();
+	void testVerifySHA2DigestAlgorithms();
+	void testVerifyTwoSigners();
 	void testVerifyFailAddedFileWithoutDirectoryEntry();
 	void testVerifyFailReplacedFileWithoutDirectoryEntry();
 	void testVerifyFailNonCanonicalEntryName();
@@ -68,6 +79,7 @@ private:
 	void signBundleFile(const std::string& keyFile, bool includeCertificate);
 	[[nodiscard]] Poco::OSP::BundleSign::BundleVerifier::VerificationResult verifyBundleFile(const std::string& trustedCertificateFile, std::vector<std::string>& messages) const;
 	[[nodiscard]] std::string writeWorkFile(const std::string& name, const std::string& content) const;
+	static void writeFile(const Poco::Path& path, const std::string& content);
 	[[nodiscard]] std::string bundleDirectoryFile(const std::string& path) const;
 
 	std::string _workDir;

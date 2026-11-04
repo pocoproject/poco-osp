@@ -82,31 +82,31 @@ An example for a typical signature file is shown below.
     Created-By: OSP BundleSigner
 
     Name: META-INF/manifest.mf
-    SHA1-Digest: c81a1f73a6a2710eb954019c153b899459478f98
+    SHA256-Digest: b0424f966df8864a52f15abd40dc13da666b9bf02ce4d42c7083c9c1ded28065
 
     Name: bin/Darwin/i386/com.appinf.osp.bundleadmin.dylib
-    SHA1-Digest: fe769fec98a712d0e21e5c001f87150fd903572f
+    SHA256-Digest: fa82b1f8d4c376c8c85d4d9f2316d995575be63049ab625802cc1ba17737ff38
 
     Name: bin/Darwin/i386/com.appinf.osp.bundleadmind.dylib
-    SHA1-Digest: ffb1a86170b30e973aeacfb297a83ca10a0cc9cd
+    SHA256-Digest: 217f0386518aaa0de857fd4c53b1ed9e2e31133466da57c273fbc0ffd31abef8
 
     Name: bundle.properties
-    SHA1-Digest: 23f1be5373d875316106033f52d3cf12177f844c
+    SHA256-Digest: e2ddda1630bec73dbf5069dca1d258cceb346249d684db2761edce6204dd406a
 
     Name: css/styles.css
-    SHA1-Digest: 7d926a9403b067e8cb61cf1267c938be843bead3
+    SHA256-Digest: f6e4f9cac7473cf1fe513beba97669f195a6e1872bbd857c713d41e0f4b5d289
 
     Name: extensions.xml
-    SHA1-Digest: 106a920530fd490d7f422d6ce42e1a38532d70eb
+    SHA256-Digest: 767a08e1365bf40cd2b9667afbdca141afe7867d82ccac5d3844031793c3d479
 
     Name: images/arrow-left.gif
-    SHA1-Digest: 7c493e28f32ba909ef2f63b80ed08c7c6d58337e
+    SHA256-Digest: 29fe63f0f6753c23db625547f6378f16e3cedf75680d3767c32decc7e025725c
 
     Name: images/arrow-right.gif
-    SHA1-Digest: 1270adfef816fc7eba739d9f5fbd2c11ac587d8f
+    SHA256-Digest: 677d6cedbb17fbcb30cb3a537763c2eb546402a53c4be3722728c5f14a15ed1f
 
     Name: images/bullet.gif
-    SHA1-Digest: 9272111b7d32393ad8d323b12c76322f279735a3
+    SHA256-Digest: d17c0acda3b3c9b10361b363d141bfc470c8a448178886c833dfbb833a78a9bc
 ----
 
 The signature file has the file extension <[.sf]> and is
@@ -126,7 +126,7 @@ An example for a signature block file is shown below.
     Created-By: OSP BundleSigner
 
     Name: META-INF/appinf.com.sf
-    RSA-SHA1-Signature: 0129b7172527d6510c87d64a33e52d33b28eba5568324cc3...
+    RSA-SHA256-Signature: 0129b7172527d6510c87d64a33e52d33b28eba5568324cc3...
 
     X509-Certificate: <common name of the signer>
     -----BEGIN CERTIFICATE-----
@@ -134,7 +134,7 @@ An example for a signature block file is shown below.
     -----END CERTIFICATE-----
 ----
 
-The signature file has the file extension <[.rsa]> and is
+The signature block file has the file extension <[.rsa]> and is
 always located in the <*META-INF*> directory of the bundle.
 
 !! How Signing Works
@@ -160,7 +160,22 @@ To sign a bundle, the following steps are performed.
      (optionally) in the bundle (the <*signature block file*>).
 
 After performing these four steps the bundle is digitally
-signed and can be later be verified.
+signed and can later be verified.
+
+Signing a bundle file changes the entries of the ZIP archive that
+have an extra field (the zip command of Info-ZIP writes one by default):
+such a file entry, other than the signature files of the signer, which
+are replaced, is decompressed and compressed again, keeping its
+modification time, and such a directory entry is removed. For a file
+that is compressed again and is two or more directory levels deep,
+a directory entry without an extra field is written for each parent
+directory that has no entry yet, with the modification time of the
+temporary directory that holds the copy of the file. A file entry compressed again has no
+Unix file attributes, so a bundle file is not signed if such an entry
+has, in the upper 16 bits of its external file attributes, the mode of
+a symbolic link or a mode with an execute bit set. Poco::Zip writes no
+mode there for the entries it creates. The bundle tool with --symlinks
+writes entries without an extra field.
 
 ! Verifying The Integrity of a Signed Bundle
 
@@ -201,14 +216,16 @@ certificate must be one of the trusted certificates, or be issued by one of them
 It is possible for a bundle to contain signatures from multiple signers.
 Every signer uses an alias name to sign the bundle. The alias name is
 used to build the file name of the signature and signature block files.
-The alias name is usually the same as the bundle's common name, but
-it can be different as well. For example, if the signer's alias
+The alias name is usually the same as the common name of the signer's
+certificate, but it can be different as well. It must be usable as a file
+name: it must not be empty, must not begin with a period or with white space, and
+must not contain a slash, a backslash, a colon or a control character. For example, if the signer's alias
 name is "signer", then the signature file would be
 <*META-INF/signer.sf*>, and the signature block file would be
 <*META-INF/signer.rsa*>, respectively.
 
 Note that in case of multiple signers, signature files (<*META-INF/*.sf*> and
-<*META-INF/*.rsa*> are excluded from signing.
+<*META-INF/*.rsa*>) are excluded from signing.
 
 
 !!! Signing Bundles
@@ -244,8 +261,13 @@ the alias name is taken from the certificate's common name, or,
 if no certificate has been specified, from the private key file's
 name.
 
+The digest algorithm is SHA256, unless the <[/digest-type]> (or <[--digest-type]>)
+option selects SHA1, SHA224, SHA384 or SHA512.
+
 The path of the bundle file (or directory) must be passed as command line argument
-as well.
+as well. The tool exits with 65 if it refuses the bundle file because of its
+entries (duplicate or invalid names, a corrupt entry, a link or an executable
+file with a ZIP extra field).
 
 Example: The following command will sign the bundle using the private key contained
 in file <*appinf.com.pem*>, and store the certificate (contained in the same file) in
@@ -298,9 +320,9 @@ files in PEM format. Without a trusted certificate, the tool does
 not verify the bundle; a certificate stored in the bundle is not
 trusted by itself.
 
-The tool exits with a status other than 0 if the bundle is not
-signed, if its signature is malformed, if it has been modified, or
-if its signer is not trusted.
+The tool exits with 65 if the bundle is not signed, if its signature
+is malformed, if it has been modified, or if its signer is not
+trusted, and with 64 if no trusted certificate is given.
 
 In case of multiple signers, the signature to verify can
 be specified via the <[/alias]> (or <[--alias]>) command-line

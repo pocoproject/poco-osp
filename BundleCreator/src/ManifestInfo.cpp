@@ -1,7 +1,7 @@
 //
 // ManifestInfo.cpp
 //
-// This sample demonstrates the OSP framework.
+// Implementation of the ManifestInfo class.
 //
 // Copyright (c) 2007-2014, Applied Informatics Software Engineering GmbH.
 // All rights reserved.

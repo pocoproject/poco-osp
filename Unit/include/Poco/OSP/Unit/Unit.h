@@ -5,7 +5,7 @@
 // Package: Unit
 // Module:  Unit
 //
-// Basic definitions for the Poco OSP Unit library.
+// Basic definitions for the POCO OSP Unit library.
 // This file must be the first file included by every other OSP Unit
 // header file.
 //

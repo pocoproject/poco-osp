@@ -25,13 +25,6 @@
 #include <ostream>
 
 
-namespace CppUnit {
-
-class TextTestResult;
-
-};
-
-
 namespace Poco::OSP::Unit {
 
 

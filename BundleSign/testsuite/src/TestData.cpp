@@ -9,7 +9,15 @@
 
 
 #include "TestData.h"
+#include "Poco/OSP/BundleSign/BundleSigner.h"
+#include "Poco/Crypto/RSAKey.h"
+#include "Poco/Crypto/RSADigestEngine.h"
+#include "Poco/Crypto/CryptoException.h"
 #include "Poco/Zip/Compress.h"
+#include "Poco/Zip/SkipCallback.h"
+#include "Poco/Zip/ZipCommon.h"
+#include "Poco/Zip/ZipFileInfo.h"
+#include "Poco/Zip/ZipLocalFileHeader.h"
 #include "Poco/TemporaryFile.h"
 #include "Poco/Environment.h"
 #include "Poco/StreamCopier.h"
@@ -19,8 +27,12 @@
 #include "Poco/Bugcheck.h"
 #include "Poco/File.h"
 #include "Poco/Path.h"
+#include <algorithm>
+#include <array>
 #include <fstream>
+#include <iterator>
 #include <sstream>
+#include <string>
 
 
 std::string TestData::createWorkDirectory()
@@ -64,6 +76,21 @@ void TestData::renameEntry(const std::string& path, const std::string& name, con
 }
 
 
+bool TestData::hasContiguousEntries(const std::string& path)
+{
+	Poco::FileInputStream istr(path);
+	Poco::Zip::SkipCallback skipData;
+	std::array<char, Poco::Zip::ZipCommon::HEADER_SIZE> signature{};
+	while (istr.read(signature.data(), signature.size())
+		&& std::equal(signature.begin(), signature.end(), std::begin(Poco::Zip::ZipLocalFileHeader::HEADER)))
+	{
+		// reads the rest of the header and skips the entry's data
+		const Poco::Zip::ZipLocalFileHeader header(istr, true, skipData);
+	}
+	return istr.good() && std::equal(signature.begin(), signature.end(), std::begin(Poco::Zip::ZipFileInfo::HEADER));
+}
+
+
 void TestData::replaceInFile(const std::string& path, const std::string& text, const std::string& replacement)
 {
 	Poco::FileInputStream istr(path);
@@ -73,6 +100,21 @@ void TestData::replaceInFile(const std::string& path, const std::string& text, c
 	Poco::replaceInPlace(content, text, replacement);
 	Poco::FileOutputStream ostr(path);
 	ostr << content;
+}
+
+
+bool TestData::signsWithSHA1(const Poco::Crypto::RSAKey& key)
+{
+	try
+	{
+		Poco::Crypto::RSADigestEngine engine(key, Poco::OSP::BundleSign::BundleSigner::SHA1);
+		engine.update(std::string("probe"));
+		return !engine.signature().empty();
+	}
+	catch (Poco::Crypto::OpenSSLException&)
+	{
+		return false;
+	}
 }
 
 

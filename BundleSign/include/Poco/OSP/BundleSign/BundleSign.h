@@ -5,7 +5,7 @@
 // Package: BundleSign
 // Module:  BundleSign
 //
-// Basic definitions for the Poco OSP BundleSign library.
+// Basic definitions for the POCO OSP BundleSign library.
 // This file must be the first file included by every other OSP BundleSign
 // header file.
 //

@@ -30,6 +30,7 @@ public:
 	void testFilesWithoutDirectoryEntriesAreIncluded();
 	void testDuplicateEntryIsRejected();
 	void testNonCanonicalEntryNameIsRejected();
+	void testNonCanonicalFileNameInDirectoryIsRejected();
 
 	void setUp() override;
 	void tearDown() override;

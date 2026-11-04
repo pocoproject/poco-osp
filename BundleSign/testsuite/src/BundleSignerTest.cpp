@@ -13,19 +13,28 @@
 #include "BundleSignerTest.h"
 #include "TestData.h"
 #include "Poco/OSP/BundleSign/BundleSigner.h"
+#include "Poco/OSP/BundleSign/BundleVerifier.h"
 #include "Poco/OSP/BundleSign/SignatureFile.h"
 #include "Poco/OSP/BundleFile.h"
 #include "Poco/OSP/BundleDirectory.h"
 #include "Poco/Crypto/RSAKey.h"
 #include "Poco/Zip/Decompress.h"
+#include "Poco/Zip/ZipArchive.h"
+#include "Poco/Zip/ZipLocalFileHeader.h"
+#include "Poco/FileStream.h"
+#include "Poco/StreamCopier.h"
 #include "Poco/File.h"
 #include "Poco/Path.h"
+#include "Poco/DateTime.h"
 #include "Poco/SharedPtr.h"
 #include "Poco/Exception.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
+#include "CppUnit/TestCase.h"
 #include <sstream>
 #include <fstream>
+#include <utility>
+#include <vector>
 
 
 using namespace Poco::OSP::BundleSign;
@@ -85,6 +94,11 @@ void BundleSignerTest::testSignFile()
 void BundleSignerTest::testSignFileSHA1()
 {
 	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	if (!TestData::signsWithSHA1(rsaKey))
+	{
+		warnmsg("OpenSSL refuses SHA1 signatures, SHA1 case skipped.");
+		return;
+	}
 	BundleSigner signer("test.signer", rsaKey, "SHA1");
 	signer.signBundle(_bundleFile);
 	
@@ -194,6 +208,142 @@ void BundleSignerTest::testLongPathIsRejected()
 }
 
 
+void BundleSignerTest::testEntryNameWithLineFeedIsRejected()
+{
+	TestData::writeBundle(_bundleFile, {
+		{"META-INF/manifest.mf", "Manifest-Version: 1.0\n"},
+		{"lib.so_x", "x"}
+	});
+	TestData::renameEntry(_bundleFile, "lib.so_x", "lib.so\nx");
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey);
+	try
+	{
+		signer.signBundle(_bundleFile);
+		failmsg("the signer must reject an entry name that the signature file cannot hold");
+	}
+	catch (Poco::DataFormatException&)
+	{
+	}
+}
+
+
+void BundleSignerTest::testSignFileWithExtraFields()
+{
+	// Extra fields longer and shorter than a ZIP64 extra field.
+	static const std::vector<std::string> bundles = {"extra-field.bndl", "short-extra-field.bndl"};
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey);
+	for (const auto& bundle: bundles)
+	{
+		Poco::File(TestData::path(bundle)).copyTo(_bundleFile);
+		signer.signBundle(_bundleFile);
+
+		if (!TestData::hasContiguousEntries(_bundleFile))
+			failmsg("the entries of the signed " + bundle + " do not follow each other");
+		BundleVerifier verifier(_bundleFile);
+		std::vector<std::string> messages;
+		const BundleVerifier::VerificationResult result = verifier.verify("test.signer", cert, messages);
+		if (result != BundleVerifier::BUNDLE_VERIFICATION_OK || !messages.empty())
+			failmsg("the signed " + bundle + " does not verify");
+
+		Poco::FileInputStream sourceStream(TestData::path(bundle));
+		const Poco::Zip::ZipArchive source(sourceStream);
+		Poco::FileInputStream signedStream(_bundleFile);
+		const Poco::Zip::ZipArchive signedArchive(signedStream);
+		for (auto it = source.headerBegin(); it != source.headerEnd(); ++it)
+		{
+			if (!it->second.isDirectory())
+			{
+				const auto signedIt = signedArchive.findHeader(it->first);
+				if (signedIt == signedArchive.headerEnd()
+					|| signedIt->second.lastModifiedAt() != it->second.lastModifiedAt())
+					failmsg("the entry " + it->first + " of the signed " + bundle + " has another modification time");
+			}
+		}
+	}
+}
+
+
+void BundleSignerTest::testRejectedBundleIsUnchanged()
+{
+	static const std::vector<std::pair<std::string, std::string>> bundles = {
+		{"corrupt-extra-field.bndl", "an entry whose data does not match its CRC"},
+		{"duplicate-central-entry.bndl", "a symbolic link in the second central directory entry of its name"}
+	};
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey);
+	for (const auto& [bundle, reason]: bundles)
+	{
+		Poco::File(TestData::path(bundle)).copyTo(_bundleFile);
+		std::string original;
+		Poco::FileInputStream originalStream(_bundleFile);
+		Poco::StreamCopier::copyToString(originalStream, original);
+		originalStream.close();
+		try
+		{
+			signer.signBundle(_bundleFile);
+			failmsg("the signer must reject " + reason);
+		}
+		catch (Poco::DataFormatException&)
+		{
+		}
+		std::string content;
+		Poco::FileInputStream contentStream(_bundleFile);
+		Poco::StreamCopier::copyToString(contentStream, content);
+		assertTrue (content == original);
+	}
+}
+
+
+void BundleSignerTest::testAliasThatIsNotAFileNameIsRejected()
+{
+	static const std::vector<std::string> aliases = {"team/signer", "../signer", "", ".signer", " signer"};
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	for (const auto& alias: aliases)
+	{
+		try
+		{
+			BundleSigner signer(alias, rsaKey);
+			failmsg("the signer must reject the alias \"" + alias + "\"");
+		}
+		catch (Poco::InvalidArgumentException&)
+		{
+		}
+		try
+		{
+			BundleSigner signer(alias, rsaKey, BundleSigner::SHA512);
+			failmsg("the signer must reject the alias \"" + alias + "\"");
+		}
+		catch (Poco::InvalidArgumentException&)
+		{
+		}
+	}
+}
+
+
+void BundleSignerTest::testResignReplacesSignatureFiles()
+{
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey);
+	signer.signBundle(_bundleFile);
+	signer.signBundle(_bundleFile);
+
+	Poco::FileInputStream bundleStream(_bundleFile);
+	Poco::Zip::ZipArchive archive(bundleStream);
+	std::vector<std::string> names;
+	for (auto it = archive.headerBegin(); it != archive.headerEnd(); ++it)
+	{
+		names.push_back(it->first);
+	}
+	const std::vector<std::string> expected = {
+		"META-INF/", "META-INF/manifest.mf", "META-INF/test.signer.rsa", "META-INF/test.signer.sf", "bundle.properties"
+	};
+	assertTrue (names == expected);
+}
+
+
 void BundleSignerTest::setUp()
 {
 	_workDir = TestData::createWorkDirectory();
@@ -221,6 +371,11 @@ CppUnit::Test* BundleSignerTest::suite()
 	CppUnit_addTest(pSuite, BundleSignerTest, testSignDirectoryCert);
 	CppUnit_addTest(pSuite, BundleSignerTest, testUnsupportedDigestAlgorithmIsRejected);
 	CppUnit_addTest(pSuite, BundleSignerTest, testLongPathIsRejected);
+	CppUnit_addTest(pSuite, BundleSignerTest, testEntryNameWithLineFeedIsRejected);
+	CppUnit_addTest(pSuite, BundleSignerTest, testSignFileWithExtraFields);
+	CppUnit_addTest(pSuite, BundleSignerTest, testRejectedBundleIsUnchanged);
+	CppUnit_addTest(pSuite, BundleSignerTest, testAliasThatIsNotAFileNameIsRejected);
+	CppUnit_addTest(pSuite, BundleSignerTest, testResignReplacesSignatureFiles);
 
 	return pSuite;
 }

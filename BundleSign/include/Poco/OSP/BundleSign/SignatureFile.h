@@ -25,16 +25,20 @@
 #include <istream>
 #include <ostream>
 #include <map>
+#include <string>
+#include <vector>
 
 
 namespace Poco::OSP::BundleSign {
 
 
 class OSPBundleSign_API SignatureFile
-	/// This class is used to compute hash digests
-	/// for the files in a bundle.
+	/// This class reads and writes the signature file of a bundle,
+	/// which lists the hash digests of the files in the bundle, and
+	/// the signature block file, which lists the signature of the
+	/// signature file.
 	///
-	/// The signatures file has the following format:
+	/// Both files have the following format:
 	///     Signature-Version: <version>
 	///     Created-By: <creator>
 	///
@@ -49,8 +53,9 @@ class OSPBundleSign_API SignatureFile
 	///     Name: <pathN>
 	///     <digestType>: <digestN>
 	///
-	/// Optionally, the signature file can also contain
-	/// an X509 certificate in PEM format at the end:
+	/// Optionally, the signature block file also contains
+	/// an X509 certificate in PEM format at the end, which
+	/// read() does not read:
 	///
 	///     X509-Certificate: <common-name>
 	///     -----BEGIN CERTIFICATE-----
@@ -106,7 +111,9 @@ public:
 		///
 		/// Throws a Poco::InvalidArgumentException if a path is longer
 		/// than MAX_PATH_LENGTH or a signature is longer than MAX_DIGEST_LENGTH,
-		/// since read() would reject the file.
+		/// since read() would reject the file, and if a path is empty, begins
+		/// with white space or contains a control character, since read()
+		/// would return another path.
 
 	void read(Signatures& signatures, std::istream& istr);
 		/// Reads signatures from the given stream.
@@ -114,10 +121,16 @@ public:
 		/// Throws a Poco::DataFormatException if the stream is not
 		/// a signature file, or if an entry is longer than MAX_ENTRY_LENGTH.
 
-	[[nodiscard]] static std::size_t maxSize(std::size_t fileCount);
-		/// Returns the maximum size of a signature file written for
-		/// a bundle with the given number of files:
-		/// (fileCount + HEADER_ENTRIES) * MAX_ENTRY_LENGTH.
+	[[nodiscard]] static std::size_t maxSize(const std::vector<std::string>& paths, const std::string& digestType,
+		std::size_t digestLength);
+		/// Returns the maximum size of a signature file that write() writes for the given paths, with digests of the
+		/// given type (for example "SHA256-Digest") and length in bytes. Each header entry counts as MAX_ENTRY_LENGTH.
+
+	[[nodiscard]] static bool preservesPath(const std::string& path);
+		/// Returns true if read() returns the given path unchanged from a
+		/// signature file that write() wrote with it: the path is not empty,
+		/// does not begin with white space and contains no control character.
+		/// The length of the path is not checked (see MAX_PATH_LENGTH).
 
 	[[nodiscard]] const std::string& version() const;
 		/// Returns the signature file version.

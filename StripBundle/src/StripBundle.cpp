@@ -8,16 +8,22 @@
 //
 
 
+#include "ZipEntryAttributes.h"
 #include "Poco/Util/Application.h"
 #include "Poco/Util/Option.h"
 #include "Poco/Util/OptionSet.h"
 #include "Poco/Util/HelpFormatter.h"
 #include "Poco/Zip/ZipArchive.h"
 #include "Poco/Zip/ZipManipulator.h"
+#include "Poco/Zip/ZipStream.h"
 #include "Poco/FileStream.h"
+#include "Poco/StreamCopier.h"
+#include "Poco/TemporaryFile.h"
+#include "Poco/Exception.h"
 #include "Poco/Path.h"
 #include "Poco/File.h"
 #include <iostream>
+#include <list>
 
 
 using Poco::Util::Application;
@@ -88,9 +94,11 @@ protected:
 	void strip(const std::string& bundlePath)
 	{
 		Poco::File f(bundlePath);
+		if (!f.exists())
+			throw Poco::FileNotFoundException(bundlePath);
 		if (f.isDirectory())
 			stripDirectory(bundlePath);
-		else if (f.isFile())
+		else
 			stripFile(bundlePath);
 	}
 
@@ -98,6 +106,8 @@ protected:
 	{
 		Poco::Path p(bundlePath);
 		p.makeDirectory();
+		if (!Poco::File(Poco::Path(p, Poco::Path("META-INF/manifest.mf", Poco::Path::PATH_UNIX))).exists())
+			throw Poco::DataFormatException("Not a bundle directory (no META-INF/manifest.mf)", bundlePath);
 		p.pushDirectory("bin");
 		Poco::File f(p.toString());
 		if (f.exists() && f.isDirectory())
@@ -108,17 +118,40 @@ protected:
 
 	void stripFile(const std::string& bundlePath)
 	{
-		Poco::FileInputStream istr(bundlePath);
-		Poco::Zip::ZipArchive arch(istr);
-		istr.close();
-
 		Poco::Zip::ZipManipulator manip(bundlePath, false);
-		for (Poco::Zip::ZipArchive::FileInfos::const_iterator it = arch.fileInfoBegin(); it != arch.fileInfoEnd(); ++it)
-		{
-			if (it->first.compare(0, 4, "bin/") == 0)
-				manip.deleteFile(it->first);
-		}
+		const Poco::Zip::ZipArchive& archive = manip.originalArchive();
+		if (archive.findHeader("META-INF/manifest.mf") == archive.headerEnd())
+			throw Poco::DataFormatException("Not a bundle file (no META-INF/manifest.mf)", bundlePath);
 
+		// ZipManipulator copies a kept entry raw, and Compress::addFileRaw() can write a local header of another length
+		// for an entry with an extra field, so that its data no longer follows the header. Such a file is therefore
+		// compressed again, and such a directory entry, which a bundle does not need, is removed.
+		std::list<Poco::TemporaryFile> copies;
+		Poco::FileInputStream bundleStream(bundlePath);
+		for (auto it = archive.headerBegin(); it != archive.headerEnd(); ++it)
+		{
+			if (it->first.compare(0, 4, "bin/") == 0 || (it->second.isDirectory() && it->second.hasExtraField()))
+			{
+				manip.deleteFile(it->first);
+			}
+			else if (it->second.hasExtraField())
+			{
+				Poco::OSP::BundleSign::checkAttributesCanBeCopied(archive, it->first, bundlePath);
+				Poco::Zip::ZipInputStream entryStream(bundleStream, it->second);
+				Poco::FileOutputStream copyStream(copies.emplace_back().path());
+				Poco::StreamCopier::copyStream(entryStream, copyStream);
+				copyStream.close();
+				if (copyStream.fail())
+					throw Poco::WriteFileException(copies.back().path());
+				// The stream reports a CRC mismatch and a decompression error only in its state.
+				if (entryStream.bad() || !entryStream.crcValid())
+					throw Poco::DataFormatException("Corrupt entry " + it->first + " in bundle file", bundlePath);
+				// ZipManipulator::replaceFile() takes the modification time of the new entry from the file.
+				Poco::File(copies.back().path()).setLastModified(it->second.lastModifiedAt().timestamp());
+				manip.replaceFile(it->first, copies.back().path());
+			}
+		}
+		bundleStream.close();
 		manip.commit();
 	}
 
@@ -136,6 +169,16 @@ protected:
 			{
 				strip(*it);
 			}
+		}
+		catch (Poco::FileNotFoundException& exc)
+		{
+			std::cerr << exc.displayText() << '\n';
+			return Application::EXIT_NOINPUT;
+		}
+		catch (Poco::DataFormatException& exc)
+		{
+			std::cerr << exc.displayText() << '\n';
+			return Application::EXIT_DATAERR;
 		}
 		catch (Poco::Exception& exc)
 		{

@@ -30,6 +30,9 @@ public:
 	void testWrite();
 	void testReadRejectsLongEntry();
 	void testWriteRejectsLongPath();
+	void testWriteRejectsPathThatReadWouldChange();
+	void testPreservesOnlyPathThatReadReturnsUnchanged();
+	void testMaxSizeIsSizeOfWrittenEntries();
 
 	void setUp() override;
 	void tearDown() override;

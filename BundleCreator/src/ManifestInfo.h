@@ -10,12 +10,18 @@
 //
 
 
+#ifndef BundleCreator_ManifestInfo_INCLUDED
+#define BundleCreator_ManifestInfo_INCLUDED
+
+
 #include "Poco/OSP/Version.h"
 #include "Poco/OSP/VersionRange.h"
+#include <string>
 #include <vector>
 
 
 class ManifestInfo
+	/// The manifest element of a bundle specification file, from which the Bundle Creator writes META-INF/manifest.mf.
 {
 public:
 	struct Dependency
@@ -176,3 +182,6 @@ inline const std::string& ManifestInfo::extendsBundle() const
 {
 	return _extendsBundle;
 }
+
+
+#endif // BundleCreator_ManifestInfo_INCLUDED

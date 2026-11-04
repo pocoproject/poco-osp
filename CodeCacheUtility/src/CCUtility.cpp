@@ -1,5 +1,5 @@
 //
-// CodeCacheUtility.cpp
+// CCUtility.cpp
 //
 // Copyright (c) 2017, Applied Informatics Software Engineering GmbH.
 // All rights reserved.
@@ -20,7 +20,9 @@
 #include "Poco/OSP/BundleRepository.h"
 #include "Poco/OSP/ServiceRegistry.h"
 #include "Poco/OSP/SystemEvents.h"
+#include "Poco/OSP/LanguageTag.h"
 #include "Poco/Environment.h"
+#include "Poco/Exception.h"
 #include <iostream>
 
 

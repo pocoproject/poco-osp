@@ -10,6 +10,7 @@
 
 #include "OSPUnitTestSuite.h"
 #include "TestCaseTest.h"
+#include "TestFactoryTest.h"
 
 
 CppUnit::Test* OSPUnitTestSuite::suite()
@@ -17,6 +18,7 @@ CppUnit::Test* OSPUnitTestSuite::suite()
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("OSPUnitTestSuite");
 
 	pSuite->addTest(TestCaseTest::suite());
+	pSuite->addTest(TestFactoryTest::suite());
 
 	return pSuite;
 }

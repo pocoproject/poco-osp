@@ -1,7 +1,7 @@
 //
 // Driver.cpp
 //
-// Console-based test driver for Poco OSP Unit.
+// Console-based test driver for POCO OSP Unit.
 //
 // Copyright (c) 2026, Applied Informatics Software Engineering GmbH.
 // and Contributors.

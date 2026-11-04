@@ -32,6 +32,11 @@ public:
 	void testSignDirectoryCert();
 	void testUnsupportedDigestAlgorithmIsRejected();
 	void testLongPathIsRejected();
+	void testEntryNameWithLineFeedIsRejected();
+	void testSignFileWithExtraFields();
+	void testRejectedBundleIsUnchanged();
+	void testAliasThatIsNotAFileNameIsRejected();
+	void testResignReplacesSignatureFiles();
 
 	void setUp() override;
 	void tearDown() override;

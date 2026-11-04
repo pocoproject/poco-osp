@@ -1,7 +1,7 @@
 //
 // BundleSigner.cpp
 //
-// An command line tool for signing OSP bundles.
+// A command line tool for signing OSP bundles.
 //
 // Copyright (c) 2009, Applied Informatics Software Engineering GmbH.
 // All rights reserved.
@@ -22,6 +22,7 @@
 #include "Poco/Crypto/RSAKey.h"
 #include "Poco/Crypto/X509Certificate.h"
 #include "Poco/FileStream.h"
+#include "Poco/Path.h"
 #include "Poco/Exception.h"
 #include "Poco/String.h"
 #include <iostream>
@@ -371,7 +372,17 @@ protected:
 				}
 				if (!_verify && !_signers)
 				{
-					sign(*it);
+					try
+					{
+						sign(*it);
+					}
+					catch (Poco::DataFormatException& exc)
+					{
+						std::cout << "Bundle signing failed for bundle "
+							<< *it << ":\n"
+							<< exc.message() << '\n';
+						_result = Application::EXIT_DATAERR;
+					}
 				}
 			}
 		}

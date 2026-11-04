@@ -15,6 +15,7 @@
 
 
 #include "Poco/OSP/BundleSign/BundleSign.h"
+#include "Poco/Crypto/RSAKey.h"
 #include <map>
 #include <string>
 
@@ -44,6 +45,32 @@ public:
 		///   - ca.pem: certificate authority (certificate only)
 		///   - issued.pem: issued by ca.pem, code signing
 		///   - ec.pem: self-signed, code signing, EC key (certificate only)
+		///   - signer-encrypted.pem: the key of signer.pem, encrypted with
+		///     the passphrase "test-passphrase" (key only)
+		///   - duplicate.bndl: a bundle file with two entries of the same name
+		///   - extra-field.bndl: a bundle file written by Info-ZIP zip, whose
+		///     entries have extra fields
+		///   - short-extra-field.bndl: a bundle file whose entries, directory
+		///     entries included, have extra fields shorter than a ZIP64 extra
+		///     field
+		///   - corrupt-extra-field.bndl: a bundle file whose entries have extra
+		///     fields; the data of res/a.txt does not match its CRC
+		///   - symlinks.bndl: a bundle file written by Info-ZIP zip with the
+		///     options of bundle --symlinks; res/link is a symbolic link to
+		///     res/target.txt, res/run.sh is executable
+		///   - symlink-extra-field.bndl: a bundle file written by Info-ZIP zip,
+		///     whose entries have extra fields; res/link is a symbolic link to
+		///     res/target.txt with mode 0644, without execute bits
+		///   - symlink-fat-host-extra-field.bndl: symlink-extra-field.bndl
+		///     with the host system FAT in the central directory entry of
+		///     res/link
+		///   - executable-extra-field.bndl: a bundle file written by Info-ZIP
+		///     zip, whose entries have extra fields; res/run.sh is executable
+		///   - central-name-mismatch.bndl: symlink-extra-field.bndl with the
+		///     name res/lunk in the central directory entry of res/link
+		///   - duplicate-central-entry.bndl: symlink-extra-field.bndl with a
+		///     second central directory entry of res/link; the first one has
+		///     mode 0100644
 
 	static void writeTestBundle(const std::string& path);
 		/// Writes a bundle file (ZIP archive) containing bundle.properties,
@@ -59,8 +86,18 @@ public:
 		/// which must have the same length, without changing anything else.
 		/// This creates entry names that Poco::Zip::Compress does not write.
 
+	[[nodiscard]] static bool hasContiguousEntries(const std::string& path);
+		/// Returns true if each local file header of the given bundle file
+		/// starts where the previous entry ends and the central directory
+		/// follows the last entry, as a reader that does not use the
+		/// central directory expects.
+
 	static void replaceInFile(const std::string& path, const std::string& text, const std::string& replacement);
 		/// Replaces every occurrence of text in the given file with replacement.
+
+	[[nodiscard]] static bool signsWithSHA1(const Poco::Crypto::RSAKey& key);
+		/// Returns false if OpenSSL refuses SHA1 signatures, which a system
+		/// policy can forbid.
 };
 
 

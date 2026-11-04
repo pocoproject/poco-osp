@@ -17,6 +17,7 @@
 #include "Poco/OSP/BundleSign/SignUtility.h"
 #include "Poco/Path.h"
 #include "Poco/File.h"
+#include "Poco/FileStream.h"
 #include "Poco/MD5Engine.h"
 #include "Poco/Exception.h"
 #include <utility>
@@ -59,7 +60,7 @@ void SignUtilityTest::testFilesWithoutDirectoryEntriesAreIncluded()
 	assertTrue (digests.size() == 3);
 	assertEqual ("785608dce245c09477b6670f7d4012c6", digests["META-INF/manifest.mf"]);
 	assertEqual ("f5abb3e0801e36fc885f95cd7bacea15", digests["bundle.properties"]);
-	assertTrue (digests.find("en/bundle.properties") != digests.end());
+	assertTrue (digests.contains("en/bundle.properties"));
 }
 
 
@@ -92,7 +93,9 @@ void SignUtilityTest::testNonCanonicalEntryNameIsRejected()
 		{"a/x.txt", "./x.txt"},
 		{"ab/x.txt", "/b/x.txt"},
 		{"ab/x.txt", "a//x.txt"},
-		{"a_x.txt", "a\\x.txt"}
+		{"a_x.txt", "a\\x.txt"},
+		{"a_x.txt", "a\nx.txt"},
+		{"a/_x.txt", "a/ x.txt"}
 	};
 	for (const auto& name: names)
 	{
@@ -112,6 +115,37 @@ void SignUtilityTest::testNonCanonicalEntryNameIsRejected()
 		catch (Poco::DataFormatException&)
 		{
 		}
+	}
+}
+
+
+void SignUtilityTest::testNonCanonicalFileNameInDirectoryIsRejected()
+{
+	std::vector<std::string> names = {" x.txt"};
+#ifndef POCO_OS_FAMILY_WINDOWS
+	names.emplace_back("x\n.txt");
+#endif
+	for (const auto& name: names)
+	{
+		Poco::Path bundlePath(_workDir);
+		bundlePath.makeDirectory();
+		bundlePath.pushDirectory("bundle");
+		Poco::File(bundlePath).createDirectories();
+		Poco::FileOutputStream fileStream(Poco::Path(bundlePath, name).toString());
+		fileStream << "x";
+		fileStream.close();
+
+		SignUtility::Digests digests;
+		Poco::MD5Engine md5;
+		try
+		{
+			SignUtility::computeDigests(bundlePath.toString(), md5, digests);
+			failmsg("a bundle directory with the file name \"" + name + "\" must be rejected");
+		}
+		catch (Poco::DataFormatException&)
+		{
+		}
+		Poco::File(bundlePath).remove(true);
 	}
 }
 
@@ -140,6 +174,7 @@ CppUnit::Test* SignUtilityTest::suite()
 	CppUnit_addTest(pSuite, SignUtilityTest, testFilesWithoutDirectoryEntriesAreIncluded);
 	CppUnit_addTest(pSuite, SignUtilityTest, testDuplicateEntryIsRejected);
 	CppUnit_addTest(pSuite, SignUtilityTest, testNonCanonicalEntryNameIsRejected);
+	CppUnit_addTest(pSuite, SignUtilityTest, testNonCanonicalFileNameInDirectoryIsRejected);
 
 	return pSuite;
 }

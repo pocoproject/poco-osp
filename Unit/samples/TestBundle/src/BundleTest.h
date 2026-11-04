@@ -1,5 +1,5 @@
 //
-// CoreTest.h
+// BundleTest.h
 //
 // Definition of the BundleTest class.
 //

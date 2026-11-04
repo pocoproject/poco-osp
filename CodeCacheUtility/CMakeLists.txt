@@ -8,7 +8,7 @@ if(MSVC)
 	list(APPEND SRCS ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
 endif()
 
-add_executable(CodeCacheUtility ${SRCS})
+poco_add_executable(CodeCacheUtility ${SRCS})
 set_target_properties(CodeCacheUtility
 	PROPERTIES
 	OUTPUT_NAME ccutil
@@ -18,7 +18,7 @@ target_link_libraries(CodeCacheUtility PRIVATE Poco::OSP Poco::Zip Poco::Util Po
 
 install(
 	TARGETS CodeCacheUtility
-	RUNTIME DESTINATION bin COMPONENT Runtime
+	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT Runtime
 )
 
 if(POCO_OSP_ENABLE_TESTS)

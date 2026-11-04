@@ -29,7 +29,7 @@ namespace Poco::OSP::BundleSign {
 
 
 class OSPBundleSign_API BundleSigner
-	/// The BundleSigner class is used sign an existing
+	/// The BundleSigner class is used to sign an existing
 	/// bundle, using a digital signature algorithm
 	/// based on the RSA and SHA1/SHA2 message digest algorithms.
 	///
@@ -52,11 +52,14 @@ public:
 	BundleSigner(const std::string& signer, const Poco::Crypto::RSAKey& rsaKey);
 		/// Creates a BundleSigner for signing bundles using the given
 		/// RSA private/public key pair and the SHA256 digest algorithm.
+		///
+		/// The signature files are named after the signer alias. Throws a Poco::InvalidArgumentException if the alias
+		/// cannot be used as a file name (see Poco::OSP::BundleManifest::isValidFileName()) or begins with white space.
 
 	BundleSigner(const std::string& signer, const Poco::Crypto::RSAKey& rsaKey, const std::string& digestAlgorithm);
 		/// Creates a BundleSigner for signing bundles using the given
 		/// RSA private/public key pair and digest algorithm,
-		/// which should be on of:
+		/// which should be one of:
 		///   - "SHA1" (only for verifiers that cannot use SHA2; a BundleVerifier
 		///     accepts it only if allowed with BundleVerifier::setAllowSHA1())
 		///   - "SHA256" (SHA2-256, recommended)
@@ -64,7 +67,8 @@ public:
 		///   - "SHA384" (SHA2-384)
 		///   - "SHA512" (SHA2-512)
 		///
-		/// Throws a Poco::InvalidArgumentException for any other digest algorithm.
+		/// Throws a Poco::InvalidArgumentException for any other digest algorithm and for a signer alias that the
+		/// other constructor rejects.
 		
 	~BundleSigner();
 		/// Destroys the BundleSigner.
@@ -80,6 +84,17 @@ public:
 		/// (named "META-INF/<signer>.sf").
 		/// Then, a digital signature is created for the signature file,
 		/// and stored in the bundle as well ("META-INF/<signer>.rsa").
+		///
+		/// In a bundle file, each entry with a ZIP extra field is compressed again with its modification time,
+		/// except the signature files of this signer, which are replaced; a directory entry with an extra field is
+		/// removed. Poco::Zip adds a directory entry without an extra field for each missing parent directory of a
+		/// file that is compressed again two or more levels deep.
+		///
+		/// Throws a Poco::DataFormatException, leaving the bundle unchanged, if SignUtility::listFiles() rejects a
+		/// name in the bundle, or if an entry that is compressed again is corrupt or has the Unix mode of a symbolic
+		/// link or one with an execute bit set, since Poco::Zip writes no Unix file attributes for it. Throws a
+		/// Poco::InvalidArgumentException, leaving the bundle unchanged, if the name of a file in the bundle other
+		/// than a signature file, or "META-INF/<signer>.sf", is longer than SignatureFile::MAX_PATH_LENGTH.
 
 	void signBundle(const std::string& bundlePath, const Poco::Crypto::X509Certificate& certificate);
 		/// Signs the bundle given by path. The given path can either
@@ -93,6 +108,8 @@ public:
 		/// Then, a digital signature is created for the signature file,
 		/// and stored in the bundle as well ("META-INF/<signer>.rsa").
 		///
+		/// Changes a bundle file and throws as signBundle(const std::string&) does.
+		///
 		/// The given certificate is included in the digital signature file.
 
 	static const std::string SHA1;
@@ -101,13 +118,12 @@ public:
 	static const std::string SHA384;
 	static const std::string SHA512;
 
-protected:
+private:
 	void signBundle(const std::string& bundlePath, const Poco::Crypto::X509Certificate* pCert);
 	void writeDSAFile(std::ostream& ostr, const std::string& rsaSignature, const Poco::Crypto::X509Certificate* pCert);
 	void signBundleFile(const std::string& bundlePath, const std::string& sfPath, const std::string& rsaPath);
 	void signBundleDirectory(const std::string& bundlePath, const std::string& sfPath, const std::string& rsaPath);
 
-private:
 	static const std::string CREATOR;
 	static const std::string SIGNATURE_VERSION;
 	static const std::string META_INF;

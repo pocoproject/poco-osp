@@ -17,9 +17,11 @@
 #include "Poco/Util/HelpFormatter.h"
 #include "Poco/Util/AbstractConfiguration.h"
 #include "Poco/OSP/BundleManifest.h"
+#include "Poco/OSP/BundleRepository.h"
 #include "Poco/OSP/Version.h"
 #include "Poco/Zip/Compress.h"
 #include "Poco/Zip/ZipCommon.h"
+#include "Poco/AutoPtr.h"
 #include "Poco/NumberFormatter.h"
 #include "Poco/Environment.h"
 #include "Poco/StringTokenizer.h"
@@ -29,11 +31,13 @@
 #include "Poco/Glob.h"
 #include "Poco/DirectoryIterator.h"
 #include "Poco/FileStream.h"
+#include "Poco/StreamCopier.h"
 #include "Poco/Thread.h"
 #include "Poco/Random.h"
 #include "Poco/Process.h"
 #include "Poco/TemporaryFile.h"
 #include "Poco/Ascii.h"
+#include "Poco/Bugcheck.h"
 #include "Poco/Exception.h"
 #include "Poco/Format.h"
 #include "Poco/Error.h"
@@ -43,6 +47,7 @@
 #include <climits>
 #include <cstddef>
 #include <set>
+#include <sstream>
 #include <string>
 #ifndef POCO_OS_FAMILY_WINDOWS
 #include <sys/stat.h>
@@ -90,6 +95,7 @@ public:
 		}
 		catch (...)
 		{
+			poco_unexpected();
 		}
 	}
 
@@ -237,8 +243,9 @@ protected:
 			Option("strip"s, "S"s,
 				"Specify the command that is used to strip debugging symbols from shared libraries "
 				"and executables included in the bundle's bin directory. "
-				"If specified, the specified strip command will be invoked for each file included "
-				"in the bundle's bin directory."s)
+				"If specified, the strip command is invoked once for each file that a <code> element "
+				"or --code names, after it is copied into the bundle's bin directory; a symbolic link "
+				"copied with --symlinks is not stripped."s)
 				.required(false)
 				.repeatable(false)
 				.argument("<command>"s)
@@ -427,28 +434,35 @@ private:
 		File bndlDir(bndlPath);
 		FileLock lock(bndlDir.path());
 		_destinations.clear();
+		_bundleName = bndlName;
 		if (bndlDir.exists())
 		{
 			safeRemove(bndlDir);
 			bndlDir.remove(true);
 		}
-		bndlDir.createDirectories();
+		// Temporary names, so that an existing bundle file is replaced when the new one is complete, never updated
+		// or left truncated. A bundle repository ignores the temporary extension, also after a killed build, and zip
+		// does not append ".zip" to it.
+		const std::string tempExtension("."s + Poco::OSP::BundleRepository::TEMP_BUNDLE_EXTENSION);
+		Path workPath(Poco::TemporaryFile::tempName(outputPath.toString()) + tempExtension);
+		workPath.makeDirectory();
+		_workPath = workPath;
+		File workDir(workPath);
+		workDir.createDirectories();
 		try
 		{
-			handleCode(bndlPath, mi);
-			handleMeta(bndlPath, mi);
-			handleOther(bndlPath, mi);
+			handleCode(workPath, mi, specPath);
+			handleMeta(workPath, mi);
+			handleOther(workPath, mi);
+			checkManifest(workPath, mi, specPath);
 			if (!_noFile)
 			{
 				Path bndlFilePath(bndlPath);
 				bndlFilePath.setFileName(bndlFilePath.getFileName() + ".bndl");
-				// The bundle file is written under a temporary name and renamed when it is complete,
-				// so that an existing bundle file is replaced, and never updated or left truncated.
-				// The extension keeps zip from appending ".zip" to the name.
-				const std::string tempFilePath(Poco::TemporaryFile::tempName(outputPath.toString()) + ".bndl");
+				const std::string tempFilePath(Poco::TemporaryFile::tempName(outputPath.toString()) + tempExtension);
 				try
 				{
-					createBundleFile(bndlPath, tempFilePath);
+					createBundleFile(workPath, tempFilePath);
 					File(tempFilePath).renameTo(bndlFilePath.toString());
 				}
 				catch (...)
@@ -457,19 +471,23 @@ private:
 					if (tempFile.exists()) tempFile.remove();
 					throw;
 				}
-				if (!_keep)
-				{
-					safeRemove(bndlDir);
-					bndlDir.remove(true);
-				}
+			}
+			if (_keep)
+			{
+				workDir.renameTo(bndlDir.path());
+			}
+			else
+			{
+				safeRemove(workDir);
+				workDir.remove(true);
 			}
 		}
 		catch (...)
 		{
-			if (!_keep)
+			if (workDir.exists())
 			{
-				safeRemove(bndlDir);
-				bndlDir.remove(true);
+				safeRemove(workDir);
+				workDir.remove(true);
 			}
 			throw;
 		}
@@ -486,6 +504,10 @@ private:
 			// symlinks via the de-facto Unix external_attr convention.
 			Poco::Process::Args args;
 			args.push_back("-ryq"s);
+			// No extra fields, so that the signer and stripbundle can copy the entries raw: Compress::addFileRaw()
+			// can write a local header of another length for an entry with an extra field. A symbolic link stays
+			// marked in the external file attributes.
+			args.push_back("-X"s);
 			if (_noDeflate)
 			{
 				args.push_back("-0"s);
@@ -529,6 +551,7 @@ private:
 		static const std::string PREFIX("manifest.");
 		std::string name = getString(PREFIX + "name");
 		std::string symbolicName = getString(PREFIX + "symbolicName");
+		Poco::trimInPlace(symbolicName);
 		std::string vendor = getString(PREFIX + "vendor");
 		std::string copyright = getString(PREFIX + "copyright", ""s);
 		std::string activatorClass = getString(PREFIX + "activator.class", ""s);
@@ -539,6 +562,7 @@ private:
 		std::string runLevel = getString(PREFIX + "runLevel", BundleManifest::DEFAULT_RUNLEVEL);
 		std::string extendsBundle = getString(PREFIX + "extends", ""s);
 		std::string versionStr(getString(PREFIX + "version", ""s));
+		Poco::trimInPlace(versionStr);
 		if (versionStr.empty() || versionStr == "default" || versionStr == "auto")
 		{
 			versionStr = _defaultVersion;
@@ -718,16 +742,14 @@ private:
 		}
 	}
 
-	void handleCode(const Path& root, const ManifestInfo& mi)
+	void handleCode(const Path& root, const ManifestInfo& mi, const std::string& specPath)
 	{
 		Path binDir(root, "bin"s);
 		binDir.makeDirectory();
 
 		if (!_code.empty())
 		{
-			std::string platform = _osName + "/" + _osArch;
-			Path platformDir(binDir, Path(platform, Path::PATH_UNIX));
-			copyCode(platformDir, _code, mi);
+			copyCode(platformDirectory(binDir, _osName, _osArch, specPath), _code, mi);
 		}
 		else
 		{
@@ -743,13 +765,16 @@ private:
 			{
 				globs = getString(path, ""s);
 				path.append("[@platform]"s);
-				std::string platform = getString(path, ""s);
-				if (platform.empty() || platform.find("/") == std::string::npos)
+				const std::string platform = getString(path, ""s);
+				const std::string::size_type separator = platform.find('/');
+				std::string osName(_osName);
+				std::string osArch(_osArch);
+				if (separator != std::string::npos)
 				{
-					platform = _osName + "/" + _osArch;
+					osName = platform.substr(0, separator);
+					osArch = platform.substr(separator + 1);
 				}
-				Path platformDir(binDir, Path(platform, Path::PATH_UNIX));
-				copyCode(platformDir, globs, mi);
+				copyCode(platformDirectory(binDir, osName, osArch, specPath), globs, mi);
 
 				path = "code[";
 				path.append(Poco::NumberFormatter::format(idx++));
@@ -783,11 +808,11 @@ private:
 				File platformFile(platformDir);
 				platformFile.createDirectories();
 				copyFile(aFile, platformDir.toString());
+				if (!_strip.empty())
+				{
+					stripCode(File(Path(platformDir, Path(*itF).getFileName())));
+				}
 			}
-		}
-		if (!files.empty() && !_strip.empty())
-		{
-			stripCode(platformDir);
 		}
 		if (files.empty() && incTokenizer.count() > 0)
 		{
@@ -795,25 +820,19 @@ private:
 		}
 	}
 
-	void stripCode(const Poco::Path& platformDir)
+	void stripCode(const File& file) const
 	{
-		File platformFile(platformDir.toString());
-		std::vector<Poco::File> files;
-		platformFile.list(files);
-		for (const auto& file: files)
+		// The strip command would modify the target of a link, which can be outside the bundle.
+		if (file.isLink() || !file.exists() || !file.isFile()) return;
+
+		logger().debug("Stripping file: %s"s, file.path());
+		Poco::Process::Args args;
+		args.push_back(file.path());
+		Poco::ProcessHandle ph = Poco::Process::launch(_strip, args);
+		int rc = ph.wait();
+		if (rc != 0)
 		{
-			if (file.isFile())
-			{
-				logger().debug("Stripping file: %s"s, file.path());
-				Poco::Process::Args args;
-				args.push_back(file.path());
-				Poco::ProcessHandle ph = Poco::Process::launch(_strip, args);
-				int rc = ph.wait();
-				if (rc != 0)
-				{
-					std::cerr << "Warning: strip command for " << file.path() << " failed with exit code " << rc << std::endl;
-				}
-			}
+			std::cerr << "Warning: strip command for " << file.path() << " failed with exit code " << rc << '\n';
 		}
 	}
 
@@ -827,9 +846,31 @@ private:
 		FileOutputStream out(manifest.toString());
 		saveManifest(mi, out);
 		out.close();
-		// verify
+	}
+
+	void checkManifest(const Path& root, const ManifestInfo& mi, const std::string& specPath)
+	{
+		// Parsing checks the fields of the generated manifest. A META-INF/manifest.mf in <files> replaces it and
+		// must describe the same bundle; it is recognised by its content, since on a file system that ignores case
+		// a path that differs in case replaces it too.
+		Path manifest(root, "META-INF"s);
+		manifest.makeDirectory();
+		manifest.setFileName("manifest.mf"s);
+		std::string text;
 		FileInputStream in(manifest.toString());
-		BundleManifest::Ptr pManifest = new BundleManifest(in);
+		Poco::StreamCopier::copyToString(in, text);
+		std::istringstream textStream(text);
+		BundleManifest::Ptr pManifest = new BundleManifest(textStream);
+		std::ostringstream generated;
+		saveManifest(mi, generated);
+		if (text != generated.str()
+			&& (pManifest->symbolicName() != mi.symbolicName() || pManifest->version() != mi.version()))
+		{
+			throw Poco::DataFormatException(
+				Poco::format("The manifest in the <files> of %s is not that of bundle %s %s"s,
+					specPath, mi.symbolicName(), mi.version().toString()),
+				pManifest->symbolicName() + " " + pManifest->version().toString());
+		}
 	}
 
 	void handleOther(const Path& root, const ManifestInfo& mi)
@@ -879,6 +920,21 @@ private:
 		// which are removed and written.
 		if (!Poco::OSP::BundleManifest::isValidFileName(value))
 			throw Poco::DataFormatException(Poco::format("The bundle %s in %s cannot be used as a file name"s, what, specPath), value);
+	}
+
+	[[nodiscard]] static Path platformDirectory(const Path& binDir, const std::string& osName,
+		const std::string& osArch, const std::string& specPath)
+	{
+		// Appended as names, not parsed as a path, which would resolve a leading "~" to the home directory.
+		if (!BundleManifest::isValidFileName(osName) || !BundleManifest::isValidFileName(osArch))
+		{
+			throw Poco::DataFormatException(Poco::format(
+				"The code platform of the bundle in %s is not <osname>/<osarch>"s, specPath), osName + "/" + osArch);
+		}
+		Path platformDir(binDir);
+		platformDir.pushDirectory(osName);
+		platformDir.pushDirectory(osArch);
+		return platformDir;
 	}
 
 	void makeValidFileName(std::string& name)
@@ -980,7 +1036,15 @@ private:
 	{
 		// Files are copied by their name, so two source files can have the same destination.
 		if (!_destinations.insert(destPath).second)
-			throw Poco::FileExistsException(Poco::format("Two files are copied to %s; the second one is"s, destPath), sourcePath);
+		{
+			// The message names the path in the bundle; the temporary directory is removed.
+			const Path dest(destPath);
+			Path pathInBundle;
+			for (int i = _workPath.depth(); i < dest.depth(); ++i) pathInBundle.pushDirectory(dest.directory(i));
+			pathInBundle.setFileName(dest.getFileName());
+			throw Poco::FileExistsException(Poco::format("Two files are copied to %s in bundle %s; the second one is"s,
+				pathInBundle.toString(Path::PATH_UNIX), _bundleName), sourcePath);
+		}
 	}
 
 	void copyDirectory(const File& file, const std::string& destPath)
@@ -1028,6 +1092,8 @@ private:
 	std::string _code;
 	std::string _strip;
 	std::set<std::string> _destinations;
+	std::string _bundleName;
+	Path _workPath;
 };
 
 

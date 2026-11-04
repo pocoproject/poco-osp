@@ -105,7 +105,8 @@ public:
 		/// given alias, or if the signature block file is larger than
 		/// SignatureFile::MAX_SIGNATURE_BLOCK_SIZE, returns 0.
 
-	[[nodiscard]] VerificationResult verify(const std::string& alias, const Poco::Crypto::X509Certificate::List& trustedCertificates, std::vector<std::string>& messages);
+	[[nodiscard]] VerificationResult verify(const std::string& alias,
+		const Poco::Crypto::X509Certificate::List& trustedCertificates, std::vector<std::string>& messages);
 		/// Verifies the bundle like verify(alias, certificate, messages),
 		/// and in addition decides whether the signer is trusted.
 		///
@@ -141,7 +142,7 @@ public:
 		/// the public key from the certificate.
 		/// The signature block file must not be larger than
 		/// SignatureFile::MAX_SIGNATURE_BLOCK_SIZE, and the signature file not
-		/// larger than SignatureFile::maxSize() for the number of files in the bundle.
+		/// larger than SignatureFile::maxSize() for the files in the bundle.
 		/// Third, computes the SHA1/SHA2 digests for all files in the bundle
 		/// (see SignUtility::listFiles()), and checks that the signatures match
 		/// the signatures in the bundle's signature file. A bundle file whose
@@ -160,7 +161,7 @@ public:
 		/// Note that verify() can also throw a Poco::Exception if a low-level
 		/// error occurs.
 
-protected:
+private:
 	struct SignatureFiles
 		/// The signature block file and the signature file of one signer.
 	{
@@ -174,26 +175,32 @@ protected:
 			/// The file digests listed in the signature file.
 	};
 
-	[[nodiscard]] VerificationResult readSignatureFiles(const std::string& alias, SignatureFiles& signatureFiles, std::vector<std::string>& messages) const;
+	[[nodiscard]] VerificationResult readSignatureFiles(const std::string& alias, SignatureFiles& signatureFiles,
+		std::vector<std::string>& messages) const;
 		/// Reads and checks the signature block file and the signature file
 		/// of the given signer, apart from the signature itself, and stores
 		/// them in signatureFiles.
 
-	[[nodiscard]] static VerificationResult verifySignature(const std::string& alias, const Poco::Crypto::X509Certificate& certificate, const SignatureFiles& signatureFiles, std::vector<std::string>& messages);
+	[[nodiscard]] static VerificationResult verifySignature(const std::string& alias,
+		const Poco::Crypto::X509Certificate& certificate, const SignatureFiles& signatureFiles,
+		std::vector<std::string>& messages);
 		/// Verifies the signature of the signature file with the key of the
 		/// given certificate.
 
-	[[nodiscard]] VerificationResult verifyFiles(const std::string& digestAlgorithm, SignatureFile::Signatures& signatures, std::vector<std::string>& messages) const;
+	[[nodiscard]] VerificationResult verifyFiles(const std::string& digestAlgorithm,
+		SignatureFile::Signatures& signatures, std::vector<std::string>& messages) const;
 		/// Compares the digests of all files in the bundle with the given signatures,
 		/// and removes the matched entries from signatures.
 
-	[[nodiscard]] static bool isTrusted(const Poco::Crypto::X509Certificate& certificate, const Poco::Crypto::X509Certificate::List& trustedCertificates, std::vector<std::string>& messages);
+	[[nodiscard]] static bool isTrusted(const Poco::Crypto::X509Certificate& certificate,
+		const Poco::Crypto::X509Certificate::List& trustedCertificates, std::vector<std::string>& messages);
 		/// Returns true iff the given certificate is one of the trusted
 		/// certificates, or has been issued by one of them.
 		/// A trusted certificate without a public key is skipped, and
 		/// a message naming it is added to messages.
 
-	[[nodiscard]] static bool isValidSigner(const Poco::Crypto::X509Certificate& certificate, std::vector<std::string>& messages);
+	[[nodiscard]] static bool isValidSigner(const Poco::Crypto::X509Certificate& certificate,
+		std::vector<std::string>& messages);
 		/// Returns true iff the given certificate is within its validity period
 		/// and allows code signing. Otherwise, adds the reason to messages.
 
@@ -206,7 +213,6 @@ protected:
 	static void digestFromHex(const std::string& hex, Poco::DigestEngine::Digest& digest);
 	[[nodiscard]] static int nibble(char ch);
 
-private:
 	static const std::string META_INF;
 	static const std::string EXT_SF;
 	static const std::string EXT_RSA;

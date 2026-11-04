@@ -1,7 +1,7 @@
 //
 // Driver.cpp
 //
-// Console-based test driver for Poco OSP BundleSign.
+// Console-based test driver for POCO OSP BundleSign.
 //
 // Copyright (c) 2009, Applied Informatics Software Engineering GmbH.
 // All rights reserved.

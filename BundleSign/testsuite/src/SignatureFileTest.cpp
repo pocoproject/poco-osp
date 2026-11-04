@@ -17,6 +17,8 @@
 #include "Poco/Exception.h"
 #include <cstddef>
 #include <sstream>
+#include <string>
+#include <vector>
 
 
 using namespace Poco::OSP::BundleSign;
@@ -122,6 +124,60 @@ void SignatureFileTest::testWriteRejectsLongPath()
 }
 
 
+void SignatureFileTest::testWriteRejectsPathThatReadWouldChange()
+{
+	static const std::vector<std::string> paths = {"a\nSHA256-Digest: 00\n\nName: b", " a", "", "a\rb"};
+	SignatureFile sf("1.0", "OSPBundleSign Testsuite", "SHA256-Digest");
+	for (const auto& path: paths)
+	{
+		SignatureFile::Signatures signatures;
+		signatures[path] = "0123456789ABCDEF0123456789ABCDEF";
+		std::ostringstream ostr;
+		try
+		{
+			sf.write(signatures, ostr);
+			failmsg("the path \"" + path + "\" must be rejected");
+		}
+		catch (Poco::InvalidArgumentException&)
+		{
+		}
+	}
+}
+
+
+void SignatureFileTest::testPreservesOnlyPathThatReadReturnsUnchanged()
+{
+	assertTrue (SignatureFile::preservesPath("META-INF/manifest.mf"));
+	assertTrue (SignatureFile::preservesPath("dir/a b.txt"));
+	static const std::vector<std::string> paths = {"a\nSHA256-Digest: 00\n\nName: b", " a", "", "a\rb", "a\x7f"};
+	for (const auto& path: paths)
+	{
+		assertTrue (!SignatureFile::preservesPath(path));
+	}
+}
+
+
+void SignatureFileTest::testMaxSizeIsSizeOfWrittenEntries()
+{
+	constexpr std::size_t SHA256_LENGTH = 32;
+	const std::vector<std::string> paths = {"a.txt", "dir/b.txt"};
+	SignatureFile::Signatures signatures;
+	for (const auto& path: paths)
+	{
+		signatures[path] = std::string(2*SHA256_LENGTH, '0');
+	}
+	SignatureFile sf("1.0", "", "SHA256-Digest");
+	std::ostringstream ostr;
+	sf.write(signatures, ostr);
+	const std::string header("Signature-Version: 1.0\n\n");
+
+	const std::size_t maxSize = SignatureFile::maxSize(paths, "SHA256-Digest", SHA256_LENGTH);
+	const std::size_t maxHeaderSize = SignatureFile::HEADER_ENTRIES*SignatureFile::MAX_ENTRY_LENGTH;
+	assertEqual (maxHeaderSize + 190, maxSize);
+	assertEqual (maxSize - maxHeaderSize, ostr.str().size() - header.size());
+}
+
+
 void SignatureFileTest::setUp()
 {
 }
@@ -140,6 +196,9 @@ CppUnit::Test* SignatureFileTest::suite()
 	CppUnit_addTest(pSuite, SignatureFileTest, testWrite);
 	CppUnit_addTest(pSuite, SignatureFileTest, testReadRejectsLongEntry);
 	CppUnit_addTest(pSuite, SignatureFileTest, testWriteRejectsLongPath);
+	CppUnit_addTest(pSuite, SignatureFileTest, testWriteRejectsPathThatReadWouldChange);
+	CppUnit_addTest(pSuite, SignatureFileTest, testPreservesOnlyPathThatReadReturnsUnchanged);
+	CppUnit_addTest(pSuite, SignatureFileTest, testMaxSizeIsSizeOfWrittenEntries);
 
 	return pSuite;
 }

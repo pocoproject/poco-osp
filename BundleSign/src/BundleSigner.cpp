@@ -15,19 +15,27 @@
 
 
 #include "Poco/OSP/BundleSign/BundleSigner.h"
+#include "ZipEntryAttributes.h"
 #include "Poco/OSP/BundleSign/SignUtility.h"
 #include "Poco/OSP/BundleSign/SignatureFile.h"
+#include "Poco/OSP/BundleManifest.h"
 #include "Poco/Crypto/RSADigestEngine.h"
 #include "Poco/Crypto/DigestEngine.h"
+#include "Poco/Crypto/X509Certificate.h"
 #include "Poco/Zip/ZipManipulator.h"
+#include "Poco/Zip/ZipArchive.h"
+#include "Poco/Zip/ZipStream.h"
 #include "Poco/FileStream.h"
+#include "Poco/StreamCopier.h"
 #include "Poco/TemporaryFile.h"
 #include "Poco/File.h"
 #include "Poco/Path.h"
 #include "Poco/DigestStream.h"
+#include "Poco/Ascii.h"
 #include "Poco/Exception.h"
 #include "Poco/Format.h"
 #include <algorithm>
+#include <list>
 #include <vector>
 
 
@@ -47,11 +55,8 @@ const std::string BundleSigner::EXT_RSA(".rsa");
 
 
 BundleSigner::BundleSigner(const std::string& signer, const Poco::Crypto::RSAKey& rsaKey):
-	_signer(signer),
-	_rsaKey(rsaKey),
-	_digestAlgorithm(SHA256)
+	BundleSigner(signer, rsaKey, SHA256)
 {
-	poco_assert (!signer.empty());
 }
 
 
@@ -60,7 +65,10 @@ BundleSigner::BundleSigner(const std::string& signer, const Poco::Crypto::RSAKey
 	_rsaKey(rsaKey),
 	_digestAlgorithm(digestAlgorithm)
 {
-	poco_assert (!signer.empty());
+	// The alias names the signature files, and a signature file drops white space at the start of a name.
+	if (!Poco::OSP::BundleManifest::isValidFileName(signer)
+		|| Poco::Ascii::isSpace(static_cast<unsigned char>(signer.front())))
+		throw Poco::InvalidArgumentException("The signer alias cannot be used as a file name", signer);
 
 	const std::vector<std::string>& algorithms = SignUtility::digestAlgorithms();
 	if (std::find(algorithms.begin(), algorithms.end(), digestAlgorithm) == algorithms.end())
@@ -77,9 +85,9 @@ void BundleSigner::signBundle(const std::string& bundlePath)
 }
 
 
-void BundleSigner::signBundle(const std::string& bundlePath, const Poco::Crypto::X509Certificate& cert)
+void BundleSigner::signBundle(const std::string& bundlePath, const Poco::Crypto::X509Certificate& certificate)
 {
-	signBundle(bundlePath, &cert);
+	signBundle(bundlePath, &certificate);
 }
 
 	
@@ -148,6 +156,37 @@ void BundleSigner::signBundleFile(const std::string& bundlePath, const std::stri
 	rsaBundlePath += EXT_RSA;
 
 	Poco::Zip::ZipManipulator manip(bundlePath, false);
+	// ZipManipulator copies a kept entry raw, and Compress::addFileRaw() can write a local header of another length for
+	// an entry with an extra field, so that its data no longer follows the header. Such a file is therefore compressed
+	// again, and such a directory entry, which a bundle does not need, is removed.
+	std::list<Poco::TemporaryFile> copies;
+	Poco::FileInputStream bundleStream(bundlePath);
+	const Poco::Zip::ZipArchive& archive = manip.originalArchive();
+	for (auto it = archive.headerBegin(); it != archive.headerEnd(); ++it)
+	{
+		const bool isOwnSignatureFile = it->first == sfBundlePath || it->first == rsaBundlePath;
+		if (it->second.isDirectory() && it->second.hasExtraField())
+		{
+			manip.deleteFile(it->first);
+		}
+		else if (it->second.hasExtraField() && !isOwnSignatureFile)
+		{
+			checkAttributesCanBeCopied(archive, it->first, bundlePath);
+			Poco::Zip::ZipInputStream entryStream(bundleStream, it->second);
+			Poco::FileOutputStream copyStream(copies.emplace_back().path());
+			Poco::StreamCopier::copyStream(entryStream, copyStream);
+			copyStream.close();
+			if (copyStream.fail())
+				throw Poco::WriteFileException(copies.back().path());
+			// The stream reports a CRC mismatch and a decompression error only in its state.
+			if (entryStream.bad() || !entryStream.crcValid())
+				throw Poco::DataFormatException("Corrupt entry " + it->first + " in bundle file", bundlePath);
+			// ZipManipulator::replaceFile() takes the modification time of the new entry from the file.
+			Poco::File(copies.back().path()).setLastModified(it->second.lastModifiedAt().timestamp());
+			manip.replaceFile(it->first, copies.back().path());
+		}
+	}
+	bundleStream.close();
 	manip.addFile(sfBundlePath, sfPath);
 	manip.addFile(rsaBundlePath, rsaPath);	
 	manip.commit();

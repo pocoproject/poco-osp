@@ -76,9 +76,10 @@ public:
 		/// its subdirectories.
 		///
 		/// Throws a Poco::DataFormatException if the ZIP archive contains two
-		/// entries with the same name, or an entry whose name is not a relative
-		/// path in canonical form (a name that begins with '/', contains a
-		/// backslash, or has an empty, "." or ".." component).
+		/// entries with the same name, or if the name of an entry or a file is
+		/// not a relative path in canonical form (a name that begins with '/',
+		/// contains a backslash or a control character, or has an empty, "."
+		/// or ".." component or one that begins with white space).
 
 	[[nodiscard]] static std::string computeDigest(std::istream& istr, Poco::DigestEngine& engine);
 		/// Computes a digest for the contents of the given stream,

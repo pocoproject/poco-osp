@@ -22,6 +22,8 @@
 #include "CppUnit/TestRunner.h"
 #include "Poco/AutoPtr.h"
 #include "Poco/ClassLibrary.h"
+#include "Poco/Format.h"
+#include "Poco/Logger.h"
 #include "Poco/LogStream.h"
 
 
