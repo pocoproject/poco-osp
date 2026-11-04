@@ -53,16 +53,10 @@ public:
 	int execute(Session& session, const std::string& commandLine, std::ostream& ostr);
 		/// Executes the command given in commandLine in the given session.
 		///
-		/// Throws a Poco::NotFoundException if the given command
-		/// is not known.
-		///
-		/// The following commands are builtin:
-		///   - .login <userName> <credentials>:
-		///     Attempts to log the user into the current session with the given userName and credentials (password).
-		///   - .help
-		///     Displays a list of all registered commands.
-		///   - .quit
-		///     Ends the session.
+		/// Returns Command::STATUS_DENIED if the user is not authorized to
+		/// run the command, and also if the command is not known and the
+		/// session is not authenticated. Throws a Poco::NotFoundException
+		/// if the command is not known in an authenticated session.
 
 	void addCommand(const std::string& command, const std::set<std::string>& aliases, FactoryPtr pFactory, const std::string& permission);
 		/// Adds a command to the command processor.
@@ -74,6 +68,8 @@ public:
 
 	void removeCommand(const std::string& command);
 		/// Removes the given command.
+		///
+		/// Throws a Poco::NotFoundException if the command is not known.
 
 	void removeBundle(Poco::OSP::Bundle::Ptr pBundle);
 		/// Removes all commands defined by the given bundle.
@@ -81,15 +77,16 @@ public:
 	void listCommands(std::vector<std::string>& commands) const;
 		/// Fills the given vector with the names of all registered commands.
 
+	void listCommands(const Session& session, std::vector<std::string>& commands) const;
+		/// Fills the given vector with the names of the commands that the help
+		/// shows in the given session: before login only the commands that need
+		/// no permission, after login all registered commands.
+
 	void aliases(const std::string& command, std::set<std::string>& aliases) const;
 		/// Fills the given set with all aliases for the given command.
 
 	Poco::OSP::BundleContext::Ptr context() const;
 		/// Returns the BundleContext used by the CommandProcessor.
-
-	static const std::string COMMAND_LOGIN;
-	static const std::string COMMAND_HELP;
-	static const std::string COMMAND_QUIT;
 
 protected:
 	Command* createCommand(const Session& session, const std::string& command);

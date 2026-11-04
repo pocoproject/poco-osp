@@ -15,13 +15,16 @@ POCO_SOURCES_AUTO(LIB_SRCS
 	src/HelpCommandFactory.cpp
 	src/LoginCommand.cpp
 	src/LoginCommandFactory.cpp
+	src/LoginFailures.cpp
 	src/OSPCommand.cpp
 	src/QuitCommand.cpp
 	src/QuitCommandFactory.cpp
 	src/ResponseStream.cpp
 	src/Session.cpp
+	src/SessionTracker.cpp
 	src/ShellConnection.cpp
 	src/ShellConnectionFactory.cpp
+	src/ShellServer.cpp
 )
 
 # Headers
@@ -92,12 +95,6 @@ if(ENABLE_OSP_SHELL_SSH)
 	target_link_libraries(${TARGET} PRIVATE Poco::SSH ssh)
 endif()
 
-# Copy Bundle Resources to build directory
-add_custom_command(TARGET ${TARGET}
-	POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/bundle ${CMAKE_CURRENT_BINARY_DIR}/bundle
-)
-
 # Build Bundle
 poco_osp_bundle(${TARGET}-bundle
 	DEPENDS ${LIBNAME} ${TARGET}
@@ -115,3 +112,7 @@ install(
 
 POCO_INSTALL(${LIBNAME})
 POCO_GENERATE_PACKAGE(${LIBNAME})
+
+if(POCO_OSP_ENABLE_TESTS)
+	add_subdirectory(testsuite)
+endif()

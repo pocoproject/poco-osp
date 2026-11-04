@@ -43,7 +43,7 @@ public:
 				std::string name(*it);
 				if (name.empty()) name = "(root)";
 				level.resize(14, ' ');
-				ostr << level << name << std::endl;
+				ostr << level << name << '\n';
 			}
 			return Poco::OSP::Shell::Command::STATUS_OK; 
 		}
@@ -57,21 +57,21 @@ public:
 			}
 			else
 			{
-				ostr << "Not found: " << args[1] << std::endl;
+				ostr << "Not found: " << args[1] << '\n';
 				return Poco::OSP::Shell::Command::STATUS_ERROR;
 			}
 		}
 		else if (args.size() == 3)
 		{
 			std::string logger(args[1]);
-			std::string level(args[2]);
+			const std::string& level = args[2];
 			if (logger == "*") logger.clear();
 			Poco::Logger::setLevel(logger, Poco::Logger::parseLevel(level));
 			return Poco::OSP::Shell::Command::STATUS_OK; 
 		}
 		else
 		{
-			ostr << "Error: Too many arguments." << std::endl;
+			ostr << "Error: Too many arguments." << '\n';
 			return Poco::OSP::Shell::Command::STATUS_USAGE;
 		}
 	}
@@ -99,7 +99,7 @@ protected:
 			<< "  - information\n"
 			<< "  - debug\n"
 			<< "  - trace\n"
-			<< std::endl;
+			<< '\n';
 	}
 
 	static std::string levelToString(int level)

@@ -21,6 +21,7 @@
 
 
 #include "Poco/OSP/Shell/Shell.h"
+#include "Poco/OSP/Shell/ShellConnection.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/Net/TCPServerConnectionFactory.h"
 
@@ -30,15 +31,16 @@ namespace OSP {
 namespace Shell {
 
 
-class CommandProcessor;
+class SessionTracker;
 
 
 class OSPShell_API ShellConnectionFactory: public Poco::Net::TCPServerConnectionFactory
 	/// The factory for ShellConnection objects.
 {
 public:
-	ShellConnectionFactory(CommandProcessor& processor, const std::string& authServiceName);
-		/// Creates the ShellConnectionFactory.
+	ShellConnectionFactory(const ShellConnection::Config& config, SessionTracker& sessions);
+		/// Creates the ShellConnectionFactory for connections with the given
+		/// config and SessionTracker.
 		
 	~ShellConnectionFactory();
 		/// Destroys the ShellConnectionFactory.
@@ -49,8 +51,8 @@ public:
 private:
 	ShellConnectionFactory();
 	
-	CommandProcessor& _commandProcessor;
-	std::string _authServiceName;
+	ShellConnection::Config _config;
+	SessionTracker& _sessions;
 };
 
 

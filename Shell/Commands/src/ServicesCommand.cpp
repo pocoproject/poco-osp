@@ -54,7 +54,7 @@ int ServicesCommand::executeImpl(Session& session, const std::vector<std::string
 				(*it)->properties().keys(keys);
 				for (std::vector<std::string>::const_iterator itk = keys.begin(); itk != keys.end(); ++itk)
 				{
-					ostr << "\t" << *itk << " = " << (*it)->properties()[*itk] << std::endl;
+					ostr << "\t" << *itk << " = " << (*it)->properties()[*itk] << '\n';
 				}
 			}
 		}

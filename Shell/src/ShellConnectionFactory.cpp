@@ -23,9 +23,9 @@ namespace OSP {
 namespace Shell {
 
 
-ShellConnectionFactory::ShellConnectionFactory(CommandProcessor& commandProcessor, const std::string& authServiceName):
-	_commandProcessor(commandProcessor),
-	_authServiceName(authServiceName)
+ShellConnectionFactory::ShellConnectionFactory(const ShellConnection::Config& config, SessionTracker& sessions):
+	_config(config),
+	_sessions(sessions)
 {
 }
 
@@ -37,7 +37,7 @@ ShellConnectionFactory::~ShellConnectionFactory()
 
 Poco::Net::TCPServerConnection* ShellConnectionFactory::createConnection(const Poco::Net::StreamSocket& s)
 {
-	return new ShellConnection(s, _commandProcessor, _authServiceName);
+	return new ShellConnection(s, _config, _sessions);
 }
 
 

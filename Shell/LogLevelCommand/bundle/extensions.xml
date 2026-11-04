@@ -1,3 +1,4 @@
 <extensions>
-  <extension point="com.appinf.osp.shell.command" command="loglevel" class="LogLevelCommandFactory"/>
+  <extension point="com.appinf.osp.shell.command" command="loglevel" permission="logAdmin"
+    class="LogLevelCommandFactory"/>
 </extensions>

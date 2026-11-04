@@ -16,6 +16,9 @@
 
 #include "StopCommand.h"
 #include "Poco/OSP/BundleManifest.h"
+#include "Poco/OSP/Shell/Command.h"
+#include "Poco/OSP/Bundle.h"
+#include <ostream>
 
 
 using Poco::OSP::BundleManifest;
@@ -39,8 +42,14 @@ StopCommand::~StopCommand()
 }
 
 
-void StopCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr)
+int StopCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr)
 {
+	if (isRequiredByShell(pBundle))
+	{
+		ostr << "Cannot stop bundle " << pBundle->symbolicName() << " from a shell session: the shell requires it.\n";
+		return Command::STATUS_ERROR;
+	}
+
 	BundleVec deps;
 	if (!_force)
 	{
@@ -63,7 +72,9 @@ void StopCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr)
 			ostr << (*it)->symbolicName() << " (" << (*it)->id() << ")\n";
 		}
 		ostr << "Use the --all option to stop all depending bundles, or --force to override at your own risk.";
+		return Command::STATUS_ERROR;
 	}
+	return Command::STATUS_OK;
 }
 
 

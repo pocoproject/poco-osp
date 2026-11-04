@@ -18,6 +18,7 @@
 #include "Poco/OSP/ServiceRegistry.h"
 #include "Poco/OSP/ServiceRef.h"
 #include "Poco/OSP/BundleInstallerService.h"
+#include <ostream>
 
 
 using Poco::OSP::Service;
@@ -45,7 +46,7 @@ int InstallCommand::executeImpl(Session& session, const std::vector<std::string>
 {
 	if (args.empty())
 	{
-		ostr << "At least one URI must be specified." << std::endl;
+		ostr << "At least one URI must be specified." << '\n';
 		return Command::STATUS_USAGE;
 	}
 	
@@ -58,14 +59,14 @@ int InstallCommand::executeImpl(Session& session, const std::vector<std::string>
 		{
 			try
 			{
-				ostr << "Downloading and installing bundle from " << *it << std::endl;
+				ostr << "Downloading and installing bundle from " << *it << '\n' << std::flush;
 				Poco::OSP::Bundle::Ptr pBundle = pInstaller->installBundle(*it);
 				ostr << "Bundle successfully installed: " << pBundle->symbolicName() << "/" << pBundle->version().toString() 
-				     << " (ID: " << pBundle->id() << ")" << std::endl;
+				     << " (ID: " << pBundle->id() << ")" << '\n';
 			}
 			catch (Poco::Exception& exc)
 			{
-				ostr << exc.displayText() << std::endl;
+				ostr << exc.displayText() << '\n';
 				return Command::STATUS_ERROR;
 			}
 		}
@@ -73,7 +74,7 @@ int InstallCommand::executeImpl(Session& session, const std::vector<std::string>
 	}
 	else
 	{
-		ostr << "BundleInstallerService not found." << std::endl;
+		ostr << "BundleInstallerService not found." << '\n';
 		return Command::STATUS_ERROR;
 	}
 }

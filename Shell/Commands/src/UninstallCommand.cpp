@@ -15,6 +15,9 @@
 
 
 #include "UninstallCommand.h"
+#include "Poco/OSP/Shell/Command.h"
+#include "Poco/OSP/Bundle.h"
+#include <ostream>
 
 
 namespace Poco {
@@ -33,9 +36,16 @@ UninstallCommand::~UninstallCommand()
 }
 
 
-void UninstallCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream&)
+int UninstallCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr)
 {
+	if (isRequiredByShell(pBundle))
+	{
+		ostr << "Cannot uninstall bundle " << pBundle->symbolicName()
+		     << " from a shell session: the shell requires it.\n";
+		return Command::STATUS_ERROR;
+	}
 	pBundle->uninstall();
+	return Command::STATUS_OK;
 }
 
 

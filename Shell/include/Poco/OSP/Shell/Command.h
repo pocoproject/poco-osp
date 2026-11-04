@@ -59,6 +59,12 @@ public:
 		/// the given session.
 		/// The first element of the args vector is the command name.
 		///
+		/// A command that is registered without a permission (see the
+		/// com.appinf.osp.shell.command extension point) is executed in every
+		/// session, also in one in which no user has logged in. Such a command
+		/// checks the session itself (Session::authenticated(), Session::authorize())
+		/// before it changes anything or acts for a user.
+		///
 		/// Any output produced by executing the command can be
 		/// written to the given output stream.
 		///

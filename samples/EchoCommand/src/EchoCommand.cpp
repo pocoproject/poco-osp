@@ -13,37 +13,35 @@
 #include "Poco/ClassLibrary.h"
 #include "Poco/OSP/Shell/Command.h"
 #include "Poco/OSP/Shell/CommandFactory.h"
-#include "Poco/Util/Application.h"
-#include "Poco/Util/AbstractConfiguration.h"
+#include "Poco/OSP/Shell/Session.h"
+#include <cstddef>
 
 
 class EchoCommand: public Poco::OSP::Shell::Command
 	/// Output a space-separated list of all given
 	/// command line arguments.
 	///
-	/// References to application configuration properties
-	/// in the form of ${<property>} are expanded.
+	/// The command is registered without a permission, so it
+	/// checks itself that the user has logged in.
 {
 public:
 	int execute(Poco::OSP::Shell::Session& session, const std::vector<std::string>& args, std::ostream& ostr)
 	{
-		Poco::Util::Application& app = Poco::Util::Application::instance();
+		if (!session.authenticated()) return Command::STATUS_DENIED;
 
 		if (args.size() == 2 && args[1] == "--help")
 		{
 			ostr << "usage: " << args[0] << " [<arg>...]\n"
-			     << "Echo arguments to output.\n"
-			     << "References to application configuration properties in the form of\n"
-			     << "${<property>} are expanded." << std::endl;
+			     << "Echo arguments to output.\n";
 		}
 		else
 		{
-			for (int i = 1; i < args.size(); ++i)
+			for (std::size_t i = 1; i < args.size(); ++i)
 			{
 				if (i > 1) ostr << ' ';
-				ostr << app.config().expand(args[i]);
+				ostr << args[i];
 			}
-			ostr << std::endl;
+			ostr << '\n';
 		}		
 		return Command::STATUS_OK;
 	}

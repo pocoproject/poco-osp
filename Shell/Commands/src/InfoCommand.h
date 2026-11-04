@@ -48,8 +48,8 @@ public:
 
 protected:
 	// BundleActionCommand
-	void doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr);
-	virtual void defineOptions(Poco::Util::OptionSet& options);
+	int doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr) override;
+	void defineOptions(Poco::Util::OptionSet& options) override;
 
 	void handleDependencies(const std::string& name, const std::string& value);
 	void handleClients(const std::string& name, const std::string& value);

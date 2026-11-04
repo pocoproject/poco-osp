@@ -16,6 +16,7 @@
 
 #include "BundlesCommand.h"
 #include "Poco/NumberFormatter.h"
+#include "Poco/Format.h"
 
 
 namespace Poco {
@@ -44,8 +45,7 @@ int BundlesCommand::executeImpl(Session& session, const std::vector<std::string>
 		if (match(args, (*it)->symbolicName()))
 		{
 			ostr << Poco::NumberFormatter::format((*it)->id(), 6) << "  ";
-			const std::string& state = (*it)->stateString();
-			ostr << state << std::string(14 - state.size(), ' ');
+			ostr << Poco::format("%-13s ", (*it)->stateString());
 			ostr << (*it)->symbolicName() << "/" << (*it)->version().toString() << '\n';
 		}
 	}

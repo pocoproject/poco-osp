@@ -44,7 +44,7 @@ int HelpCommand::execute(Session& session, const std::vector<std::string>& args,
 		if (!header.empty()) ostr << header << '\n';
 	
 		std::vector<std::string> commands;
-		_commandProcessor.listCommands(commands);
+		_commandProcessor.listCommands(session, commands);
 		for (std::vector<std::string>::const_iterator it = commands.begin(); it != commands.end(); ++it)
 		{
 			ostr << "  " << *it;

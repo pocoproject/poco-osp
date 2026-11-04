@@ -29,11 +29,26 @@ To start the OSP Shell, the OSP Shell client application, named <[ospsh]>, must
 be started. For the client to work, the OSP Shell Service bundle must be running on the local
 machine.
 
-After starting <[ospsh]>, the user is prompted for a username and password used to
-authenticate against the OSP Shell server.
-The default user name and password is "admin", and "admin", respectively.
+After starting <[ospsh]>, the user is prompted for a username and password.
+The OSP Shell Service checks them with the authentication service named by the
+<[authServiceName]> setting (see below). The shell bundle has no users of its own:
+the users, their passwords and permissions come from the bundle that provides the
+authentication service, for example <[com.appinf.osp.simple-auth]> or the bundles
+of OSP Auth. The <[passwd]> and <[auth]> commands are provided by the bundle
+<[com.appinf.osp.auth.command]>, not by the shell bundle.
 The username and password can also be provided via command-line arguments, or via environment variables 
 (`OSPSH_USERNAME` and `OSPSH_PASSWORD`).
+
+The OSP Shell Service logs every rejected login with the address of the client
+and answers it after a delay: one second after the first rejected login from an
+address, doubled after each further one, at most 16 seconds. An address is
+forgotten ten minutes after its last rejected login. A connection is closed after
+three rejected logins. The SSH server of the shell handles rejected SSH password
+logins and the <[login]> command in the same way, and closes idle sessions after the
+same <[sessionTimeout]>. It also closes a connection on which no shell session starts
+within the <[openSSH.server.loginGraceTime]> (see below).
+
+In the following example, the authentication service knows a user named "admin".
 
     user@host> ospsh
     Username: admin
@@ -49,7 +64,8 @@ The username and password can also be provided via command-line arguments, or vi
 After the connection to the OSP Shell Service has been established,
 a greeting message from the OSP Shell Service is displayed, followed
 by a command prompt. Entering the <[help]> command shows a list of
-all available commands.
+all available commands. Before login, the list contains only the
+commands that need no permission.
 
     osp> help
     The following commands are available:
@@ -93,6 +109,9 @@ To exit the shell, the <[quit]> (or <[exit]>) command is used.
 
 
 !!! Common Tasks
+
+The transcripts in this section are examples: bundle names, versions, states
+and paths depend on the application.
 
 !! Listing All Installed Bundles
 
@@ -211,6 +230,13 @@ given bundle.
 ----
 
 
+!! Showing and Changing Log Levels
+
+The bundle <[com.appinf.osp.shell.loglevelcommand]> adds the <[loglevel]>
+command, which shows the levels of the loggers and changes them. It requires
+the <*logAdmin*> permission. Enter <[loglevel --help]> for its arguments.
+
+
 !!! Managing The Bundle Lifecycle
 
 A bundle in <*resolved*> state can be started with the
@@ -239,6 +265,12 @@ are other bundles depending on the bundle to be stopped. To nevertheless stop su
     Use the --force option to override at your own risk.
     osp> _
 ----
+
+The <[stop]>, <[uninstall]> and <[upgrade]> commands refuse, also with the
+<[--force]> option, to act on a bundle that the shell itself needs: the shell
+bundle, the bundle that provides the command, and the bundles they require.
+Such a bundle can be stopped by other means, for example with the bundle
+administration web interface.
 
 
 !! Upgrading a Bundle
@@ -284,9 +316,9 @@ The <[ospsh]> command accepts the following command-line options:
     user name for logging in to the shell service.
   - <[/password=<password>]>, <[-p<password>]>, <[--password=<password>]>: Specify the
     password for logging in to the shell service.
-  - <[/host=<host>]>, <[-h<host>]>, <[--host=<host>]>: Specify the hostname or IP address
+  - <[/host=<host>]>, <[-H<host>]>, <[--host=<host>]>: Specify the hostname or IP address
     of the host running the OSP shell service.
-  - <[/port=<port>]>, <[-p<port>]>, <[--port=<port>]>: Specify the port number of the
+  - <[/port=<port>]>, <[-P<port>]>, <[--port=<port>]>: Specify the port number of the
     OSP shell service.
   - <[/file=<path>]>, <[-f<path>]>, <[--file=<path>]>: Read commands from the file
     specified by <[<path>]>.
@@ -294,6 +326,8 @@ The <[ospsh]> command accepts the following command-line options:
     welcome message.
   - <[/noauth]>, <[-N]>, <[--noauth]>: Do not authenticate against the server (no
     <[login]> command is send after establishing the connection).
+  - <[/config-file=<file>]>, <[-C<file>]>, <[--config-file=<file>]>: Read configuration
+    properties from the given file.
 
 
 !!! Adding Custom Commands to the OSP Command Shell Service
@@ -307,6 +341,9 @@ with the service.
 To implement a command, a class must be created that implements the
 Poco::OSP::Shell::Command interface. It is sufficient to override the
 <[execute()]> member function.
+The shell executes a command only in a session that has the permission
+given for the command in the extension point; for a command without a
+permission, see the <[permission]> attribute below.
 In addition to creating the command class, a factory class for the
 command also must be provided. The factory class must be a subclass
 of Poco::OSP::Shell::CommandFactory and must be exported in a
@@ -321,15 +358,15 @@ Commands that deal with bundles might benefit from using the
 Poco::OSP::Shell::OSPCommand class.
 
 The following sample code implements an <[echo]> command that simply
-echoes back all command-line argument. References to an application configuration
-property in the form <[${property}]> are expanded.
+echoes back all command-line arguments. The command is registered without a
+permission, so it checks itself that the user has logged in.
 
 
     #include "Poco/ClassLibrary.h"
     #include "Poco/OSP/Shell/Command.h"
     #include "Poco/OSP/Shell/CommandFactory.h"
-    #include "Poco/Util/Application.h"
-    #include "Poco/Util/AbstractConfiguration.h"
+    #include "Poco/OSP/Shell/Session.h"
+    #include <cstddef>
 
 
     class EchoCommand: public Poco::OSP::Shell::Command
@@ -337,14 +374,14 @@ property in the form <[${property}]> are expanded.
     public:
         int execute(Poco::OSP::Shell::Session& session, const std::vector<std::string>& args, std::ostream& ostr)
         {
-            Poco::Util::Application& app = Poco::Util::Application::instance();
+            if (!session.authenticated()) return Command::STATUS_DENIED;
 
-            for (int i = 1; i < args.size(); ++i)
+            for (std::size_t i = 1; i < args.size(); ++i)
             {
                 if (i > 1) ostr << ' ';
-                ostr << app.config().expand(args[i]);
+                ostr << args[i];
             }
-            ostr << std::endl;
+            ostr << '\n';
 
             return Command::STATUS_OK;
         }
@@ -388,6 +425,11 @@ of attributes is given below:
   - <[command]>: the name of the command (e.g., "bundles").
   - <[aliases]>: a comma-separated list of alias names for the command (e.g., "ls").
   - <[permission]>: the permission required to run this command.
+    Without a permission, the command runs in every session, also before
+    a login. Such a command must check the session itself, with
+    Poco::OSP::Shell::Session::authenticated() or
+    Poco::OSP::Shell::Session::authorize(), before it changes anything or
+    acts for a user.
   - <[class]>: the class name of the command factory (see the Poco::OSP::Shell::CommandFactory class).
   - <[library]>: the name of the shared library containing the command factory
     (can be omitted if the name of the library matches the name of the bundle).
@@ -404,13 +446,26 @@ The following settings can be customized:
 
   - <[interface]>: The network interface where the shell service listens
     for incoming connections. For security reasons, the shell service
-    only listens at the localhost interface per default.
+    only listens at the localhost interface per default. The shell service
+    receives all commands, including the user name and password of the
+    <[login]> command, in clear text over TCP, so it is meant for the
+    localhost interface only. For access from other hosts, use the SSH
+    server of the shell (setting <[openSSH.server.enabled]>), which a build
+    with SSH support provides.
   - <[port]>: The TCP port number of the shell service. Defaults
     to 22023.
   - <[maxConnections]>: The maximum number of simultaneous connections
-    to the shell service. Defaults to 1.
+    to the shell service. Defaults to 4.
+  - <[sessionTimeout]>: The time in seconds after which the shell service
+    closes a session in which no command has arrived. Defaults to 600.
+    A value of 0 disables the timeout.
+  - <[stopTimeout]>: The time in seconds for which stopping the shell bundle
+    waits for the sessions to end. Defaults to 10. A session that still runs a
+    command after this time ends when the command ends; the objects that it
+    uses and the library of the shell bundle are kept until the process ends.
   - <[authServiceName]>: The name of the authentication/authorization service
-    to use. Defaults to <[osp.auth]>.
+    to use. Defaults to <[osp.auth]>. If no service with this name is available,
+    every login is rejected. An empty name disables authentication and authorization.
 
 The settings stored in the bundle can be overridden by specifying the following settings
 in the OSP application's global configuration file:
@@ -418,4 +473,39 @@ in the OSP application's global configuration file:
   - <[com.appinf.osp.shell.interface]>
   - <[com.appinf.osp.shell.port]>
   - <[com.appinf.osp.shell.maxConnections]>
+  - <[com.appinf.osp.shell.sessionTimeout]>
+  - <[com.appinf.osp.shell.stopTimeout]>
   - <[com.appinf.osp.shell.authServiceName]>
+
+!! The SSH Server
+
+In a build with SSH support, the following settings in the OSP application's global
+configuration file control the SSH server of the shell. The SSH sessions use the
+<[sessionTimeout]>, <[stopTimeout]> and <[authServiceName]> settings of the shell.
+
+  - <[openSSH.server.enabled]>: Starts the SSH server instead of the TCP shell
+    service. Defaults to false.
+  - <[openSSH.server.interface]>: The network interface where the SSH server listens.
+    Defaults to the <[interface]> setting.
+  - <[openSSH.server.port]>: The TCP port number of the SSH server. Defaults to the
+    <[port]> setting.
+  - <[openSSH.server.maxConnections]>: The maximum number of simultaneous SSH
+    connections. Defaults to the <[maxConnections]> setting.
+  - <[openSSH.server.loginGraceTime]>: The time in seconds within which a client must
+    log in and open the shell session; the connection is closed otherwise. Defaults
+    to 60. A value of 0 disables the limit.
+  - <[openSSH.server.maxAuthAttempts]>: The number of rejected authentication attempts
+    after which a connection is closed. Defaults to 3; a larger value is reduced to 3.
+  - <[openSSH.server.passwordAuth]>: Accepts password logins, which the
+    authentication service checks. The commands of the session are authorized
+    under the account name that the authentication service returns for the
+    login. Defaults to true.
+  - <[openSSH.server.pubkeyAuth]>: Accepts public key logins. The authentication
+    service does not check them, so the commands of the session are authorized
+    under the SSH user name. Defaults to true.
+  - <[openSSH.server.authorizedKeysDir]>: The directory with the public keys of the
+    users: one file per user, named after the user name, with one key per line.
+    An empty value, the default, disables public key logins.
+  - <[openSSH.server.hostKeyDir]>: The directory of the host key of the SSH server.
+    If the directory has no valid host key, a new key is created. Defaults to the
+    persistent directory of the shell bundle.

@@ -17,6 +17,8 @@
 #include "Poco/OSP/Shell/CommandProcessor.h"
 #include "Poco/OSP/Shell/Command.h"
 #include "Poco/OSP/Shell/Session.h"
+#include "Poco/Exception.h"
+#include "Poco/SharedPtr.h"
 
 
 using Poco::FastMutex;
@@ -25,11 +27,6 @@ using Poco::FastMutex;
 namespace Poco {
 namespace OSP {
 namespace Shell {
-
-
-const std::string CommandProcessor::COMMAND_LOGIN("login");
-const std::string CommandProcessor::COMMAND_HELP("help");
-const std::string CommandProcessor::COMMAND_QUIT("quit");
 
 
 CommandProcessor::CommandProcessor(Poco::OSP::BundleContext::Ptr pContext):
@@ -50,7 +47,18 @@ int CommandProcessor::execute(Session& session, const std::string& commandLine, 
 	if (!items.empty())
 	{
 		const std::string& command = items[0];
-		Poco::SharedPtr<Command> pCommand = createCommand(session, command);
+		Poco::SharedPtr<Command> pCommand;
+		try
+		{
+			pCommand = createCommand(session, command);
+		}
+		catch (Poco::NotFoundException&)
+		{
+			// Before login, an unknown command gets the same reply as a command
+			// that the session may not run.
+			if (!session.authenticated()) return Command::STATUS_DENIED;
+			throw;
+		}
 		if (pCommand)
 			return pCommand->execute(session, items, ostr);
 		else
@@ -114,6 +122,20 @@ void CommandProcessor::listCommands(std::vector<std::string>& commands) const
 	for (CommandMap::const_iterator it = _commandMap.begin(); it != _commandMap.end(); ++it)
 	{
 		commands.push_back(it->first);
+	}
+}
+
+
+void CommandProcessor::listCommands(const Session& session, std::vector<std::string>& commands) const
+{
+	FastMutex::ScopedLock lock(_mutex);
+
+	for (const auto& [name, info]: _commandMap)
+	{
+		if (session.authenticated() || info.permission.empty())
+		{
+			commands.push_back(name);
+		}
 	}
 }
 

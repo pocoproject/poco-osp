@@ -24,6 +24,9 @@
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/OSP/BundleEvent.h"
 #include "Poco/Net/TCPServerConnection.h"
+#include <atomic>
+#include <chrono>
+#include <string>
 
 
 namespace Poco {
@@ -32,6 +35,8 @@ namespace Shell {
 
 
 class CommandProcessor;
+class LoginFailures;
+class SessionTracker;
 
 
 class OSPShell_API ShellConnection: public Poco::Net::TCPServerConnection
@@ -62,6 +67,12 @@ class OSPShell_API ShellConnection: public Poco::Net::TCPServerConnection
 	///
 	/// Example (negative response to login command):
 	///     403 DENIED
+	///
+	/// A rejected login is logged with the client address and answered after
+	/// the delay that LoginFailures determines for the address. The connection
+	/// is closed after MAX_FAILED_LOGINS rejected logins.
+	///
+	/// A session in which no command arrives within the session timeout is closed.
 {
 public:
 	enum StatusCode
@@ -75,8 +86,26 @@ public:
 		STATUS_SERVER_ERROR  = 500
 	};
 	
-	ShellConnection(const Poco::Net::StreamSocket& s, CommandProcessor& processor, const std::string& authServiceName);
-		/// Creates the ShellConnection.
+	struct Config
+		/// What the sessions of a shell server share. The objects must exist as
+		/// long as the sessions.
+	{
+		CommandProcessor& commandProcessor;
+			/// The command processor that runs the commands.
+
+		std::string authServiceName;
+			/// The name of the authentication service; empty to disable authentication.
+
+		LoginFailures& loginFailures;
+			/// The rejected logins per client address.
+
+		std::chrono::seconds sessionTimeout;
+			/// The time after which a session without a command is closed.
+	};
+
+	ShellConnection(const Poco::Net::StreamSocket& s, const Config& config, SessionTracker& sessions);
+		/// Creates the ShellConnection and adds its socket to the given
+		/// SessionTracker, which must exist as long as the connection.
 		
 	~ShellConnection();
 		/// Destroys the ShellConnection.
@@ -84,19 +113,23 @@ public:
 	// TCPServerConnection
 	void run();
 
+	static constexpr int MAX_FAILED_LOGINS = 3;
+		/// The number of rejected logins after which the connection is closed.
+
 protected:
-	static int statusFor(int exitCode, std::string& message);
-		/// Creates a suitable status code and response message
-		/// for the command's exit code.
-	
 	void onBundleStopping(const void* pSender, Poco::OSP::BundleEvent& ev);
 		/// Close the underlying socket if our bundle is stopping.
 	
 private:
 	ShellConnection();
 	
-	CommandProcessor& _commandProcessor;
-	std::string _authServiceName;
+	[[nodiscard]] bool stopped() const;
+		/// Returns true once the bundle of the shell is stopping or the
+		/// SessionTracker has been stopped.
+
+	const Config _config;
+	SessionTracker& _sessions;
+	std::atomic<bool> _bundleStopping{false};
 };
 
 

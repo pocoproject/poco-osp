@@ -48,7 +48,7 @@ int LoginCommand::executeImpl(Session& session, const std::vector<std::string>& 
 	}
 	else 
 	{
-		ostr << "Username and password required." << std::endl;
+		ostr << "Username and password required." << '\n';
 		return Command::STATUS_USAGE;
 	}
 }

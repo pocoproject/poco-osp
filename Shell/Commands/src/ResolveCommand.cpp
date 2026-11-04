@@ -16,6 +16,9 @@
 
 #include "ResolveCommand.h"
 #include "Poco/NumberFormatter.h"
+#include "Poco/OSP/Shell/Command.h"
+#include "Poco/OSP/Bundle.h"
+#include <ostream>
 
 
 namespace Poco {
@@ -34,9 +37,10 @@ ResolveCommand::~ResolveCommand()
 }
 
 
-void ResolveCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream&)
+int ResolveCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream&)
 {
 	pBundle->resolve();
+	return Command::STATUS_OK;
 }
 
 

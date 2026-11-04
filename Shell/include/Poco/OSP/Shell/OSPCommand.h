@@ -64,6 +64,16 @@ protected:
 		/// Returns a pointer to the bundle that matches the symbolic name or
 		/// id, or a null pointer otherwise.
 		
+	[[nodiscard]] bool isRequiredByShell(const Poco::OSP::Bundle::Ptr& pBundle) const;
+		/// Returns true if the given bundle is the bundle of this command or a
+		/// bundle that it requires, directly or indirectly. The bundle of a
+		/// shell command requires the shell bundle, so this includes the shell
+		/// bundle and the bundles that the shell bundle requires.
+		///
+		/// A command must not stop, uninstall or replace such a bundle from a
+		/// shell session: that would remove code that runs the command or the
+		/// session.
+
 	static bool match(const std::string& pattern, const std::string& subject);
 		/// Returns true if the given subject matches the given pattern.
 		///

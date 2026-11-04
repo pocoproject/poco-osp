@@ -67,12 +67,12 @@ int AbstractCommand::execute(Session& session, const std::vector<std::string>& a
 	}
 	catch (Poco::Util::OptionException& exc)
 	{
-		ostr << exc.displayText() << std::endl;
+		ostr << exc.displayText() << '\n';
 		return Command::STATUS_USAGE;		
 	}
 	catch (Poco::Exception& exc)
 	{
-		ostr << exc.displayText() << std::endl;
+		ostr << exc.displayText() << '\n';
 		return Command::STATUS_ERROR;
 	}
 }

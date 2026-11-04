@@ -17,11 +17,44 @@
 #include "Poco/OSP/Shell/Session.h"
 #include "Poco/OSP/ServiceRegistry.h"
 #include "Poco/OSP/ServiceRef.h"
+#include "Poco/OSP/Auth/AuthService.h"
+#include "Poco/Exception.h"
+#include "Poco/Logger.h"
+#include <exception>
+#include <string>
+#include <utility>
 
 
 namespace Poco {
 namespace OSP {
 namespace Shell {
+
+
+namespace
+{
+	void logLoginNotChecked(Poco::Logger& logger, const std::string& authServiceName, const std::string& reason)
+	{
+		std::string msg("The authentication service ");
+		msg += authServiceName;
+		msg += " could not check a shell login, so the login is rejected: ";
+		msg += reason;
+		logger.error(msg);
+	}
+
+	void logPermissionNotChecked(Poco::Logger& logger, const std::string& authServiceName,
+		const std::string& permission, const std::string& userName, const std::string& reason)
+	{
+		std::string msg("The authentication service ");
+		msg += authServiceName;
+		msg += " could not check the permission ";
+		msg += permission;
+		msg += " of the shell user ";
+		msg += userName;
+		msg += ", so the permission is denied: ";
+		msg += reason;
+		logger.warning(msg);
+	}
+}
 
 
 Session::Session(Poco::OSP::BundleContext::Ptr pContext, const std::string& authServiceName):
@@ -39,15 +72,37 @@ Session::~Session()
 
 bool Session::login(const std::string& userName, const std::string& credentials)
 {
-	_userName = userName;
-	Poco::OSP::Auth::AuthService::Ptr pAuthService = authService();
-	if (pAuthService)
+	std::string accountName(userName);
+	if (_authServiceName.empty())
 	{
-		_authenticated = pAuthService->authenticate(_userName, credentials);
+		_authenticated = true;
 	}
 	else
 	{
-		_authenticated = true;
+		_authenticated = false;
+		try
+		{
+			Poco::OSP::Auth::AuthService::Ptr pAuthService = authService();
+			_authenticated = pAuthService != nullptr
+				&& pAuthService->authenticateAccount(userName, credentials, accountName);
+		}
+		catch (Poco::Exception& exc)
+		{
+			logLoginNotChecked(_pContext->logger(), _authServiceName, exc.displayText());
+		}
+		catch (std::exception& exc)
+		{
+			logLoginNotChecked(_pContext->logger(), _authServiceName, exc.what());
+		}
+	}
+	if (_authenticated)
+	{
+		_userName = std::move(accountName);
+	}
+	else
+	{
+		_userName.clear();
+		++_failedLogins;
 	}
 	return _authenticated;
 }
@@ -62,36 +117,38 @@ void Session::loginWithKey(const std::string& userName)
 
 bool Session::authorize(const std::string& permission) const
 {
-	Poco::OSP::Auth::AuthService::Ptr pAuthService = authService();
-	if (authenticated() && pAuthService && !permission.empty())
-		return pAuthService->authorize(_userName, permission);
-	else
-		return authenticated();
+	if (!authenticated()) return false;
+	if (_authServiceName.empty() || permission.empty()) return true;
+
+	try
+	{
+		Poco::OSP::Auth::AuthService::Ptr pAuthService = authService();
+		return pAuthService != nullptr && pAuthService->authorize(_userName, permission);
+	}
+	catch (Poco::Exception& exc)
+	{
+		logPermissionNotChecked(_pContext->logger(), _authServiceName, permission, _userName, exc.displayText());
+	}
+	catch (std::exception& exc)
+	{
+		logPermissionNotChecked(_pContext->logger(), _authServiceName, permission, _userName, exc.what());
+	}
+	return false;
 }
 
 
 Poco::OSP::Auth::AuthService::Ptr Session::authService() const
-{	
-	if (!_pAuthService && !_authServiceName.empty())
-	{
-		if (!_authServiceName.empty())
-		{
-			Poco::OSP::ServiceRef::Ptr pAuthRef = _pContext->registry().findByName(_authServiceName);
-			if (pAuthRef)
-			{
-				_pAuthService = pAuthRef->castedInstance<Poco::OSP::Auth::AuthService>();
-			}
-			else
-			{
-				std::string msg("No auth service (");
-				msg += _authServiceName;
-				msg += ") is available.";
-				_pContext->logger().warning(msg);
-			}
-		}
+{
+	if (_authServiceName.empty()) return nullptr;
 
-	}
-	return _pAuthService;
+	Poco::OSP::ServiceRef::Ptr pAuthRef = _pContext->registry().findByName(_authServiceName);
+	if (pAuthRef != nullptr) return pAuthRef->castedInstance<Poco::OSP::Auth::AuthService>();
+
+	std::string msg("The authentication service ");
+	msg += _authServiceName;
+	msg += " is not available: shell logins and commands that require a permission are denied.";
+	_pContext->logger().warning(msg);
+	return nullptr;
 }
 
 

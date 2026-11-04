@@ -15,14 +15,23 @@
 
 
 #include "CommandExtensionPoint.h"
+#include "Poco/OSP/Shell/Command.h"
+#include "Poco/OSP/Shell/CommandFactory.h"
 #include "Poco/OSP/Shell/CommandProcessor.h"
 #include "Poco/OSP/ExtensionPointService.h"
 #include "Poco/OSP/BundleEvents.h"
 #include "Poco/OSP/OSPException.h"
 #include "Poco/StringTokenizer.h"
 #include "Poco/String.h"
+#include "Poco/Bugcheck.h"
 #include "Poco/Delegate.h"
+#include "Poco/Exception.h"
+#include <memory>
+#include <ostream>
 #include <set>
+#include <string>
+#include <utility>
+#include <vector>
 
 
 using Poco::FastMutex;
@@ -33,6 +42,79 @@ using Poco::StringTokenizer;
 namespace Poco {
 namespace OSP {
 namespace Shell {
+
+
+namespace
+{
+	using LibraryPtr = std::shared_ptr<const void>;
+		/// An object that keeps a library of commands loaded while it exists.
+
+	class LibraryCommand: public Command
+		/// Runs a command created from a library and keeps the library
+		/// loaded until the command is destroyed.
+	{
+	public:
+		LibraryCommand() = delete;
+
+		LibraryCommand(LibraryPtr pLibrary, std::unique_ptr<Command> pCommand):
+			_pLibrary(std::move(pLibrary)),
+			_pCommand(std::move(pCommand))
+		{
+		}
+
+		~LibraryCommand() override = default;
+
+		LibraryCommand(const LibraryCommand&) = delete;
+		LibraryCommand(LibraryCommand&&) = delete;
+		LibraryCommand& operator = (const LibraryCommand&) = delete;
+		LibraryCommand& operator = (LibraryCommand&&) = delete;
+
+		int execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr) override
+		{
+			return _pCommand->execute(session, args, ostr);
+		}
+
+	private:
+		// Declared first, so that the library is released after the command is destroyed.
+		LibraryPtr _pLibrary;
+		std::unique_ptr<Command> _pCommand;
+	};
+
+	class LibraryCommandFactory: public CommandFactory
+		/// Creates the commands of a factory created from a library and keeps
+		/// the library loaded while the factory or one of its commands exists.
+	{
+	public:
+		LibraryCommandFactory() = delete;
+
+		LibraryCommandFactory(LibraryPtr pLibrary, std::unique_ptr<CommandFactory> pFactory):
+			_pLibrary(std::move(pLibrary)),
+			_pFactory(std::move(pFactory))
+		{
+		}
+
+		~LibraryCommandFactory() override = default;
+
+		LibraryCommandFactory(const LibraryCommandFactory&) = delete;
+		LibraryCommandFactory(LibraryCommandFactory&&) = delete;
+		LibraryCommandFactory& operator = (const LibraryCommandFactory&) = delete;
+		LibraryCommandFactory& operator = (LibraryCommandFactory&&) = delete;
+
+		[[nodiscard]] Command* createCommand() override
+		{
+			std::unique_ptr<Command> pCommand(_pFactory->createCommand());
+			if (pCommand == nullptr) return nullptr;
+
+			// NOLINTNEXTLINE(cppcoreguidelines-owning-memory): the caller owns the command
+			return new LibraryCommand(_pLibrary, std::move(pCommand));
+		}
+
+	private:
+		// Declared first, so that the library is released after the factory is destroyed.
+		LibraryPtr _pLibrary;
+		std::unique_ptr<CommandFactory> _pFactory;
+	};
+}
 
 
 const std::string CommandExtensionPoint::EXTPOINT("com.appinf.osp.shell.command");
@@ -46,7 +128,8 @@ const std::string CommandExtensionPoint::MANIFEST_NAME("Shell");
 
 CommandExtensionPoint::CommandExtensionPoint(CommandProcessor& commandProcessor):
 	_commandProcessor(commandProcessor),
-	_pContext(commandProcessor.context())
+	_pContext(commandProcessor.context()),
+	_pLoader(std::make_shared<Loader>())
 {
 	_pContext->events().bundleStopped += Delegate<CommandExtensionPoint, BundleEvent>(this, &CommandExtensionPoint::onBundleStopped);
 }
@@ -67,8 +150,6 @@ CommandExtensionPoint::~CommandExtensionPoint()
 
 void CommandExtensionPoint::handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem)
 {
-	FastMutex::ScopedLock lock(_mutex);
-
 	if (pExtensionElem)
 	{
 		const Poco::XML::XMLString& extPoint = pExtensionElem->getAttribute(ExtensionPointService::POINT_ATTR);
@@ -99,38 +180,74 @@ void CommandExtensionPoint::handleCommand(Bundle::ConstPtr pBundle, Poco::XML::E
 	}
 			
 	std::string libraryPath = _pContext->pathForLibrary(library);
-	if (!_loader.isLibraryLoaded(libraryPath))
+	_pLoader->loadLibrary(libraryPath, MANIFEST_NAME);
+	const LibraryPtr pLibrary(nullptr, [pLoader = _pLoader, libraryPath](const void*)
 	{
-		_loader.loadLibrary(libraryPath, MANIFEST_NAME);
-		_libBundleMap[libraryPath] = pBundle;
-	}
+		try
+		{
+			pLoader->unloadLibrary(libraryPath);
+		}
+		catch (...)
+		{
+			poco_unexpected();
+		}
+	});
 	
-	FactoryPtr pFactory = _loader.create(className);
+	std::unique_ptr<CommandFactory> pLibraryFactory(_pLoader->create(className));
 	Poco::OSP::BundleContext::Ptr pContext = _pContext->contextForBundle(pBundle);
+	pLibraryFactory->init(pContext);
+	FactoryPtr pFactory = new LibraryCommandFactory(pLibrary, std::move(pLibraryFactory));
 	pFactory->init(pContext);
-	
-	_commandProcessor.addCommand(command, aliasesSet, pFactory, permission);
+
+	bool bundleStopped = false;
+	bool commandExists = false;
+	{
+		FastMutex::ScopedLock lock(_mutex);
+
+		// The bundle may have stopped while the factory was created; onBundleStopped()
+		// has then removed its commands already, and this one must not be added.
+		bundleStopped = !pBundle->isActive();
+		if (!bundleStopped)
+		{
+			try
+			{
+				_commandProcessor.addCommand(command, aliasesSet, pFactory, permission);
+			}
+			catch (Poco::ExistsException&)
+			{
+				commandExists = true;
+			}
+		}
+	}
+	if (bundleStopped)
+	{
+		if (_pContext->logger().debug())
+		{
+			std::string msg("The shell command ");
+			msg += command;
+			msg += " of bundle ";
+			msg += pBundle->symbolicName();
+			msg += " is not added: the bundle is no longer active.";
+			_pContext->logger().debug(msg);
+		}
+	}
+	else if (commandExists)
+	{
+		std::string msg("The shell command ");
+		msg += command;
+		msg += " of bundle ";
+		msg += pBundle->symbolicName();
+		msg += " is not added: a command with this name exists already.";
+		_pContext->logger().error(msg);
+	}
 }
 
 
 void CommandExtensionPoint::onBundleStopped(const void* pSender, Poco::OSP::BundleEvent& ev)
 {
 	FastMutex::ScopedLock lock(_mutex);
-	
-	Bundle::ConstPtr pBundle = ev.bundle();
-	LibBundleMap::iterator it = _libBundleMap.begin();
-	while (it != _libBundleMap.end())
-	{
-		if (it->second == pBundle)
-		{
-			_commandProcessor.removeBundle(it->second);
-			_loader.unloadLibrary(it->first);
-			LibBundleMap::iterator delIt(it);
-			++it;
-			_libBundleMap.erase(delIt);
-		}
-		else ++it;
-	}
+
+	_commandProcessor.removeBundle(ev.bundle());
 }
 
 

@@ -47,8 +47,8 @@ public:
 
 protected:
 	// BundleActionCommand
-	void doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr);
-	virtual void defineOptions(Poco::Util::OptionSet& options);
+	int doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr) override;
+	void defineOptions(Poco::Util::OptionSet& options) override;
 
 	using BundleVec = std::vector<Poco::OSP::Bundle::Ptr>;
 

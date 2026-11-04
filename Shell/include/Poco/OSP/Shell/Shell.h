@@ -43,7 +43,11 @@
 
 
 #if !defined(OSPShell_API)
-	#define OSPShell_API
+	#if !defined(POCO_NO_GCC_API_ATTRIBUTE) && defined (__GNUC__) && (__GNUC__ >= 4)
+		#define OSPShell_API __attribute__ ((visibility ("default")))
+	#else
+		#define OSPShell_API
+	#endif
 #endif
 
 

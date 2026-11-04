@@ -38,7 +38,7 @@ int BundleActionCommand::executeImpl(Session& session, const std::vector<std::st
 {
 	if (args.empty())
 	{
-		ostr << "No bundle specified." << std::endl;
+		ostr << "No bundle specified." << '\n';
 		return Command::STATUS_USAGE;
 	}
 	for (std::vector<std::string>::const_iterator it = args.begin(); it != args.end(); ++it)
@@ -46,11 +46,12 @@ int BundleActionCommand::executeImpl(Session& session, const std::vector<std::st
 		Poco::OSP::Bundle::Ptr pBundle = findBundle(*it);
 		if (pBundle)
 		{
-			doAction(pBundle, ostr);
+			const int status = doAction(pBundle, ostr);
+			if (status != Command::STATUS_OK) return status;
 		}
 		else
 		{
-			ostr << "No such bundle: " << *it << std::endl;
+			ostr << "No such bundle: " << *it << '\n';
 			return Command::STATUS_ERROR;
 		}
 	}

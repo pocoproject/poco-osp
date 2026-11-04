@@ -29,7 +29,7 @@
 #include "Poco/ClassLoader.h"
 #include "Poco/Mutex.h"
 #include "Poco/SharedPtr.h"
-#include <map>
+#include <memory>
 
 
 namespace Poco {
@@ -50,11 +50,16 @@ class CommandExtensionPoint: public ExtensionPoint
 	///                library="<library name>"/>
 	///
 	/// Note that the extension points are automatically removed if a bundle is stopped.
+	/// A command that runs keeps the library it comes from loaded until it ends.
 	///
 	/// The following attributes can be specified for the extension point:
 	///    * command: the name of the command (e.g., "bundles").
 	///    * aliases: a comma-separated list of alias names for the command (e.g., "ls").
 	///    * permission: the permission required to run this command.
+	///      Without a permission, the command runs in every session, also
+	///      before a login; such a command must check the session itself
+	///      (Session::authenticated(), Session::authorize()) before it
+	///      changes anything or acts for a user.
 	///    * class: the class name of the command factory (see the Command class).
 	///    * library: the name of the shared library containing the command factory.
 {
@@ -73,6 +78,11 @@ public:
 protected:
 	void handleCommand(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem);
 		/// Handle the command extension point.
+		///
+		/// A command whose name another command has already is not added;
+		/// this is logged as an error. A command of a bundle that is no longer
+		/// active, for example because it has stopped while the command factory
+		/// was created, is not added either.
 
 	void onBundleStopped(const void* pSender, Poco::OSP::BundleEvent& ev);
 		/// When a bundle is stopped, all of its commands are automatically disabled.
@@ -89,13 +99,16 @@ private:
 
 	using FactoryPtr = Poco::SharedPtr<CommandFactory>;
 	using Loader = Poco::ClassLoader<CommandFactory>;
-	using LibBundleMap = std::map<std::string, Poco::OSP::Bundle::Ptr>;
 
-	CommandProcessor&  _commandProcessor;
-	BundleContext::Ptr _pContext;
-	Loader             _loader;
-	LibBundleMap       _libBundleMap;
-	Poco::FastMutex    _mutex;
+	CommandProcessor&       _commandProcessor;
+	BundleContext::Ptr      _pContext;
+	std::shared_ptr<Loader> _pLoader;
+	Poco::FastMutex         _mutex;
+		/// Held only to add a command to the command processor and while
+		/// onBundleStopped() removes the commands of a bundle, never while a
+		/// library is loaded, a factory is created or another bundle context
+		/// is looked up: those take locks of the framework, which in turn may
+		/// be held while the framework calls onBundleStopped().
 };
 
 

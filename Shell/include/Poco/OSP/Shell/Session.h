@@ -54,10 +54,32 @@ public:
 		/// given userName and credentials with the authentication service.
 		///
 		/// Returns true if the user was successfully authenticated, false otherwise.
+		///
+		/// The session keeps the account name that the authentication service
+		/// returns for the login (see Poco::OSP::Auth::AuthService::authenticateAccount())
+		/// as the name of its user, which authorize() and user() use.
+		///
+		/// If no service with the configured name is registered, the login is
+		/// rejected. Only an empty service name disables authentication.
+		///
+		/// If the authentication service throws an exception, or the service
+		/// registered with the configured name is not an authentication
+		/// service, the login is rejected and the error is logged.
+		///
+		/// A rejected login leaves the session without a user, also if a user
+		/// was logged in before.
 	
 	bool authorize(const std::string& permission) const;
 		/// Returns true if the user is authenticated and has the
 		/// given permission, false otherwise.
+		///
+		/// An empty permission, or an empty service name, only requires the
+		/// user to be authenticated. If no service with the configured name is
+		/// registered, every other permission is denied.
+		///
+		/// If the authentication service throws an exception, or the service
+		/// registered with the configured name is not an authentication
+		/// service, the permission is denied and the error is logged.
 
 	void loginWithKey(const std::string& userName);
 		/// Marks the user as authenticated without checking credentials.
@@ -71,8 +93,15 @@ public:
 		/// Returns the name of the current user, or an empty string
 		/// if no user is logged in.
 
+	[[nodiscard]] int failedLogins() const;
+		/// Returns the number of logins rejected in this session.
+
 protected:
 	Poco::OSP::Auth::AuthService::Ptr authService() const;
+		/// Returns the authentication service, or a null pointer if the service
+		/// name is empty or no service with this name is registered. The service
+		/// is looked up for each call, so that a service that has been
+		/// unregistered is no longer used.
 
 private:
 	Session();
@@ -81,9 +110,9 @@ private:
 	
 	Poco::OSP::BundleContext::Ptr _pContext;
 	std::string _authServiceName;
-	mutable Poco::OSP::Auth::AuthService::Ptr _pAuthService;
 	std::string _userName;
 	bool _authenticated;
+	int _failedLogins = 0;
 };
 
 
@@ -99,6 +128,12 @@ inline bool Session::authenticated() const
 inline const std::string& Session::user() const
 {
 	return _userName;
+}
+
+
+inline int Session::failedLogins() const
+{
+	return _failedLogins;
 }
 
 

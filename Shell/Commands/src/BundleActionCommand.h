@@ -46,8 +46,12 @@ protected:
 	// AbstractCommand
 	virtual int executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr);
 	
-	virtual void doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr) = 0;
+	[[nodiscard]] virtual int doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr) = 0;
 		/// Perform the requested action on the bundle.
+		///
+		/// Returns Command::STATUS_OK if the action was performed, or another
+		/// status of Command if not. The bundles that follow on the command line
+		/// are then left unchanged.
 };
 
 

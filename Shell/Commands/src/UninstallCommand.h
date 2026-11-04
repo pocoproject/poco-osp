@@ -42,7 +42,7 @@ public:
 
 protected:
 	// BundleActionCommand
-	void doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr);
+	int doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr) override;
 };
 
 

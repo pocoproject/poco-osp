@@ -16,6 +16,9 @@
 
 #include "InfoCommand.h"
 #include "Poco/OSP/BundleManifest.h"
+#include "Poco/OSP/Shell/Command.h"
+#include "Poco/OSP/Bundle.h"
+#include <ostream>
 
 
 using Poco::OSP::BundleManifest;
@@ -39,7 +42,7 @@ InfoCommand::~InfoCommand()
 }
 
 
-void InfoCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr)
+int InfoCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr)
 {
 	if (_dependencies)
 	{
@@ -53,6 +56,7 @@ void InfoCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream& ostr)
 	{
 		doInfo(pBundle, ostr);
 	}
+	return Command::STATUS_OK;
 }
 
 

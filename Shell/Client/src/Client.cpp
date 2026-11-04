@@ -26,10 +26,16 @@
 #include "Poco/String.h"
 #include "Poco/NumberParser.h"
 #include "Poco/Environment.h"
+#include "Poco/TextIterator.h"
+#include "Poco/Unicode.h"
+#include "Poco/UTF8Encoding.h"
 #include "Poco/OSP/Shell/ShellConnection.h"
 #include <sstream>
 #include <iostream>
 #include <cctype>
+#include <algorithm>
+#include <array>
+#include <iterator>
 #if defined(POCO_OS_FAMILY_WINDOWS)
 #include <windows.h>
 #elif defined(POCO_OS_FAMILY_UNIX)
@@ -193,7 +199,9 @@ protected:
 	{
 		HelpFormatter helpFormatter(options());
 		helpFormatter.setCommand(commandName());
-		helpFormatter.setUsage("[<option> ...] [-- <command>]"s);
+		// Only the Unix option syntax has "--", which ends the options.
+		helpFormatter.setUsage(
+			helpFormatter.isUnixStyle() ? "[<option> ...] [-- <command>]"s : "[<option> ...] [<command>]"s);
 		helpFormatter.setHeader(
 			"\n"
 			"The Open Service Platform Shell Client.\n"
@@ -219,9 +227,37 @@ protected:
 		{
 			while (it != end && std::isdigit(*it)) ++it;
 			if (it != end && (*it == ' ' || *it == '-')) ++it;
-			while (it != end && *it != '\n') ostr << *it++;
+			std::string::const_iterator lineBegin(it);
+			while (it != end && *it != '\n') ++it;
+			writeText(std::string(lineBegin, it), ostr);
 			while (it != end && std::isspace(*it)) ++it;
 			ostr << std::endl;
+		}
+	}
+
+	static void writeText(const std::string& text, std::ostream& ostr)
+		/// Writes text from the server with each control character other than a tab,
+		/// and each byte that is not valid UTF-8, replaced by '?', so that data from
+		/// bundles and services cannot send escape sequences to the terminal.
+	{
+		constexpr int MAX_SEQUENCE_LENGTH = 4;
+		Poco::UTF8Encoding utf8;
+		Poco::TextIterator end(text);
+		for (Poco::TextIterator it(text, utf8); it != end; ++it)
+		{
+			const int ch = *it;
+			Poco::Unicode::CharacterProperties properties{};
+			std::array<unsigned char, MAX_SEQUENCE_LENGTH> bytes{};
+			int length = 0;
+			if (ch >= 0)
+			{
+				Poco::Unicode::properties(ch, properties);
+				length = utf8.convert(ch, bytes.data(), MAX_SEQUENCE_LENGTH);
+			}
+			if (length <= 0 || (properties.type == Poco::Unicode::UCP_CONTROL && ch != '\t'))
+				ostr << '?';
+			else
+				std::copy_n(bytes.begin(), length, std::ostreambuf_iterator<char>(ostr));
 		}
 	}
 
@@ -605,7 +641,7 @@ protected:
 				}
 #endif
 				std::string request;
-				while (!std::getline(*pStream, request).eof())
+				while (std::getline(*pStream, request))
 				{
 					Poco::trimRightInPlace(request);
 					int status = processCommand(request, std::cout, std::cerr);

@@ -15,6 +15,9 @@
 
 
 #include "StartCommand.h"
+#include "Poco/OSP/Shell/Command.h"
+#include "Poco/OSP/Bundle.h"
+#include <ostream>
 
 
 namespace Poco {
@@ -33,9 +36,10 @@ StartCommand::~StartCommand()
 }
 
 
-void StartCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream&)
+int StartCommand::doAction(Poco::OSP::Bundle::Ptr pBundle, std::ostream&)
 {
 	pBundle->start();
+	return Command::STATUS_OK;
 }
 
 

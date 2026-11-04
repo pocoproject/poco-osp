@@ -17,6 +17,8 @@
 #include "Poco/OSP/Shell/OSPCommand.h"
 #include "Poco/NumberParser.h"
 #include "Poco/Glob.h"
+#include <set>
+#include <vector>
 
 
 using Poco::NumberParser;
@@ -52,6 +54,27 @@ Poco::OSP::Bundle::Ptr OSPCommand::findBundle(const std::string& symbolicNameOrI
 	{
 		return _pContext->findBundle(symbolicNameOrId);
 	}
+}
+
+
+bool OSPCommand::isRequiredByShell(const Poco::OSP::Bundle::Ptr& pBundle) const
+{
+	std::vector<Poco::OSP::Bundle::Ptr> pending{_pContext->thisBundle()};
+	std::set<int> visited;
+	while (!pending.empty())
+	{
+		const Poco::OSP::Bundle::Ptr pRequired = pending.back();
+		pending.pop_back();
+		if (pRequired->id() == pBundle->id()) return true;
+		if (!visited.insert(pRequired->id()).second) continue;
+
+		for (const auto& dependency: pRequired->resolvedDependencies())
+		{
+			Poco::OSP::Bundle::Ptr pDependency = _pContext->findBundle(dependency.id);
+			if (pDependency != nullptr) pending.push_back(pDependency);
+		}
+	}
+	return false;
 }
 
 

@@ -18,6 +18,8 @@
 #include "Poco/OSP/ServiceRegistry.h"
 #include "Poco/OSP/ServiceRef.h"
 #include "Poco/OSP/BundleInstallerService.h"
+#include "Poco/OSP/Shell/Command.h"
+#include <ostream>
 
 
 using Poco::OSP::Service;
@@ -57,36 +59,43 @@ int UpgradeCommand::executeImpl(Session& session, const std::vector<std::string>
 			Poco::OSP::Bundle::Ptr pBundle = findBundle(symbolicNameOrId);
 			if (pBundle)
 			{
+				if (isRequiredByShell(pBundle))
+				{
+					ostr << "Cannot upgrade bundle " << pBundle->symbolicName()
+					     << " from a shell session: the shell requires it.\n";
+					return Command::STATUS_ERROR;
+				}
 				if (!pBundle->isActive() || _force)
 				{
-					ostr << "Downloading and upgrading bundle " << pBundle->symbolicName() << " from " << uri << std::endl;
+					ostr << "Downloading and upgrading bundle " << pBundle->symbolicName()
+					     << " from " << uri << '\n' << std::flush;
 					pBundle = pInstaller->replaceBundle(pBundle->symbolicName(), uri);
 					ostr << "Bundle successfully upgraded: " 
 					     << pBundle->symbolicName() << "/" << pBundle->version().toString() 
-					     << " (New ID: " << pBundle->id() << ")" << std::endl;
+					     << " (New ID: " << pBundle->id() << ")" << '\n';
 					return Command::STATUS_OK;
 				}
 				else
 				{
-					ostr << "Cannot upgrade an active bundle. Stop bundle or use --force option to override." << std::endl;
+					ostr << "Cannot upgrade an active bundle. Stop bundle or use --force option to override." << '\n';
 					return Command::STATUS_ERROR;
 				}
 			}
 			else
 			{
-				ostr << "No such bundle: " << symbolicNameOrId << std::endl;
+				ostr << "No such bundle: " << symbolicNameOrId << '\n';
 				return Command::STATUS_ERROR;
 			}
 		}
 		else
 		{
-			ostr << "BundleInstallerService not found." << std::endl;
+			ostr << "BundleInstallerService not found." << '\n';
 			return Command::STATUS_ERROR;
 		}
 	}
 	else
 	{
-		ostr << "Bundle symbolic name or ID and an URI must be given." << std::endl;
+		ostr << "Bundle symbolic name or ID and an URI must be given." << '\n';
 		return Command::STATUS_USAGE;
 	}
 }
