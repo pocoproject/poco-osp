@@ -18,10 +18,10 @@ stack traces in exceptions.
 | UndefinedBehaviorSanitizer | `-DPOCO_SANITIZEFLAGS="-fsanitize=undefined;-fno-sanitize=vptr"` | |
 | ThreadSanitizer | `-DPOCO_SANITIZEFLAGS="-fsanitize=thread"` | `TSAN_OPTIONS="suppressions=<repo-root>/tsan.suppress,second_deadlock_stack=1"` |
 
-CI jobs: `linux-gcc-cmake-sanitizers`, `macos-clang-cmake-sanitizers` (matrix entries `asan`, `ubsan`, `tsan` and
-`hidden-asan`). The macOS ASan entries run with `ASAN_OPTIONS=detect_odr_violation=0:report_globals=0`; the Linux
-`hidden-asan` entry runs with `ASAN_OPTIONS=detect_odr_violation=2`. The ThreadSanitizer entries use `tsan.suppress`
-of the repository and of the pulled POCO.
+CI runs the sanitizers on Linux only, with GCC and with clang: `linux-gcc-cmake-sanitizers` and
+`linux-clang-cmake-sanitizers` (matrix entries `asan`, `ubsan`, `tsan` and `hidden-asan`). macOS has no sanitizer job.
+The `hidden-asan` entries run with `ASAN_OPTIONS=detect_odr_violation=2`. The ThreadSanitizer entries use
+`tsan.suppress` of the repository and of the pulled POCO.
 
 ```bash
 cmake -S <repo-root> -B <build-dir>-tsan -DPOCO_OSP_ENABLE_TESTS=ON -DENABLE_TRACE=ON -DPOCO_SANITIZEFLAGS="-fsanitize=thread"

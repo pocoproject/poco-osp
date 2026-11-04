@@ -73,14 +73,15 @@ The tests load and unload bundle libraries at run time. On macOS, ASan runs set
 `ASAN_OPTIONS=detect_odr_violation=0:report_globals=0`: Apple clang emits the ASan destructor that unregisters the
 globals of a library into `__mod_term_func`, which dyld does not run on `dlclose()`. The globals and the metadata of an
 unloaded library stay registered and poisoned, and a library mapped later at the same address reports false
-global-buffer-overflow and ODR errors. The Web test runner sets these options itself on macOS. The checks of globals
-stay on in the Linux runs.
+global-buffer-overflow and ODR errors. The Web test runner sets these options itself on macOS. CI runs the sanitizers
+on Linux only, where the checks of globals stay on.
 
 ## CI
 
 - `.github/workflows/ci.yml` runs CTest through `.github/actions/retry-action` (up to three attempts). A pass on a later
   attempt hides a flaky test: check the attempt count in the job log and report the flaky test.
 - `.github/path-filters.yml` decides which narrow jobs run for a pull request; the sanitizer jobs always run.
-- The test jobs are `linux-gcc-cmake-sanitizers`, `macos-clang-cmake-sanitizers`, `windows-2025-msvc-cmake`, the probes
-  `linux-gcc-cmake-poco-release`, `linux-gcc11-cmake` and `linux-gcc-cmake-superbuild`, and
-  `linux-gcc-cmake-install-consumer`, which runs `OSPInstallConsumer` and `OSPBundleFunction`.
+- The test jobs are `linux-gcc-cmake-sanitizers`, `linux-clang-cmake-sanitizers`, `macos-clang-cmake` (no sanitizer),
+  `windows-2025-msvc-cmake`, the probes `linux-gcc-cmake-poco-release`, `linux-gcc11-cmake` and
+  `linux-gcc-cmake-superbuild`, and `linux-gcc-cmake-install-consumer`, which runs `OSPInstallConsumer` and
+  `OSPBundleFunction`.

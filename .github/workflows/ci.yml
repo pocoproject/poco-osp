@@ -34,7 +34,7 @@ env:
   # The POCO every job pulls (POCO_OSP_POCO_VERSION): latest (POCO main) until
   # a POCO 2.0 release exists, then release.
   POCO_OSP_CI_POCO_VERSION: latest
-  # Full functional set (Linux + macOS sanitizer matrix).
+  # Full functional set (Linux sanitizer matrices + macOS).
   POCO_OSP_CMAKE_FULL_COMMON: >-
     -DPOCO_OSP_MINIMAL_BUILD=ON -DPOCO_OSP_ENABLE_TESTS=ON -DPOCO_OSP_ENABLE_SAMPLES=ON
     -DENABLE_OSP_BUNDLES=ON -DENABLE_OSP_BUNDLESIGN=ON -DENABLE_OSP_STRIPBUNDLE=ON -DENABLE_OSP_CODECACHE=ON
@@ -121,6 +121,61 @@ jobs:
       - run: sudo apt -y update && sudo apt -y install libssl-dev libssh-dev libldap-dev libedit-dev
       - run: >-
           cmake -S. -Bcmake-build -GNinja
+          ${{ matrix.visibility == 'hidden' && '-DCMAKE_CXX_VISIBILITY_PRESET=hidden' || '' }}
+          -DPOCO_SANITIZEFLAGS="${{ matrix.sanitize_flags }}"
+          -DENABLE_TRACE=ON
+          -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          ${{ env.POCO_OSP_CMAKE_FULL_COMMON }}
+          ${{ env.POCO_OSP_CMAKE_FULL_LINUX_EXTRA }}
+      # The tests run POCO's code and the repository's, so both suppression files apply.
+      - run: cat tsan.suppress cmake-build/_deps/poco-src/tsan.suppress >cmake-build/tsan.suppress
+      - run: cmake --build cmake-build --target all --parallel $(nproc)
+      - uses: ./.github/actions/retry-action
+        with:
+          timeout_minutes: 90
+          max_attempts: 3
+          retry_on: any
+          command: >-
+            cd cmake-build &&
+            PWD=`pwd`
+            ctest ${{ env.POCO_CTEST_COMMON }} ${{ env.POCO_CTEST_SANITIZER_EXTRA }} --parallel $(nproc)
+      - uses: ./.github/actions/upload-test-report
+        if: always()
+        with:
+          suffix: ${{ matrix.name }}
+
+  # The sanitizer matrix of linux-gcc-cmake-sanitizers with clang.
+  linux-clang-cmake-sanitizers:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: asan
+            visibility: default
+            sanitize_flags: "-fsanitize=address"
+          - name: ubsan
+            visibility: default
+            sanitize_flags: "-fsanitize=undefined;-fno-sanitize=vptr"
+          - name: tsan
+            visibility: default
+            sanitize_flags: "-fsanitize=thread"
+          - name: hidden-asan
+            visibility: hidden
+            sanitize_flags: "-fsanitize=address"
+    env:
+      TSAN_OPTIONS: ${{ matrix.name == 'tsan' && format('suppressions={0}/cmake-build/tsan.suppress,second_deadlock_stack=1', github.workspace) || '' }}
+      ASAN_OPTIONS: ${{ matrix.name == 'hidden-asan' && 'detect_odr_violation=2' || '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: sysctl vm.legacy_va_layout
+      - run: sysctl kernel.randomize_va_space
+      - run: sudo sysctl vm.mmap_rnd_bits
+      - run: sudo sysctl -w vm.mmap_rnd_bits=28
+      - run: sudo apt -y update && sudo apt -y install libssl-dev libssh-dev libldap-dev libedit-dev
+      - run: >-
+          cmake -S. -Bcmake-build -GNinja
+          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
           ${{ matrix.visibility == 'hidden' && '-DCMAKE_CXX_VISIBILITY_PRESET=hidden' || '' }}
           -DPOCO_SANITIZEFLAGS="${{ matrix.sanitize_flags }}"
           -DENABLE_TRACE=ON
@@ -388,52 +443,22 @@ jobs:
   # macOS arm64 (macos-latest)
   # ------------------------------------------------------------------------
 
-  # Primary macos-arm64 signal: 3 non-hidden sanitizers + 1 hidden+asan. TRACE on.
+  # Primary macos-arm64 signal: the full set without a sanitizer, TRACE on. The
+  # sanitizer matrix runs on Linux only: macOS arm64 runners are scarce.
   # ctest does not run as root: the bundle tests rely on a directory without
   # write permission.
-  macos-clang-cmake-sanitizers:
+  macos-clang-cmake:
     runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: asan
-            visibility: default
-            sanitize_flags: "-fsanitize=address"
-            # Apple clang emits the ASan destructor that unregisters the globals
-            # of a library into __mod_term_func, which dyld does not run on
-            # dlclose(). The globals and the metadata of an unloaded bundle
-            # library stay registered and poisoned, and a library mapped later
-            # at the same address reports false global-buffer-overflow and ODR
-            # errors. The macOS ASan jobs therefore check no globals.
-            asan_options: detect_odr_violation=0:report_globals=0
-          - name: ubsan
-            visibility: default
-            sanitize_flags: "-fsanitize=undefined;-fno-sanitize=vptr"
-          - name: tsan
-            visibility: default
-            sanitize_flags: "-fsanitize=thread"
-          - name: hidden-asan
-            visibility: hidden
-            sanitize_flags: "-fsanitize=address"
-            asan_options: detect_odr_violation=0:report_globals=0
-    env:
-      TSAN_OPTIONS: ${{ matrix.name == 'tsan' && format('suppressions={0}/cmake-build/tsan.suppress,second_deadlock_stack=1', github.workspace) || '' }}
-      ASAN_OPTIONS: ${{ matrix.asan_options }}
     steps:
       - uses: actions/checkout@v5
       - name: Install OpenSSL, libssh
         run: brew install openssl@3 libssh
       - run: >-
           cmake -S. -Bcmake-build
-          ${{ matrix.visibility == 'hidden' && '-DCMAKE_CXX_VISIBILITY_PRESET=hidden' || '' }}
-          -DPOCO_SANITIZEFLAGS="${{ matrix.sanitize_flags }}"
           -DENABLE_TRACE=ON
           -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
           ${{ env.POCO_OSP_CMAKE_FULL_COMMON }}
           -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)
-      # The tests run POCO's code and the repository's, so both suppression files apply.
-      - run: cat tsan.suppress cmake-build/_deps/poco-src/tsan.suppress >cmake-build/tsan.suppress
       - run: cmake --build cmake-build --target all --parallel $(sysctl -n hw.ncpu)
       - uses: ./.github/actions/retry-action
         with:
@@ -443,11 +468,9 @@ jobs:
           command: >-
             cd cmake-build &&
             PWD=`pwd`
-            ctest ${{ env.POCO_CTEST_COMMON }} ${{ env.POCO_CTEST_SANITIZER_EXTRA }} --parallel $(sysctl -n hw.ncpu)
+            ctest ${{ env.POCO_CTEST_COMMON }} --parallel $(sysctl -n hw.ncpu)
       - uses: ./.github/actions/upload-test-report
         if: always()
-        with:
-          suffix: ${{ matrix.name }}
 
   # Build-only: compile-warnings-as-signal across as many modules as possible.
   macos-clang-cmake-warnings:
