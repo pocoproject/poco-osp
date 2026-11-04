@@ -16,6 +16,7 @@
 
 #include "Poco/OSP/Unit/TestFactory.h"
 #include "CppUnit/Test.h"
+#include <string>
 
 
 using CppUnit::Test;
@@ -48,25 +49,25 @@ TestFactory& TestFactory::instance()
 }
 
 
-void TestFactory::add(const std::string& key, Test* pTest)
+void TestFactory::add(const std::string& symbolicName, Test* pTest)
 {
 	Poco::FastMutex::ScopedLock lock(_mutex);
-	_tests.insert(TestMap::value_type(key, pTest));
+	_tests.insert(TestMap::value_type(symbolicName, pTest));
 }
 
 
-void TestFactory::remove(const std::string& key)
+void TestFactory::remove(const std::string& symbolicName)
 {
 	Poco::FastMutex::ScopedLock lock(_mutex);
-	_tests.erase(key);
+	_tests.erase(symbolicName);
 }
 
 
-TestFactory::TestVec TestFactory::get(const std::string& test)
+TestFactory::TestVec TestFactory::get(const std::string& symbolicName)
 {
 	Poco::FastMutex::ScopedLock lock(_mutex);
-	TestMap::iterator it = _tests.lower_bound(test);
-	TestMap::iterator end = _tests.upper_bound(test);
+	TestMap::iterator it = _tests.lower_bound(symbolicName);
+	TestMap::iterator end = _tests.upper_bound(symbolicName);
 	TestVec testVec;
 	for (; it != end; ++it) testVec.push_back(it->second);
 	return testVec;

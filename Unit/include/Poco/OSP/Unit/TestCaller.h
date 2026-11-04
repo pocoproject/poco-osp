@@ -74,9 +74,6 @@ private:
 } } } // namespace Poco::OSP::Unit
 
 
-#define error(exceptionClass) throw exceptionClass(__FILE__, __LINE__);
-
-
 #define OSPUnit_addTest(suite, cls, mth) \
 	suite->addTest(new Poco::OSP::Unit::TestCaller<cls>(#mth, &cls::mth))
 

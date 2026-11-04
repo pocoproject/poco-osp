@@ -36,12 +36,12 @@ public:
 	
 	void start(BundleContext::Ptr pContext)
 	{
-		TestFactory::instance().add(pContext->thisBundle()->name(), BundleTest::suite());
+		TestFactory::instance().add(pContext->thisBundle()->symbolicName(), BundleTest::suite());
 	}
 		
 	void stop(BundleContext::Ptr pContext)
 	{
-		TestFactory::instance().remove(pContext->thisBundle()->name());
+		TestFactory::instance().remove(pContext->thisBundle()->symbolicName());
 	}
 };
 

@@ -1,5 +1,5 @@
 //
-// Extensible.cpp
+// TestRunnerBundleActivator.cpp
 //
 // Copyright (c) 2011, Applied Informatics Software Engineering GmbH.
 // All rights reserved.
@@ -19,6 +19,7 @@
 #include "Poco/OSP/Unit/TestFactory.h"
 #include "Poco/OSP/Unit/LogTestResult.h"
 #include "Poco/OSP/Unit/TestCase.h"
+#include "CppUnit/TestRunner.h"
 #include "Poco/AutoPtr.h"
 #include "Poco/ClassLibrary.h"
 #include "Poco/LogStream.h"
@@ -60,7 +61,8 @@ public:
 		TestCase::resetContext(pContext);
 
 		LogStream logStream(pContext->logger());
-		TestFactory::TestVec tests = TestFactory::instance().get(name);
+		CppUnitPocoExceptionText(exceptionText);
+		TestFactory::TestVec tests = TestFactory::instance().get(symbolicName);
 		TestFactory::TestVec::iterator it = tests.begin();
 		TestFactory::TestVec::iterator end = tests.end();
 		int nTests = 0;
@@ -69,7 +71,7 @@ public:
 		for (; it != end; ++it)
 		{
 			LogTestResult ltr(logStream);
-			(*it)->run(&ltr);
+			(*it)->run(&ltr, exceptionText);
 			ltr.print(logStream);
 			nTests += ltr.runTests();
 			nErrors += ltr.testErrors();
@@ -109,8 +111,9 @@ private:
 
 
 class TestRunnerBundleActivator: public BundleActivator
-	/// The BundleActivator for the Extensible.
-	/// Registes the Extensible with the Service Registry.
+	/// The BundleActivator of the test runner bundle.
+	/// Registers the com.appinf.osp.unit.test extension point,
+	/// which runs the tests of every bundle that extends it.
 {
 public:
 	TestRunnerBundleActivator()

@@ -25,21 +25,15 @@
 #include "CppUnit/TestCase.h"
 
 
-namespace CppUnit {
-
-class TestResult;
-
-}
-
-
 namespace Poco {
 namespace OSP {
 namespace Unit {
 
 
 class OSPUnit_API TestCase: public CppUnit::TestCase
-	/// The TestCase class. This is a stand-in test case class whose purpose is 
-	/// to force capture of POCO exceptions through override of run virtual function.
+	/// The TestCase class gives the tests of a bundle access to the
+	/// bundle context. The test runner passes a callback to run() that
+	/// reports the text of a Poco::Exception thrown by a test.
 {
 public:	
 	TestCase(const std::string& name);
@@ -48,11 +42,6 @@ public:
 	~TestCase();
 		/// Destroys the TestCase.
 
-	virtual void run(CppUnit::TestResult* result);
-		/// Performs the test run.
-		/// In addition to doing all the work that the parent class' run()
-		/// does this function also captures POCO exceptions.
-		
 	static Poco::OSP::BundleContext::Ptr context();
 		/// Returns the bundle context of the test bundle.
 		

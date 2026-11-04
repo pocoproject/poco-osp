@@ -73,10 +73,12 @@ protected:
 			"The Applied Informatics OSP Strip Bundle Utility.\n"
 			"Copyright (c) 2018-2026 by Applied Informatics Software Engineering GmbH.\n"
 			"All rights reserved.\n\n"
-			"This program removes all binaries (shared libraries) from a bundle. "
+			"This program removes the bin directory, which contains the binaries "
+			"(shared libraries), from a bundle. "
 			"A typical use case is systems using a read-only file system, where "
 			"the code cache is pre-populated with ccutil, and bundles do not "
-			"need to contain any binaries to save space.\n"
+			"need to contain any binaries to save space. "
+			"The signature of a signed bundle is no longer valid afterwards.\n"
 			"The following command line options are supported:"
 		);
 		helpFormatter.setFooter(

@@ -25,7 +25,10 @@
 #include "Poco/File.h"
 #include "Poco/Path.h"
 #include "Poco/DigestStream.h"
+#include "Poco/Exception.h"
 #include "Poco/Format.h"
+#include <algorithm>
+#include <vector>
 
 
 namespace Poco {
@@ -48,7 +51,7 @@ const std::string BundleSigner::EXT_RSA(".rsa");
 BundleSigner::BundleSigner(const std::string& signer, const Poco::Crypto::RSAKey& rsaKey):
 	_signer(signer),
 	_rsaKey(rsaKey),
-	_digestAlgorithm(SHA1)
+	_digestAlgorithm(SHA256)
 {
 	poco_assert (!signer.empty());
 }
@@ -60,6 +63,10 @@ BundleSigner::BundleSigner(const std::string& signer, const Poco::Crypto::RSAKey
 	_digestAlgorithm(digestAlgorithm)
 {
 	poco_assert (!signer.empty());
+
+	const std::vector<std::string>& algorithms = SignUtility::digestAlgorithms();
+	if (std::find(algorithms.begin(), algorithms.end(), digestAlgorithm) == algorithms.end())
+		throw Poco::InvalidArgumentException("Unsupported digest algorithm for signing a bundle", digestAlgorithm);
 }
 
 	

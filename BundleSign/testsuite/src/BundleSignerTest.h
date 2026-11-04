@@ -27,14 +27,21 @@ public:
 	~BundleSignerTest();
 
 	void testSignFile();
-	void testSignFileSHA256();
+	void testSignFileSHA1();
 	void testSignDirectory();
 	void testSignDirectoryCert();
+	void testUnsupportedDigestAlgorithmIsRejected();
+	void testLongPathIsRejected();
 
 	void setUp();
 	void tearDown();
 
 	static CppUnit::Test* suite();
+
+private:
+	std::string _workDir;
+	std::string _bundleFile;
+	std::string _bundleDirectory;
 };
 
 

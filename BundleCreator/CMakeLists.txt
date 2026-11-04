@@ -64,3 +64,13 @@ if(CMAKE_CROSSCOMPILING)
 else()
     add_executable(Poco::OSP::BundleCreator ALIAS BundleCreator)
 endif(CMAKE_CROSSCOMPILING)
+
+if(POCO_OSP_ENABLE_TESTS)
+	add_test(
+		NAME OSPBundleCreator
+		COMMAND ${CMAKE_COMMAND}
+			-DBUNDLE=$<TARGET_FILE:BundleCreator>
+			-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/BundleCreatorTest
+			-P ${CMAKE_CURRENT_SOURCE_DIR}/testsuite/BundleCreatorTest.cmake
+	)
+endif()

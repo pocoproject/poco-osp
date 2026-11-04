@@ -15,16 +15,30 @@
 
 
 #include "Poco/OSP/BundleSign/BundleVerifier.h"
+#include "Poco/OSP/BundleSign/BundleSigner.h"
 #include "Poco/OSP/BundleSign/SignUtility.h"
 #include "Poco/OSP/BundleSign/SignatureFile.h"
-#include "Poco/OSP/BundleFile.h"
-#include "Poco/OSP/BundleDirectory.h"
+#include "Poco/OSP/BundleStorage.h"
 #include "Poco/Crypto/RSADigestEngine.h"
 #include "Poco/Crypto/DigestEngine.h"
-#include "Poco/DigestStream.h"
-#include "Poco/File.h"
+#include "Poco/Crypto/RSAKey.h"
+#include "Poco/Crypto/CryptoException.h"
+#include "Poco/Crypto/X509Certificate.h"
+#include "Poco/DigestEngine.h"
+#include "Poco/SharedPtr.h"
 #include "Poco/Path.h"
+#include "Poco/DateTime.h"
 #include "Poco/Format.h"
+#include "Poco/Exception.h"
+#include "Poco/Bugcheck.h"
+#include <openssl/x509v3.h>
+#include <array>
+#include <cstddef>
+#include <ios>
+#include <istream>
+#include <memory>
+#include <sstream>
+#include <utility>
 
 
 namespace Poco {
@@ -37,14 +51,16 @@ const std::string BundleVerifier::EXT_SF("sf");
 const std::string BundleVerifier::EXT_RSA("rsa");
 
 
-BundleVerifier::BundleVerifier(const std::string& bundlePath)
+BundleVerifier::BundleVerifier(const std::string& bundlePath):
+	_pBundleStorage(SignUtility::openBundle(bundlePath))
 {
-	Poco::File f(bundlePath);
-	Poco::OSP::BundleStorage::Ptr pBundleStorage;
-	if (f.isDirectory())
-		_pBundleStorage = new Poco::OSP::BundleDirectory(bundlePath);
-	else
-		_pBundleStorage = new Poco::OSP::BundleFile(bundlePath);
+}
+
+
+BundleVerifier::BundleVerifier(Poco::OSP::BundleStorage::Ptr pBundleStorage):
+	_pBundleStorage(std::move(pBundleStorage))
+{
+	poco_check_ptr (_pBundleStorage);
 }
 
 
@@ -53,15 +69,21 @@ BundleVerifier::~BundleVerifier()
 }
 
 
+void BundleVerifier::setAllowSHA1(bool allow)
+{
+	_allowSHA1 = allow;
+}
+
+
 void BundleVerifier::listSigners(std::vector<std::string>& aliases) const
 {
 	aliases.clear();
 	std::vector<std::string> files;
-	_pBundleStorage->list(META_INF, files);
-	for (std::vector<std::string>::const_iterator it = files.begin(); it != files.end(); ++it)
+	SignUtility::listFiles(_pBundleStorage, files);
+	for (const auto& file: files)
 	{
-		Poco::Path path(*it);
-		if (path.getExtension() == EXT_SF)
+		Poco::Path path(file, Poco::Path::PATH_UNIX);
+		if (SignUtility::isSignatureFile(file) && path.getExtension() == EXT_SF)
 		{
 			aliases.push_back(path.getBaseName());
 		}
@@ -87,20 +109,77 @@ BundleVerifier::CertificatePtr BundleVerifier::extractCertificate(const std::str
 	rsaPath += alias;
 	rsaPath += ".";
 	rsaPath += EXT_RSA;
-	Poco::SharedPtr<std::istream> pStream = _pBundleStorage->getResource(rsaPath);
-	if (pStream)
+	try
 	{
-		CertificatePtr pCert = 0;
-		try
-		{
-			pCert = new Poco::Crypto::X509Certificate(*pStream);
-		}
-		catch (Poco::Exception&)
-		{
-		}
-		return pCert;
+		std::string rsaContent;
+		if (!readSignatureFile(rsaPath, SignatureFile::MAX_SIGNATURE_BLOCK_SIZE, rsaContent)) return nullptr;
+		std::istringstream rsaStream(rsaContent);
+		return Poco::makeShared<Poco::Crypto::X509Certificate>(rsaStream);
 	}
-	else return 0;
+	catch (Poco::Exception&)
+	{
+		// A signature block file without a valid certificate has no certificate to extract.
+		return nullptr;
+	}
+}
+
+
+BundleVerifier::VerificationResult BundleVerifier::verify(const std::string& alias, const Poco::Crypto::X509Certificate::List& trustedCertificates, std::vector<std::string>& messages)
+{
+	messages.clear();
+
+	Poco::Crypto::X509Certificate::List signerCertificates;
+	std::vector<std::string> signerMessages;
+	CertificatePtr pCertificate = extractCertificate(alias);
+	if (pCertificate != nullptr)
+	{
+		if (!isTrusted(*pCertificate, trustedCertificates, signerMessages))
+		{
+			messages = signerMessages;
+			messages.push_back(Poco::format("The certificate of signer %s (%s) is not trusted", alias, pCertificate->subjectName()));
+			return BUNDLE_VERIFICATION_FAILED;
+		}
+		signerCertificates.push_back(*pCertificate);
+	}
+	else
+	{
+		signerCertificates = trustedCertificates;
+	}
+	if (signerCertificates.empty())
+	{
+		messages.push_back(Poco::format("The signature of %s cannot be verified without a trusted certificate", alias));
+		return BUNDLE_VERIFICATION_FAILED;
+	}
+
+	// The signature files are read once, when the first usable certificate is found;
+	// only the check of the signature depends on the certificate.
+	VerificationResult result = BUNDLE_VERIFICATION_FAILED;
+	SignatureFiles signatureFiles;
+	bool haveSignatureFiles = false;
+	for (const auto& signerCertificate: signerCertificates)
+	{
+		if (isValidSigner(signerCertificate, signerMessages))
+		{
+			if (!haveSignatureFiles)
+			{
+				result = readSignatureFiles(alias, signatureFiles, signerMessages);
+				if (result != BUNDLE_VERIFICATION_OK) break;
+				haveSignatureFiles = true;
+			}
+			result = verifySignature(alias, signerCertificate, signatureFiles, signerMessages);
+			if (result != BUNDLE_VERIFICATION_FAILED) break;
+		}
+	}
+	if (result == BUNDLE_VERIFICATION_OK)
+	{
+		result = verifyFiles(signatureFiles.digestAlgorithm, signatureFiles.signatures, messages);
+	}
+	else
+	{
+		// The reasons why each certificate could not be used.
+		messages = signerMessages;
+	}
+	return result;
 }
 
 
@@ -108,78 +187,136 @@ BundleVerifier::VerificationResult BundleVerifier::verify(const std::string& ali
 {
 	messages.clear();
 
+	SignatureFiles signatureFiles;
+	VerificationResult result = readSignatureFiles(alias, signatureFiles, messages);
+	if (result == BUNDLE_VERIFICATION_OK)
+	{
+		result = verifySignature(alias, certificate, signatureFiles, messages);
+	}
+	if (result == BUNDLE_VERIFICATION_OK)
+	{
+		result = verifyFiles(signatureFiles.digestAlgorithm, signatureFiles.signatures, messages);
+	}
+	return result;
+}
+
+
+BundleVerifier::VerificationResult BundleVerifier::readSignatureFiles(const std::string& alias, SignatureFiles& signatureFiles, std::vector<std::string>& messages) const
+{
 	std::string rsaPath(META_INF);
 	rsaPath += "/";
 	rsaPath += alias;
 	rsaPath += ".";
 	rsaPath += EXT_RSA;
-	Poco::SharedPtr<std::istream> pRSAStream = _pBundleStorage->getResource(rsaPath);
-	if (!pRSAStream) return BUNDLE_VERIFICATION_NO_SIGNATURE;
-	SignatureFile rsaFile;
-	SignatureFile::Signatures rsaSignatures;
-	rsaFile.read(rsaSignatures, *pRSAStream);
+	signatureFiles = SignatureFiles();
+	try
+	{
+		std::string rsaContent;
+		if (!readSignatureFile(rsaPath, SignatureFile::MAX_SIGNATURE_BLOCK_SIZE, rsaContent)) return BUNDLE_VERIFICATION_NO_SIGNATURE;
+		std::istringstream rsaStream(rsaContent);
+		SignatureFile rsaFile;
+		SignatureFile::Signatures rsaSignatures;
+		rsaFile.read(rsaSignatures, rsaStream);
 
-	std::string signatureType = rsaFile.digestType();
-	std::string digestAlgorithm;
-	if (signatureType == "RSA-SHA1-Signature")
-	{
-		digestAlgorithm = "SHA1";
+		const std::string& signatureType = rsaFile.digestType();
+		for (const auto& algorithm: SignUtility::digestAlgorithms())
+		{
+			if (signatureType == Poco::format("RSA-%s-Signature", algorithm)) signatureFiles.digestAlgorithm = algorithm;
+		}
+		if (signatureFiles.digestAlgorithm.empty())
+		{
+			messages.push_back(Poco::format("The signature type \"%s\" is not supported", signatureType));
+			return BUNDLE_VERIFICATION_FAILED;
+		}
+		if (signatureFiles.digestAlgorithm == BundleSigner::SHA1 && !_allowSHA1)
+		{
+			messages.push_back(Poco::format("The signature of %s uses the SHA1 digest algorithm, which is not allowed", alias));
+			return BUNDLE_VERIFICATION_FAILED;
+		}
+
+		std::string sfPath(META_INF);
+		sfPath += "/";
+		sfPath += alias;
+		sfPath += ".";
+		sfPath += EXT_SF;
+
+		SignatureFile::Signatures::const_iterator it = rsaSignatures.find(sfPath);
+		if (it != rsaSignatures.end())
+			digestFromHex(it->second, signatureFiles.signature);
+		else
+			return BUNDLE_VERIFICATION_INVALID_SIGNATURE;
+
+		// The size of the signature file is limited by the number of files it can list.
+		std::vector<std::string> files;
+		try
+		{
+			SignUtility::listFiles(_pBundleStorage, files);
+		}
+		catch (Poco::DataFormatException& exc)
+		{
+			messages.push_back(exc.message());
+			return BUNDLE_VERIFICATION_FAILED;
+		}
+		if (!readSignatureFile(sfPath, SignatureFile::maxSize(files.size()), signatureFiles.content)) return BUNDLE_VERIFICATION_INVALID_SIGNATURE;
+
+		std::istringstream sfStream(signatureFiles.content);
+		SignatureFile sfFile;
+		sfFile.read(signatureFiles.signatures, sfStream);
+		if (!sfStream.eof()) return BUNDLE_VERIFICATION_INVALID_SIGNATURE;
+
+		// A digest that is not hexadecimal makes the signature file invalid,
+		// not the file it belongs to; verifyFiles() relies on this check.
+		Poco::DigestEngine::Digest digest;
+		for (const auto& signature: signatureFiles.signatures)
+		{
+			digestFromHex(signature.second, digest);
+		}
 	}
-	else if (signatureType == "RSA-SHA224-Signature")
+	catch (Poco::DataFormatException& exc)
 	{
-		digestAlgorithm = "SHA224";
+		messages.push_back(Poco::format("The signature of %s is malformed: %s", alias, exc.message()));
+		return BUNDLE_VERIFICATION_INVALID_SIGNATURE;
 	}
-	else if (signatureType == "RSA-SHA256-Signature")
+	return BUNDLE_VERIFICATION_OK;
+}
+
+
+BundleVerifier::VerificationResult BundleVerifier::verifySignature(const std::string& alias, const Poco::Crypto::X509Certificate& certificate, const SignatureFiles& signatureFiles, std::vector<std::string>& messages)
+{
+	std::unique_ptr<Poco::Crypto::RSAKey> pRSAKey;
+	try
 	{
-		digestAlgorithm = "SHA256";
+		pRSAKey = std::make_unique<Poco::Crypto::RSAKey>(certificate);
 	}
-	else if (signatureType == "RSA-SHA384-Signature")
+	catch (Poco::Crypto::OpenSSLException&)
 	{
-		digestAlgorithm = "SHA384";
-	}
-	else if (signatureType == "RSA-SHA512-Signature")
-	{
-		digestAlgorithm = "SHA512";
-	}
-	else
-	{
-		messages.push_back(Poco::format("The signature type \"%s\"is not supported", signatureType));
+		messages.push_back(Poco::format("The certificate %s has no RSA key and cannot verify the signature of %s", certificate.subjectName(), alias));
 		return BUNDLE_VERIFICATION_FAILED;
 	}
-
-	std::string sfPath(META_INF);
-	sfPath += "/";
-	sfPath += alias;
-	sfPath += ".";
-	sfPath += EXT_SF;
-
-	Poco::DigestEngine::Digest rsaSignature;
-	SignatureFile::Signatures::const_iterator it = rsaSignatures.find(sfPath);
-	if (it != rsaSignatures.end())
-		digestFromHex(it->second, rsaSignature);
-	else
-		return BUNDLE_VERIFICATION_INVALID_SIGNATURE;
-
-	Poco::SharedPtr<std::istream> pSFStream = _pBundleStorage->getResource(sfPath);
-	if (!pSFStream) return BUNDLE_VERIFICATION_INVALID_SIGNATURE;
-
-	Poco::Crypto::RSAKey rsaKey(certificate);
-	Poco::Crypto::RSADigestEngine rsaEngine(rsaKey, digestAlgorithm);
-	Poco::DigestInputStream digStream(rsaEngine, *pSFStream);
-
-	SignatureFile::Signatures signatures;
-	SignatureFile sfFile;
-	sfFile.read(signatures, digStream);
-	if (!pSFStream->eof()) return BUNDLE_VERIFICATION_INVALID_SIGNATURE;
-	if (!rsaEngine.verify(rsaSignature))
+	Poco::Crypto::RSADigestEngine rsaEngine(*pRSAKey, signatureFiles.digestAlgorithm);
+	rsaEngine.update(signatureFiles.content);
+	if (!rsaEngine.verify(signatureFiles.signature))
 	{
 		messages.push_back("The integrity of the signature file could not be verified");
 		return BUNDLE_VERIFICATION_FAILED;
 	}
+	return BUNDLE_VERIFICATION_OK;
+}
 
+
+BundleVerifier::VerificationResult BundleVerifier::verifyFiles(const std::string& digestAlgorithm, SignatureFile::Signatures& signatures, std::vector<std::string>& messages) const
+{
 	SignUtility::Digests digests;
 	Poco::Crypto::DigestEngine digestEngine(digestAlgorithm);
-	SignUtility::computeDigests(_pBundleStorage, digestEngine, digests);
+	try
+	{
+		SignUtility::computeDigests(_pBundleStorage, digestEngine, digests);
+	}
+	catch (Poco::DataFormatException& exc)
+	{
+		messages.push_back(exc.message());
+		return BUNDLE_VERIFICATION_FAILED;
+	}
 	for (SignUtility::Digests::const_iterator it = digests.begin(); it != digests.end(); ++it)
 	{
 		if (!SignUtility::isSignatureFile(it->first))
@@ -220,6 +357,62 @@ BundleVerifier::VerificationResult BundleVerifier::verify(const std::string& ali
 }
 
 
+bool BundleVerifier::isTrusted(const Poco::Crypto::X509Certificate& certificate, const Poco::Crypto::X509Certificate::List& trustedCertificates, std::vector<std::string>& messages)
+{
+	for (const auto& trustedCertificate: trustedCertificates)
+	{
+		if (certificate.equals(trustedCertificate)) return true;
+		try
+		{
+			if (certificate.issuedBy(trustedCertificate)) return true;
+		}
+		catch (Poco::InvalidArgumentException&)
+		{
+			messages.push_back(Poco::format("The trusted certificate %s has no public key and is skipped", trustedCertificate.subjectName()));
+		}
+	}
+	return false;
+}
+
+
+bool BundleVerifier::isValidSigner(const Poco::Crypto::X509Certificate& certificate, std::vector<std::string>& messages)
+{
+	const Poco::DateTime now;
+	if (now < certificate.validFrom() || now >= certificate.expiresOn())
+	{
+		messages.push_back(Poco::format("The signer certificate %s is not valid at the current time", certificate.subjectName()));
+		return false;
+	}
+	// Without an extended key usage extension, OpenSSL reports all usages as allowed.
+	X509* pCertificate = const_cast<X509*>(certificate.certificate());
+	if ((X509_get_extended_key_usage(pCertificate) & XKU_CODE_SIGN) == 0)
+	{
+		messages.push_back(Poco::format("The signer certificate %s does not allow code signing", certificate.subjectName()));
+		return false;
+	}
+	return true;
+}
+
+
+bool BundleVerifier::readSignatureFile(const std::string& path, std::size_t maxSize, std::string& content) const
+{
+	std::unique_ptr<std::istream> pStream(_pBundleStorage->getResource(path));
+	if (pStream == nullptr) return false;
+
+	constexpr std::size_t BUFFER_SIZE = 4096;
+	content.clear();
+	std::array<char, BUFFER_SIZE> buffer{};
+	while (pStream->read(buffer.data(), static_cast<std::streamsize>(buffer.size())) || pStream->gcount() > 0)
+	{
+		const auto n = static_cast<std::size_t>(pStream->gcount());
+		if (content.size() + n > maxSize)
+			throw Poco::DataFormatException("Signature file is too large", path);
+		content.append(buffer.data(), n);
+	}
+	return true;
+}
+
+
 void BundleVerifier::digestFromHex(const std::string& hex, Poco::DigestEngine::Digest& digest)
 {
 	digest.clear();
@@ -228,13 +421,13 @@ void BundleVerifier::digestFromHex(const std::string& hex, Poco::DigestEngine::D
 	while (it != end)
 	{
 		int highNibble = nibble(*it);
-		if (highNibble == -1) throw Poco::DataFormatException("Invalid signature: ", hex);
+		if (highNibble == -1) throw Poco::DataFormatException("Invalid signature", hex);
 		++it;
 		if (it == end)
-			throw Poco::DataFormatException("Incomplete signature: ", hex);
+			throw Poco::DataFormatException("Incomplete signature", hex);
 		int lowNibble = nibble(*it);
 		++it;
-		if (lowNibble == -1) throw Poco::DataFormatException("Invalid signature: ", hex);
+		if (lowNibble == -1) throw Poco::DataFormatException("Invalid signature", hex);
 		int byte = highNibble*16 + lowNibble;
 		digest.push_back(static_cast<char>(byte));
 	}

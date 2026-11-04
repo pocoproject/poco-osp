@@ -42,7 +42,8 @@ public:
 	CodeCacheUtility():
 		_showHelp(false),
 		_osName(Poco::Environment::osName()),
-		_osArch(Poco::Environment::osArchitecture())
+		_osArch(Poco::Environment::osArchitecture()),
+		_cleanCodeCache(false)
 	{
 	}
 
@@ -101,7 +102,7 @@ protected:
 			Option("cache", "c", "Specify code cache path.")
 				.required(true)
 				.repeatable(false)
-				.argument("<paths>")
+				.argument("<path>")
 				.callback(OptionCallback<CodeCacheUtility>(this, &CodeCacheUtility::handleCache)));
 	}
 

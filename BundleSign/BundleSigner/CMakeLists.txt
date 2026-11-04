@@ -43,3 +43,14 @@ if(CMAKE_CROSSCOMPILING)
 else()
     add_executable(Poco::OSP::BundleSigner ALIAS BundleSigner)
 endif(CMAKE_CROSSCOMPILING)
+
+if(POCO_OSP_ENABLE_TESTS)
+	add_test(
+		NAME OSPBundleSigner
+		COMMAND ${CMAKE_COMMAND}
+			-DSIGNBUNDLE=$<TARGET_FILE:BundleSigner>
+			-DDATA_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../testsuite/data
+			-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/SignBundleTest
+			-P ${CMAKE_CURRENT_SOURCE_DIR}/testsuite/SignBundleTest.cmake
+	)
+endif()

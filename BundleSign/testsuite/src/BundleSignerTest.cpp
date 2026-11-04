@@ -11,13 +11,17 @@
 
 
 #include "BundleSignerTest.h"
+#include "TestData.h"
 #include "Poco/OSP/BundleSign/BundleSigner.h"
+#include "Poco/OSP/BundleSign/SignatureFile.h"
 #include "Poco/OSP/BundleFile.h"
 #include "Poco/OSP/BundleDirectory.h"
 #include "Poco/Crypto/RSAKey.h"
 #include "Poco/Zip/Decompress.h"
 #include "Poco/File.h"
+#include "Poco/Path.h"
 #include "Poco/SharedPtr.h"
+#include "Poco/Exception.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
 #include <sstream>
@@ -28,116 +32,25 @@ using namespace Poco::OSP::BundleSign;
 using namespace Poco::OSP;
 
 
-static const std::string APPINF_PEM(
-	"-----BEGIN CERTIFICATE-----\n"
-	"MIIESzCCAzOgAwIBAgIBATALBgkqhkiG9w0BAQUwgdMxEzARBgNVBAMMCmFwcGlu\n"
-	"Zi5jb20xNjA0BgNVBAoMLUFwcGxpZWQgSW5mb3JtYXRpY3MgU29mdHdhcmUgRW5n\n"
-	"aW5lZXJpbmcgR21iSDEUMBIGA1UECwwLRGV2ZWxvcG1lbnQxEjAQBgNVBAgMCUNh\n"
-	"cmludGhpYTELMAkGA1UEBhMCQVQxHjAcBgNVBAcMFVN0LiBKYWtvYiBpbSBSb3Nl\n"
-	"bnRhbDEtMCsGCSqGSIb3DQEJARYeZ3VlbnRlci5vYmlsdHNjaG5pZ0BhcHBpbmYu\n"
-	"Y29tMB4XDTA5MDUwNzE0NTY1NloXDTI5MDUwMjE0NTY1NlowgdMxEzARBgNVBAMM\n"
-	"CmFwcGluZi5jb20xNjA0BgNVBAoMLUFwcGxpZWQgSW5mb3JtYXRpY3MgU29mdHdh\n"
-	"cmUgRW5naW5lZXJpbmcgR21iSDEUMBIGA1UECwwLRGV2ZWxvcG1lbnQxEjAQBgNV\n"
-	"BAgMCUNhcmludGhpYTELMAkGA1UEBhMCQVQxHjAcBgNVBAcMFVN0LiBKYWtvYiBp\n"
-	"bSBSb3NlbnRhbDEtMCsGCSqGSIb3DQEJARYeZ3VlbnRlci5vYmlsdHNjaG5pZ0Bh\n"
-	"cHBpbmYuY29tMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA89GolWCR\n"
-	"KtLQclJ2M2QtpFqzNC54hUQdR6n8+DAeruH9WFwLSdWW2fEi+jrtd/WEWCdt4PxX\n"
-	"F2/eBYeURus7Hg2ZtJGDd3je0+Ygsv7+we4cMN/knaBY7rATqhmnZWk+yBpkf5F2\n"
-	"IHp9gBxUaJWmt/bq3XrvTtzrDXpCd4zg4zPXZ8IC8ket5o3K2vnkAOsIsgN+Ffqd\n"
-	"4GjF4dsblG6u6E3VarGRLwGtgB8BAZOA/33mV4FHSMkc4OXpAChaK3tM8YhrLw+m\n"
-	"XtsfqDiv1825S6OWFCKGj/iX8X2QAkrdB63vXCSpb3de/ByIUfp31PpMlMh6dKo1\n"
-	"vf7yj0nb2w0utQIDAQABoyowKDAOBgNVHQ8BAf8EBAMCB4AwFgYDVR0lAQH/BAww\n"
-	"CgYIKwYBBQUHAwMwDQYJKoZIhvcNAQEFBQADggEBAM0cpfb4BgiU/rkYe121P581\n"
-	"ftg5Ck1PYYda1Fy/FgzbgJh2AwVo/6sn6GF79/QkEcWEgtCMNNO3LMTTddUUApuP\n"
-	"jnEimyfmUhIThyud/vryzTMNa/eZMwaAqUQWqLf+AwgqjUsBSMenbSHavzJOpsvR\n"
-	"LI0PQ1VvqB+3UGz0JUnBJiKvHs83Fdm4ewPAf3M5fGcIa+Fl2nU5Plzwzskj84f6\n"
-	"73ZlEEi3aW9JieNy7RWsMM+1E8Sj2CGRZC4BM9V1Fgnsh4+VHX8Eu7eHucvfeIYx\n"
-	"3mmLMoK4sCayL/FGhrUDw5AkWb8tKNpRXY+W60Et281yxQSeWLPIbatVzIWI0/M=\n"
-	"-----END CERTIFICATE-----\n"
-	"-----BEGIN RSA PRIVATE KEY-----\n"
-	"MIIEowIBAAKCAQEA89GolWCRKtLQclJ2M2QtpFqzNC54hUQdR6n8+DAeruH9WFwL\n"
-	"SdWW2fEi+jrtd/WEWCdt4PxXF2/eBYeURus7Hg2ZtJGDd3je0+Ygsv7+we4cMN/k\n"
-	"naBY7rATqhmnZWk+yBpkf5F2IHp9gBxUaJWmt/bq3XrvTtzrDXpCd4zg4zPXZ8IC\n"
-	"8ket5o3K2vnkAOsIsgN+Ffqd4GjF4dsblG6u6E3VarGRLwGtgB8BAZOA/33mV4FH\n"
-	"SMkc4OXpAChaK3tM8YhrLw+mXtsfqDiv1825S6OWFCKGj/iX8X2QAkrdB63vXCSp\n"
-	"b3de/ByIUfp31PpMlMh6dKo1vf7yj0nb2w0utQIDAQABAoIBAC0YFL7z6kVqUiUi\n"
-	"vTvKBmsEX2qCQcYcD/JGLURV2gbsQygJdgkE2O6cG6T+KxdpsD2BpV/cK9to1D5f\n"
-	"kfv/26I2T7xGwXLiRwwX3upcIRALEumzLxw8INaceDaYog4uhe8KepXheGCPZxC/\n"
-	"rJjfPMN/hnbKGuKSF2MZvptP0fQTMQ3vayi804Wswk43/dSAN64cJwsCN9GavKrf\n"
-	"1ZehGi1Lw8NBUnbWTbWAnq4eXW+FDBHIP98EIm9gqwnzr3FqLPlAAFvbfGCeFRbi\n"
-	"FL7ofUNYvkLHwWoyebHY4hP0q9S9kMvXDWtHWYk8oOqx9/0yh5kdK7ILIx6jhHcP\n"
-	"4FxqsYECgYEA/8xOS2NIFD9r+CjcIELohHBHEINyJUP/0Xti+I+j3hCVJmhdrnhG\n"
-	"QTXCjdTNrKiOY50qWpAMVIuZnr4n1vlm4NueD0sFai7HXy3RN+KDdb4clLx963qd\n"
-	"+GXNaZtTICHM/YPxbZNzhahy3d1GUyb7lGEt/a0tUWl9giWmv+Zwm1UCgYEA9ALu\n"
-	"jRUMu0l6fJwPcah3TvaSes+8Aiv0EZ4yAd7+ROQDw+r3fWrJxfi+vYDEfLavZdwl\n"
-	"gqZHMigTvfaWRMhmyJAOGlYND256Zy6UFShFCyTP/AJLlE4Fs1QhGnOU9mEAh4mC\n"
-	"QsJAyP0GBaAr/Kcu66iH3P/G9SWKpTjyjhrcBeECgYEAq9qZJ3D2NhQ996WL7mjF\n"
-	"SmUceW22PG8o6ZZZ8eCfGUxOyFUJy3Omz5zMrvkvjTZZI3etwtZQUmTPuqTKo1U/\n"
-	"1wX1dRTT+HihHcLscv1NkMc+8HaKqq/gfcf3b2IZQNc0n4YLp7COxldbhM9qtebU\n"
-	"0uVPPsUgUzfqSIv/MaIiOVkCgYAOCWUjpIRY+b8cD/YreZ9zYWfHvM956IFfyhPi\n"
-	"W6uQ1vUIfinCgzQcOVTvncqvyeqJF4Lo4xvRXNDV6qt2RXj0LKVDCpQxwQ81hE5s\n"
-	"cSaXn4R/YLpsS5i0WjCVTvTQv3/CTDy8DmSfqz5/cFlXbV6bm9RE+Em/rGsvWflK\n"
-	"B22EwQKBgDwsj7myJW+FubsKB7v+1+60fxIebZjui2hJ/1kj/oELnMwUDJOMSFM9\n"
-	"VpsYtRjTQFRgffd8IPbrE3PqKl20sN9XhmZZdzhQ6gxrunXNOvDYmlC++mvaz9Hz\n"
-	"L31sbcb8eK6Z7p0gMBJc7cDEAaI5aApJyOBFSY474jpfK3xWNfxv\n"
-	"-----END RSA PRIVATE KEY-----\n"
-);
-
-
-static const std::string APPINF_RSA_NO_CERT(
+static const std::string SIGNER_RSA_SHA1(
 	"Signature-Version: 1.0\n"
 	"Created-By: OSP BundleSigner\n"
 	"\n"
-	"Name: META-INF/appinf.com.sf\n"
-	"RSA-SHA1-Signature: 6dee5b161141f8313ceed31c5f2f33a37a506bd572b577f091500d9777f67ed0066d8d12045145c54e3a77a99a852b795af8d57039cee6c01bc48c1547c4b0a56012b2a69d6ea03fa420752c27ebcfd173d7239749861f38c68f865271f1aaf54515cd43a70d41bb78a27dfdd46e7ec1be9b4c8073c1a801212712accf44c77e51a7bad937342266a2d8b4e13e135e493da0b01c328f339776fdbdab70bf0862fba581b8021fb58367c3eb660cb65f42735bb3284c970dec6a35e2711a6a8ec47ba74d43db72815c34a0cdc653d45df8a3a0263e4816841daac09fe290848d7c842be7902cc891ac2f26f5e0e91d12e9abd85992a5dab9965efc52d2895140ae\n"
+	"Name: META-INF/test.signer.sf\n"
+	"RSA-SHA1-Signature: 444f47c8ae351b9d6a6865136779dfccd36ba570f4a5fc3d5ab81b83c308ae84ef0ad2d7464607ab60969347aa860eaf5e923c6c37b77ab72d2e8621d18b7c1f4bbc2eed1255f89ab590510724726b0a9747ec3c63f66ba41e57df8d3286a7cd9ef9848158efd358bb7d888a09ca478aa167d55f4b606d0ab8c481cc1959602a0005c04068c1f5dc7e83777f336ff5eacb98db45e424abec086306b16cbe3bfbe6776574cb9df8354c58eb890ca6598561348e8c1300041afd61947f8b82b61a2615ffcb34dd21edc3c32ac59534ac81328dfa54809abe626308b7c4c795d407d8c250264ffab8648fef22770cbc022cb3276311349ac990c4d8c3efde9e3a82\n"
 	"\n"
 );
 
 
-static const std::string APPINF_RSA_SHA256_NO_CERT(
+static const std::string SIGNER_RSA_SHA256(
 	"Signature-Version: 1.0\n"
 	"Created-By: OSP BundleSigner\n"
 	"\n"
-	"Name: META-INF/appinf.com.sf\n"
-	"RSA-SHA256-Signature: 3be79ebbd3d614c7bfcf8d76cb714c2734f6ab22c5998e78adb45f6823cb7e3c891ae4dc05082bb5580526e9d61fac753490af3480dde949907ace1f42b8905ae9b13c6000066fe1e41745ea0c6b96d1211575ea6b4832a6a8c394f154c54e574270316ee9f58625f4495afc49f88c1b412ce5562d7bf1d6b72408a88c39accac8c0118648aa278e22a23703d013791473f27cb6ee0007d2caed0714d85143408e9802aa2ebc00d00d58c09271c0eeb3bd765f41d92b1aec99d3fbcdae0ff538e7b8ace220d79c9f88b2a796f8e4dd5da1b09527dd93cd96946a95f73fc87ad72bb20d12fef3a7bef69f1b4cb4accaa872e12c2f8418524496d887e5fc85940f\n"
+	"Name: META-INF/test.signer.sf\n"
+	"RSA-SHA256-Signature: 17c493bf5944f5d9941c791a1de9abc6188682b8ce72fdae6ae618490e113ca6d18ff1f740f214454f4119fbeddf2d30f601e17a08bea09905099ce0b584460aaaf5e782b2fbc8c3133176dcfe34145a6861f121a94eeca54bf4099e1ae52d7d10d7a485dfbec6bee3086947288e8a2fdebf33d38204e877011983267377e8838c4e85cb494c67bb0e906f9a0630bc02fb7538284ad39dd650bd6eb31337c2dd91abbcfa4d73832b6865fbb1027ea3dd39445f7d7f17f286d257fad6ae7676505bd1b0f94b5e623ac7f2a13e53529270774f2570a4c076e371dc16dc27c9a40e4e74883cd7d898c512952d7e8d034485426b1d19e5cb06174b93a628f3f91519\n"
 	"\n"
 );
 
-
-static const std::string APPINF_RSA(
-	"Signature-Version: 1.0\n"
-	"Created-By: OSP BundleSigner\n"
-	"\n"
-	"Name: META-INF/appinf.com.sf\n"
-	"RSA-SHA1-Signature: 6dee5b161141f8313ceed31c5f2f33a37a506bd572b577f091500d9777f67ed0066d8d12045145c54e3a77a99a852b795af8d57039cee6c01bc48c1547c4b0a56012b2a69d6ea03fa420752c27ebcfd173d7239749861f38c68f865271f1aaf54515cd43a70d41bb78a27dfdd46e7ec1be9b4c8073c1a801212712accf44c77e51a7bad937342266a2d8b4e13e135e493da0b01c328f339776fdbdab70bf0862fba581b8021fb58367c3eb660cb65f42735bb3284c970dec6a35e2711a6a8ec47ba74d43db72815c34a0cdc653d45df8a3a0263e4816841daac09fe290848d7c842be7902cc891ac2f26f5e0e91d12e9abd85992a5dab9965efc52d2895140ae\n"
-	"\n"
-	"X509-Certificate: appinf.com\n"
-	"-----BEGIN CERTIFICATE-----\n"
-	"MIIESzCCAzOgAwIBAgIBATALBgkqhkiG9w0BAQUwgdMxEzARBgNVBAMMCmFwcGlu\n"
-	"Zi5jb20xNjA0BgNVBAoMLUFwcGxpZWQgSW5mb3JtYXRpY3MgU29mdHdhcmUgRW5n\n"
-	"aW5lZXJpbmcgR21iSDEUMBIGA1UECwwLRGV2ZWxvcG1lbnQxEjAQBgNVBAgMCUNh\n"
-	"cmludGhpYTELMAkGA1UEBhMCQVQxHjAcBgNVBAcMFVN0LiBKYWtvYiBpbSBSb3Nl\n"
-	"bnRhbDEtMCsGCSqGSIb3DQEJARYeZ3VlbnRlci5vYmlsdHNjaG5pZ0BhcHBpbmYu\n"
-	"Y29tMB4XDTA5MDUwNzE0NTY1NloXDTI5MDUwMjE0NTY1NlowgdMxEzARBgNVBAMM\n"
-	"CmFwcGluZi5jb20xNjA0BgNVBAoMLUFwcGxpZWQgSW5mb3JtYXRpY3MgU29mdHdh\n"
-	"cmUgRW5naW5lZXJpbmcgR21iSDEUMBIGA1UECwwLRGV2ZWxvcG1lbnQxEjAQBgNV\n"
-	"BAgMCUNhcmludGhpYTELMAkGA1UEBhMCQVQxHjAcBgNVBAcMFVN0LiBKYWtvYiBp\n"
-	"bSBSb3NlbnRhbDEtMCsGCSqGSIb3DQEJARYeZ3VlbnRlci5vYmlsdHNjaG5pZ0Bh\n"
-	"cHBpbmYuY29tMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA89GolWCR\n"
-	"KtLQclJ2M2QtpFqzNC54hUQdR6n8+DAeruH9WFwLSdWW2fEi+jrtd/WEWCdt4PxX\n"
-	"F2/eBYeURus7Hg2ZtJGDd3je0+Ygsv7+we4cMN/knaBY7rATqhmnZWk+yBpkf5F2\n"
-	"IHp9gBxUaJWmt/bq3XrvTtzrDXpCd4zg4zPXZ8IC8ket5o3K2vnkAOsIsgN+Ffqd\n"
-	"4GjF4dsblG6u6E3VarGRLwGtgB8BAZOA/33mV4FHSMkc4OXpAChaK3tM8YhrLw+m\n"
-	"XtsfqDiv1825S6OWFCKGj/iX8X2QAkrdB63vXCSpb3de/ByIUfp31PpMlMh6dKo1\n"
-	"vf7yj0nb2w0utQIDAQABoyowKDAOBgNVHQ8BAf8EBAMCB4AwFgYDVR0lAQH/BAww\n"
-	"CgYIKwYBBQUHAwMwDQYJKoZIhvcNAQEFBQADggEBAM0cpfb4BgiU/rkYe121P581\n"
-	"ftg5Ck1PYYda1Fy/FgzbgJh2AwVo/6sn6GF79/QkEcWEgtCMNNO3LMTTddUUApuP\n"
-	"jnEimyfmUhIThyud/vryzTMNa/eZMwaAqUQWqLf+AwgqjUsBSMenbSHavzJOpsvR\n"
-	"LI0PQ1VvqB+3UGz0JUnBJiKvHs83Fdm4ewPAf3M5fGcIa+Fl2nU5Plzwzskj84f6\n"
-	"73ZlEEi3aW9JieNy7RWsMM+1E8Sj2CGRZC4BM9V1Fgnsh4+VHX8Eu7eHucvfeIYx\n"
-	"3mmLMoK4sCayL/FGhrUDw5AkWb8tKNpRXY+W60Et281yxQSeWLPIbatVzIWI0/M=\n"
-	"-----END CERTIFICATE-----\n"
-);
 
 
 BundleSignerTest::BundleSignerTest(const std::string& name): CppUnit::TestCase(name)
@@ -152,14 +65,13 @@ BundleSignerTest::~BundleSignerTest()
 
 void BundleSignerTest::testSignFile()
 {
-	std::istringstream istr(APPINF_PEM);
-	Poco::Crypto::RSAKey rsaKey(0, &istr, "secret");
-	BundleSigner signer("appinf.com", rsaKey);
-	signer.signBundle("testBundle.zip");
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey);
+	signer.signBundle(_bundleFile);
 	
-	Poco::OSP::BundleFile::Ptr pBundleFile = new Poco::OSP::BundleFile("testBundle.zip");
+	Poco::OSP::BundleFile::Ptr pBundleFile = new Poco::OSP::BundleFile(_bundleFile);
 	std::string rsa;
-	Poco::SharedPtr<std::istream> rsaStream(pBundleFile->getResource("META-INF/appinf.com.rsa"));
+	Poco::SharedPtr<std::istream> rsaStream(pBundleFile->getResource("META-INF/test.signer.rsa"));
 	assert (!rsaStream.isNull());
 	int ch = rsaStream->get();
 	while (ch != -1) 
@@ -168,20 +80,19 @@ void BundleSignerTest::testSignFile()
 		ch = rsaStream->get();
 	}
 
-	assert (rsa == APPINF_RSA_NO_CERT);
+	assert (rsa == SIGNER_RSA_SHA256);
 }
 
 
-void BundleSignerTest::testSignFileSHA256()
+void BundleSignerTest::testSignFileSHA1()
 {
-	std::istringstream istr(APPINF_PEM);
-	Poco::Crypto::RSAKey rsaKey(0, &istr, "secret");
-	BundleSigner signer("appinf.com", rsaKey, "SHA256");
-	signer.signBundle("testBundle.zip");
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey, "SHA1");
+	signer.signBundle(_bundleFile);
 	
-	Poco::OSP::BundleFile::Ptr pBundleFile = new Poco::OSP::BundleFile("testBundle.zip");
+	Poco::OSP::BundleFile::Ptr pBundleFile = new Poco::OSP::BundleFile(_bundleFile);
 	std::string rsa;
-	Poco::SharedPtr<std::istream> rsaStream(pBundleFile->getResource("META-INF/appinf.com.rsa"));
+	Poco::SharedPtr<std::istream> rsaStream(pBundleFile->getResource("META-INF/test.signer.rsa"));
 	assert (!rsaStream.isNull());
 	int ch = rsaStream->get();
 	while (ch != -1) 
@@ -190,31 +101,24 @@ void BundleSignerTest::testSignFileSHA256()
 		ch = rsaStream->get();
 	}
 
-	assert (rsa == APPINF_RSA_SHA256_NO_CERT);
+	assert (rsa == SIGNER_RSA_SHA1);
 }
 
 
 void BundleSignerTest::testSignDirectory()
 {
-	Poco::File bundleFile("testBundle");
-	if (bundleFile.exists())
-	{
-		bundleFile.remove(true);
-	}
-	
-	std::ifstream bundleStream("testBundle.zip", std::ios::binary);
-	Poco::Zip::Decompress decompress(bundleStream, "testBundle");
+	std::ifstream bundleStream(_bundleFile, std::ios::binary);
+	Poco::Zip::Decompress decompress(bundleStream, _bundleDirectory);
 	decompress.decompressAllFiles();
 	bundleStream.close();
 	
-	std::istringstream istr(APPINF_PEM);
-	Poco::Crypto::RSAKey rsaKey(0, &istr, "secret");
-	BundleSigner signer("appinf.com", rsaKey);
-	signer.signBundle("testBundle");	
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey);
+	signer.signBundle(_bundleDirectory);
 
-	Poco::OSP::BundleDirectory::Ptr pBundleDir = new Poco::OSP::BundleDirectory("testBundle");
+	Poco::OSP::BundleDirectory::Ptr pBundleDir = new Poco::OSP::BundleDirectory(_bundleDirectory);
 	std::string rsa;
-	Poco::SharedPtr<std::istream> rsaStream(pBundleDir->getResource("META-INF/appinf.com.rsa"));
+	Poco::SharedPtr<std::istream> rsaStream(pBundleDir->getResource("META-INF/test.signer.rsa"));
 	assert (!rsaStream.isNull());
 	int ch = rsaStream->get();
 	while (ch != -1) 
@@ -224,36 +128,25 @@ void BundleSignerTest::testSignDirectory()
 	}
 	rsaStream = 0;
 	
-	assert (rsa == APPINF_RSA_NO_CERT);
-
-	bundleFile.remove(true);
+	assert (rsa == SIGNER_RSA_SHA256);
 }
 
 
 void BundleSignerTest::testSignDirectoryCert()
 {
-	Poco::File bundleFile("testBundle");
-	if (bundleFile.exists())
-	{
-		bundleFile.remove(true);
-	}
-	
-	std::ifstream bundleStream("testBundle.zip", std::ios::binary);
-	Poco::Zip::Decompress decompress(bundleStream, "testBundle");
+	std::ifstream bundleStream(_bundleFile, std::ios::binary);
+	Poco::Zip::Decompress decompress(bundleStream, _bundleDirectory);
 	decompress.decompressAllFiles();
 	bundleStream.close();
 	
-	std::istringstream istr(APPINF_PEM);
-	Poco::Crypto::RSAKey rsaKey(0, &istr, "secret");
-	istr.clear();
-	istr.seekg(0);
-	Poco::Crypto::X509Certificate cert(istr);
-	BundleSigner signer("appinf.com", rsaKey);
-	signer.signBundle("testBundle", cert);	
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey);
+	signer.signBundle(_bundleDirectory, cert);
 
-	Poco::OSP::BundleDirectory::Ptr pBundleDir = new Poco::OSP::BundleDirectory("testBundle");
+	Poco::OSP::BundleDirectory::Ptr pBundleDir = new Poco::OSP::BundleDirectory(_bundleDirectory);
 	std::string rsa;
-	Poco::SharedPtr<std::istream> rsaStream(pBundleDir->getResource("META-INF/appinf.com.rsa"));
+	Poco::SharedPtr<std::istream> rsaStream(pBundleDir->getResource("META-INF/test.signer.rsa"));
 	assert (!rsaStream.isNull());
 	int ch = rsaStream->get();
 	while (ch != -1) 
@@ -262,52 +155,61 @@ void BundleSignerTest::testSignDirectoryCert()
 		ch = rsaStream->get();
 	}
 	rsaStream = 0;
-	
-	assert (rsa == APPINF_RSA);
 
-	bundleFile.remove(true);
+	std::ostringstream expected;
+	expected << SIGNER_RSA_SHA256 << "X509-Certificate: OSP Test Signer\n";
+	cert.save(expected);
+	assert (rsa == expected.str());
+}
+
+
+void BundleSignerTest::testUnsupportedDigestAlgorithmIsRejected()
+{
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	try
+	{
+		BundleSigner signer("test.signer", rsaKey, "MD5");
+		failmsg("the signer must reject a digest algorithm that the verifier does not support");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+}
+
+
+void BundleSignerTest::testLongPathIsRejected()
+{
+	TestData::writeBundle(_bundleFile, {
+		{"META-INF/manifest.mf", "Manifest-Version: 1.0\n"},
+		{std::string(SignatureFile::MAX_PATH_LENGTH + 1, 'a'), "x"}
+	});
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey);
+	try
+	{
+		signer.signBundle(_bundleFile);
+		failmsg("the signer must reject a path that the verifier would reject");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
 }
 
 
 void BundleSignerTest::setUp()
 {
-	// The following is a ZIP file containing the same
-	// directory hierarchy as is used in BundleDirectoryTest.
-	static const unsigned char TEST_BUNDLE_ZIP[] = 
-	{
-		0x50, 0x4b, 0x03, 0x04, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x76, 0x83, 0x36, 0xe8, 0x16,
-		0xfa, 0x93, 0x0a, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x62, 0x75,
-		0x6e, 0x64, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x66,
-		0x6f, 0x6f, 0x3a, 0x20, 0x62, 0x61, 0x72, 0x0a, 0x0a, 0x50, 0x4b, 0x03, 0x04, 0x0a, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x11, 0x76, 0x83, 0x36, 0x7a, 0xdf, 0x5a, 0x20, 0x16, 0x00, 0x00, 0x00, 0x16,
-		0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x4d, 0x45, 0x54, 0x41, 0x2d, 0x49, 0x4e, 0x46, 0x2f,
-		0x6d, 0x61, 0x6e, 0x69, 0x66, 0x65, 0x73, 0x74, 0x2e, 0x6d, 0x66, 0x4d, 0x61, 0x6e, 0x69, 0x66,
-		0x65, 0x73, 0x74, 0x2d, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x3a, 0x20, 0x31, 0x2e, 0x30,
-		0x0a, 0x50, 0x4b, 0x03, 0x04, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x76, 0x83, 0x36, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x4d,
-		0x45, 0x54, 0x41, 0x2d, 0x49, 0x4e, 0x46, 0x2f, 0x50, 0x4b, 0x01, 0x02, 0x14, 0x00, 0x0a, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x11, 0x76, 0x83, 0x36, 0xe8, 0x16, 0xfa, 0x93, 0x0a, 0x00, 0x00, 0x00,
-		0x0a, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x20, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x62, 0x75, 0x6e, 0x64, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f,
-		0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x50, 0x4b, 0x01, 0x02, 0x14, 0x00, 0x0a, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x11, 0x76, 0x83, 0x36, 0x7a, 0xdf, 0x5a, 0x20, 0x16, 0x00, 0x00, 0x00, 0x16,
-		0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x20, 0x00, 0x00,
-		0x00, 0x39, 0x00, 0x00, 0x00, 0x4d, 0x45, 0x54, 0x41, 0x2d, 0x49, 0x4e, 0x46, 0x2f, 0x6d, 0x61,
-		0x6e, 0x69, 0x66, 0x65, 0x73, 0x74, 0x2e, 0x6d, 0x66, 0x50, 0x4b, 0x01, 0x02, 0x14, 0x00, 0x0a,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x76, 0x83, 0x36, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
-		0x00, 0x00, 0x00, 0x81, 0x00, 0x00, 0x00, 0x4d, 0x45, 0x54, 0x41, 0x2d, 0x49, 0x4e, 0x46, 0x2f,
-		0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x03, 0x00, 0xb8, 0x00, 0x00, 0x00,
-		0xa8, 0x00, 0x00, 0x00, 0x00, 0x00
-	};
-
-	std::ofstream ostr("testBundle.zip", std::ios::binary);
-	ostr.write(reinterpret_cast<const char*>(&TEST_BUNDLE_ZIP[0]), sizeof(TEST_BUNDLE_ZIP));
+	_workDir = TestData::createWorkDirectory();
+	Poco::Path workPath(_workDir);
+	workPath.makeDirectory();
+	_bundleFile = Poco::Path(workPath, "testBundle.zip").toString();
+	_bundleDirectory = Poco::Path(workPath, "testBundle").toString();
+	TestData::writeTestBundle(_bundleFile);
 }
 
 
 void BundleSignerTest::tearDown()
 {
+	Poco::File(_workDir).remove(true);
 }
 
 
@@ -316,9 +218,11 @@ CppUnit::Test* BundleSignerTest::suite()
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("BundleSignerTest");
 
 	CppUnit_addTest(pSuite, BundleSignerTest, testSignFile);
-	CppUnit_addTest(pSuite, BundleSignerTest, testSignFileSHA256);
+	CppUnit_addTest(pSuite, BundleSignerTest, testSignFileSHA1);
 	CppUnit_addTest(pSuite, BundleSignerTest, testSignDirectory);
 	CppUnit_addTest(pSuite, BundleSignerTest, testSignDirectoryCert);
+	CppUnit_addTest(pSuite, BundleSignerTest, testUnsupportedDigestAlgorithmIsRejected);
+	CppUnit_addTest(pSuite, BundleSignerTest, testLongPathIsRejected);
 
 	return pSuite;
 }

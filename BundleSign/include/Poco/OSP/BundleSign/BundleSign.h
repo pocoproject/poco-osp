@@ -43,7 +43,11 @@
 
 
 #if !defined(OSPBundleSign_API)
-	#define OSPBundleSign_API
+	#if !defined(POCO_NO_GCC_API_ATTRIBUTE) && defined (__GNUC__) && (__GNUC__ >= 4)
+		#define OSPBundleSign_API __attribute__ ((visibility ("default")))
+	#else
+		#define OSPBundleSign_API
+	#endif
 #endif
 
 

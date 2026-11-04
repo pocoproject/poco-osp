@@ -14,7 +14,7 @@
     <runLevel>200</runLevel>
   </manifest>
   <code>
-    bin/.dll,
+    bin/*.dll,
     ${osName}/${osArch}/*.so,
     ${osName}/${osArch}/*.dylib
   </code>

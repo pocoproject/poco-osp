@@ -17,6 +17,7 @@
 #include "Poco/OSP/BundleSign/SignatureFile.h"
 #include "Poco/Exception.h"
 #include <cctype>
+#include <cstddef>
 
 
 namespace Poco {
@@ -57,6 +58,10 @@ void SignatureFile::write(const Signatures& signatures, std::ostream& ostr) cons
 	ostr << "\n";
 	for (Signatures::const_iterator it = signatures.begin(); it != signatures.end(); ++it)
 	{
+		if (it->first.size() > MAX_PATH_LENGTH)
+			throw Poco::InvalidArgumentException("Path is too long for a signature file", it->first);
+		if (it->second.size() > MAX_DIGEST_LENGTH)
+			throw Poco::InvalidArgumentException("Signature is too long for a signature file", it->first);
 		ostr << NAME << ": " << it->first << "\n"
 		     << _digestType << ": " << it->second << "\n"
 		     << "\n";
@@ -91,26 +96,41 @@ void SignatureFile::read(Signatures& signatures, std::istream& istr)
 }
 
 
+std::size_t SignatureFile::maxSize(std::size_t fileCount)
+{
+	return (fileCount + HEADER_ENTRIES)*MAX_ENTRY_LENGTH;
+}
+
+
 void SignatureFile::readEntry(std::istream& istr, std::string& name, std::string& value)
 {
 	static const int eof = std::char_traits<char>::eof();
 
 	name.clear();
 	value.clear();
-	
-	int ch = istr.get();
-	while (ch != eof && std::isspace(ch)) ch = istr.get();
-	while (ch != eof && ch != ':') 
+
+	// The signature files come from the bundle; the length of an entry
+	// is limited, so that reading never allocates without limit.
+	std::size_t length = 0;
+	const auto next = [&istr, &length]()
+	{
+		if (++length > MAX_ENTRY_LENGTH) throw Poco::DataFormatException("Signature file entry is too long");
+		return istr.get();
+	};
+
+	int ch = next();
+	while (ch != eof && std::isspace(ch)) ch = next();
+	while (ch != eof && ch != ':')
 	{
 		name += static_cast<char>(ch);
-		ch = istr.get();
+		ch = next();
 	}
-	if (ch == ':') ch = istr.get();
-	while (ch != eof && std::isspace(ch)) ch = istr.get();
-	while (ch != eof && ch != '\n') 
+	if (ch == ':') ch = next();
+	while (ch != eof && std::isspace(ch)) ch = next();
+	while (ch != eof && ch != '\n')
 	{
 		value += static_cast<char>(ch);
-		ch = istr.get();
+		ch = next();
 	}
 }
 

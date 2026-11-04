@@ -49,25 +49,20 @@ class OSPBundleSign_API BundleSigner
 public:	
 	BundleSigner(const std::string& signer, const Poco::Crypto::RSAKey& rsaKey);
 		/// Creates a BundleSigner for signing bundles using the given
-		/// RSA private/public key pair and the SHA1 digest algorithm.
-		///
-		/// This constructor is provided for backwards compatibility only.
-		/// New code should use the three-argument constructor accepting
-		/// the name of a digest algorithm and specify a stronger digest algorithm.
+		/// RSA private/public key pair and the SHA256 digest algorithm.
 
 	BundleSigner(const std::string& signer, const Poco::Crypto::RSAKey& rsaKey, const std::string& digestAlgorithm);
 		/// Creates a BundleSigner for signing bundles using the given
 		/// RSA private/public key pair and digest algorithm,
 		/// which should be on of:
-		///   - "SHA1" (for backwards compatibility, no longer recommended) 
+		///   - "SHA1" (only for verifiers that cannot use SHA2; a BundleVerifier
+		///     accepts it only if allowed with BundleVerifier::setAllowSHA1())
 		///   - "SHA256" (SHA2-256, recommended)
 		///   - "SHA224" (SHA2-224)
 		///   - "SHA384" (SHA2-384)
 		///   - "SHA512" (SHA2-512)
 		///
-		/// Note: it is actually possible to specify any of the digest algorithms 
-		/// supported by the Poco::Crypto::DigestEngine class. However, the 
-		/// BundleVerifier class only supports the listed SHA1 and SHA2 algorithms.
+		/// Throws a Poco::InvalidArgumentException for any other digest algorithm.
 		
 	~BundleSigner();
 		/// Destroys the BundleSigner.
@@ -77,7 +72,8 @@ public:
 		/// refer to a bundle file (in ZIP file format), or a bundle
 		/// directory.
 		///
-		/// This method first computes the cryptographic hashes (SHA1)
+		/// This method first computes the cryptographic hashes, using
+		/// the digest algorithm given to the constructor,
 		/// for all files in the bundle and creates the signature file
 		/// (named "META-INF/<signer>.sf").
 		/// Then, a digital signature is created for the signature file,
@@ -88,7 +84,8 @@ public:
 		/// refer to a bundle file (in ZIP file format), or a bundle
 		/// directory.
 		///
-		/// This method first computes the cryptographic hashes (SHA1 or SHA256)
+		/// This method first computes the cryptographic hashes, using
+		/// the digest algorithm given to the constructor,
 		/// for all files in the bundle and creates the signature file
 		/// (named "META-INF/<signer>.sf").
 		/// Then, a digital signature is created for the signature file,
@@ -104,7 +101,7 @@ public:
 
 protected:
 	void signBundle(const std::string& bundlePath, const Poco::Crypto::X509Certificate* pCert);
-	void writeDSAFile(std::ostream& ostr, const std::string& dsaSignature, const Poco::Crypto::X509Certificate* pCert);
+	void writeDSAFile(std::ostream& ostr, const std::string& rsaSignature, const Poco::Crypto::X509Certificate* pCert);
 	void signBundleFile(const std::string& bundlePath, const std::string& sfPath, const std::string& rsaPath);
 	void signBundleDirectory(const std::string& bundlePath, const std::string& sfPath, const std::string& rsaPath);
 

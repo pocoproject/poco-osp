@@ -41,7 +41,7 @@ void BundleTest::testSuccess()
 
 void BundleTest::testError()
 {
-	error(UnhandledException);
+	throw UnhandledException("This is error testing. Ignore.");
 }
 
 

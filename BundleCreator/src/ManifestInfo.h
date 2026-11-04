@@ -43,8 +43,8 @@ public:
 		const Dependencies& requiredModules,
 		const ProvidedModules& providedModules,
 		bool lazyStart,
-		bool preventUninstall,
 		bool sealed,
+		bool preventUninstall,
 		const std::string& runLevel,
 		const std::string& extendsBundle);
 

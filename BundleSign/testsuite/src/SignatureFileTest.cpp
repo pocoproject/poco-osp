@@ -14,6 +14,8 @@
 #include "Poco/OSP/BundleSign/SignatureFile.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
+#include "Poco/Exception.h"
+#include <cstddef>
 #include <sstream>
 
 
@@ -79,6 +81,49 @@ void SignatureFileTest::testWrite()
 }
 
 
+void SignatureFileTest::testReadRejectsLongEntry()
+{
+	constexpr std::size_t LINE_LENGTH = 1024*1024;
+	const std::string fileContent(
+		"Signature-Version: 1.0\n"
+		"Created-By: OSPBundleSign Testsuite\n"
+		"\n"
+		"Name: " + std::string(LINE_LENGTH, 'a') + "\n"
+		"SHA1-Digest: 0123456789ABCDEF0123456789ABCDEF\n"
+	);
+
+	std::istringstream istr(fileContent);
+	SignatureFile sf;
+	SignatureFile::Signatures signatures;
+	try
+	{
+		sf.read(signatures, istr);
+		failmsg("an entry longer than MAX_ENTRY_LENGTH must be rejected");
+	}
+	catch (Poco::DataFormatException&)
+	{
+	}
+}
+
+
+void SignatureFileTest::testWriteRejectsLongPath()
+{
+	SignatureFile::Signatures signatures;
+	signatures[std::string(SignatureFile::MAX_PATH_LENGTH + 1, 'a')] = "0123456789ABCDEF0123456789ABCDEF";
+
+	SignatureFile sf("1.0", "OSPBundleSign Testsuite", "SHA1-Digest");
+	std::ostringstream ostr;
+	try
+	{
+		sf.write(signatures, ostr);
+		failmsg("a path longer than MAX_PATH_LENGTH must be rejected");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+}
+
+
 void SignatureFileTest::setUp()
 {
 }
@@ -95,6 +140,8 @@ CppUnit::Test* SignatureFileTest::suite()
 
 	CppUnit_addTest(pSuite, SignatureFileTest, testRead);
 	CppUnit_addTest(pSuite, SignatureFileTest, testWrite);
+	CppUnit_addTest(pSuite, SignatureFileTest, testReadRejectsLongEntry);
+	CppUnit_addTest(pSuite, SignatureFileTest, testWriteRejectsLongPath);
 
 	return pSuite;
 }

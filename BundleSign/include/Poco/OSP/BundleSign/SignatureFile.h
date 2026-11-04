@@ -21,6 +21,7 @@
 
 
 #include "Poco/OSP/BundleSign/BundleSign.h"
+#include <cstddef>
 #include <istream>
 #include <ostream>
 #include <map>
@@ -55,14 +56,35 @@ class OSPBundleSign_API SignatureFile
 	///
 	///     X509-Certificate: <common-name>
 	///     -----BEGIN CERTIFICATE-----
-	///     MIIEFjCCAv6gAwIBAgIBAjALBgkqhkiG9w0BAQUwgdMxEzARBgNVBAMMCmFwcGlu
-	///     Zi5jb20xNjA0BgNVBAoMLUFwcGxpZWQgSW5mb3JtYXRpY3MgU29mdHdhcmUgRW5n
-	///     ...
+	///     <certificate, Base64-encoded>
 	///     -----END CERTIFICATE-----
 
 {
 public:
 	using Signatures = std::map<std::string, std::string>;
+
+	static constexpr std::size_t MAX_PATH_LENGTH = 4096;
+		/// The maximum length of a file path in a signature file.
+
+	static constexpr std::size_t MAX_LABEL_LENGTH = 64;
+		/// The maximum length of an entry name and its separators.
+
+	static constexpr std::size_t MAX_DIGEST_LENGTH = 4096;
+		/// The maximum length of a hexadecimal digest or signature
+		/// (the RSA signature of a 16384-bit key).
+
+	static constexpr std::size_t MAX_ENTRY_LENGTH = MAX_PATH_LENGTH + MAX_LABEL_LENGTH + MAX_DIGEST_LENGTH;
+		/// The maximum number of characters that read() takes for one
+		/// entry (one line, including the empty lines before it).
+		/// The two entries for one file together do not exceed it either.
+
+	static constexpr std::size_t HEADER_ENTRIES = 2;
+		/// The number of entries that write() puts before the entries
+		/// of the files: Signature-Version and Created-By.
+
+	static constexpr std::size_t MAX_SIGNATURE_BLOCK_SIZE = 64*1024;
+		/// The maximum size of a signature block file (.rsa),
+		/// including the certificate.
 
 	SignatureFile();
 		/// Creates a SignatureFile object for reading an existing
@@ -80,9 +102,21 @@ public:
 
 	void write(const Signatures& signatures, std::ostream& ostr) const;
 		/// Writes a signature file to the given stream.
+		///
+		/// Throws a Poco::InvalidArgumentException if a path is longer
+		/// than MAX_PATH_LENGTH or a signature is longer than MAX_DIGEST_LENGTH,
+		/// since read() would reject the file.
 
 	void read(Signatures& signatures, std::istream& istr);
 		/// Reads signatures from the given stream.
+		///
+		/// Throws a Poco::DataFormatException if the stream is not
+		/// a signature file, or if an entry is longer than MAX_ENTRY_LENGTH.
+
+	[[nodiscard]] static std::size_t maxSize(std::size_t fileCount);
+		/// Returns the maximum size of a signature file written for
+		/// a bundle with the given number of files:
+		/// (fileCount + HEADER_ENTRIES) * MAX_ENTRY_LENGTH.
 
 	const std::string& version() const;
 		/// Returns the signature file version.

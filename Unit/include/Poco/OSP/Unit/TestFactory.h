@@ -46,7 +46,8 @@ class TestCase;
 class OSPUnit_API TestFactory
 	/// A TestFactory is a singleton class that registers tests.
 	/// Multiple tests keyed under the same name can be registered
-	/// and later retrieved. Key is typically the bundle name.
+	/// and later retrieved. The key is the symbolic name of the
+	/// bundle that contains the tests.
 {
 public:
 	using Ptr = Poco::SharedPtr<CppUnit::Test>;
@@ -61,14 +62,14 @@ public:
 	static TestFactory& instance();
 		/// Returns the static instance of the singleton.
 
-	void add(const std::string& bundle, CppUnit::Test* pTest);
-		/// Registers a test under the given bundle name with the factory.
+	void add(const std::string& symbolicName, CppUnit::Test* pTest);
+		/// Registers a test under the given bundle symbolic name with the factory.
 		/// Takes ownership of parameter pTest.
 
-	void remove(const std::string& bundle);
+	void remove(const std::string& symbolicName);
 		/// Removes all tests for given bundle from the factory.
 
-	TestVec get(const std::string& bundle);
+	TestVec get(const std::string& symbolicName);
 		/// Retrieves a vector of tests for the given bundle.
 
 private:

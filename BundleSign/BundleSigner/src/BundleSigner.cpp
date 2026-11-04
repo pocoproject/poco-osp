@@ -15,14 +15,18 @@
 #include "Poco/Util/Application.h"
 #include "Poco/Util/Option.h"
 #include "Poco/Util/OptionSet.h"
-#include "Poco/Util/IntValidator.h"
 #include "Poco/Util/HelpFormatter.h"
 #include "Poco/Util/OptionException.h"
 #include "Poco/OSP/BundleSign/BundleSigner.h"
 #include "Poco/OSP/BundleSign/BundleVerifier.h"
 #include "Poco/Crypto/RSAKey.h"
 #include "Poco/Crypto/X509Certificate.h"
+#include "Poco/FileStream.h"
+#include "Poco/Exception.h"
+#include "Poco/String.h"
 #include <iostream>
+#include <memory>
+#include <string>
 
 
 using Poco::Util::Application;
@@ -40,8 +44,9 @@ class BundleSignerApp: public Application
 public:
 	BundleSignerApp():
 		_showHelp(false),
-		_digestType("SHA1"),
+		_digestType("SHA256"),
 		_verify(false),
+		_allowSHA1(false),
 		_signers(false),
 		_result(Application::EXIT_OK)
 	{
@@ -70,11 +75,21 @@ protected:
 				.callback(OptionCallback<BundleSignerApp>(this, &BundleSignerApp::handleAlias)));
 
 		options.addOption(
-			Option("certificate", "c", "Specify the file containing the signer certificate (PEM format).")
+			Option("certificate", "c", "Specify the file containing the signer certificate (PEM format). "
+				"With --verify, the certificate is trusted: the bundle must be signed with its key, "
+				"or with a certificate issued by it.")
 				.required(false)
 				.repeatable(false)
 				.argument("<path>")
 				.callback(OptionCallback<BundleSignerApp>(this, &BundleSignerApp::handleCertificate)));
+
+		options.addOption(
+			Option("ca-file", "t", "Specify a file containing trusted certificates (PEM format) for --verify. "
+				"The bundle must be signed with the key of one of them, or with a certificate issued by one of them.")
+				.required(false)
+				.repeatable(false)
+				.argument("<path>")
+				.callback(OptionCallback<BundleSignerApp>(this, &BundleSignerApp::handleCAFile)));
 
 		options.addOption(
 			Option("key", "k", "Specify the file containing the signer private key (PEM format).")
@@ -84,24 +99,41 @@ protected:
 				.callback(OptionCallback<BundleSignerApp>(this, &BundleSignerApp::handleKey)));
 
 		options.addOption(
-			Option("passphrase", "p", "Specify the passphrase for the private key.")
+			Option("passphrase", "p", "Specify the passphrase for the private key. "
+				"Other users of the system can see it in the process list; prefer --passphrase-file.")
 				.required(false)
 				.repeatable(false)
 				.argument("<passphrase>")
 				.callback(OptionCallback<BundleSignerApp>(this, &BundleSignerApp::handlePassphrase)));
 
 		options.addOption(
-			Option("digest-type", "d", "Specify the digest type to use. Valid types are \"SHA1\", \"SHA224\", \"SHA256\", \"SHA384\" and \"SHA512\". Default is \"SHA1\".")
+			Option("passphrase-file", "P", "Specify a file whose first line is the passphrase for the private key.")
+				.required(false)
+				.repeatable(false)
+				.argument("<path>")
+				.callback(OptionCallback<BundleSignerApp>(this, &BundleSignerApp::handlePassphraseFile)));
+
+		options.addOption(
+			Option("digest-type", "d", "Specify the digest type to use. Valid types are \"SHA1\", \"SHA224\", \"SHA256\", \"SHA384\" and \"SHA512\". Default is \"SHA256\".")
 				.required(false)
 				.repeatable(false)
 				.argument("<type>")
 				.callback(OptionCallback<BundleSignerApp>(this, &BundleSignerApp::handleDigestType)));
 
 		options.addOption(
-			Option("verify", "v", "Verify the integrity of a signed bundle.")
+			Option("verify", "v", "Verify the integrity and the signer of a signed bundle. "
+				"Requires --certificate or --ca-file. Exits with a non-zero status unless "
+				"the bundle is signed by a trusted signer and has not been modified.")
 				.required(false)
 				.repeatable(false)
 				.callback(OptionCallback<BundleSignerApp>(this, &BundleSignerApp::handleVerify)));
+
+		options.addOption(
+			Option("allow-sha1", "", "With --verify, accept a signature that uses the SHA1 digest algorithm, "
+				"which is refused by default.")
+				.required(false)
+				.repeatable(false)
+				.callback(OptionCallback<BundleSignerApp>(this, &BundleSignerApp::handleAllowSHA1)));
 
 		options.addOption(
 			Option("signers", "s", "Print all signers (aliases).")
@@ -126,6 +158,11 @@ protected:
 		_certificatePath = value;
 	}
 
+	void handleCAFile(const std::string& name, const std::string& value)
+	{
+		_caFilePath = value;
+	}
+
 	void handleKey(const std::string& name, const std::string& value)
 	{
 		_keyPath = value;
@@ -136,6 +173,13 @@ protected:
 		_passphrase = value;
 	}
 
+	void handlePassphraseFile(const std::string& name, const std::string& value)
+	{
+		Poco::FileInputStream istr(value);
+		std::getline(istr, _passphrase);
+		if (!_passphrase.empty() && _passphrase.back() == '\r') _passphrase.pop_back();
+	}
+
 	void handleDigestType(const std::string& name, const std::string& value)
 	{
 		_digestType = value;
@@ -144,6 +188,11 @@ protected:
 	void handleVerify(const std::string& name, const std::string& value)
 	{
 		_verify = true;
+	}
+
+	void handleAllowSHA1(const std::string& name, const std::string& value)
+	{
+		_allowSHA1 = true;
 	}
 
 	void handleSigners(const std::string& name, const std::string& value)
@@ -161,7 +210,7 @@ protected:
 			"The Applied Informatics OSP Bundle Signing Utility.\n"
 			"Copyright (c) 2009-2026 by Applied Informatics Software Engineering GmbH.\n"
 			"All rights reserved.\n\n"
-			"This program builds adds a cryptographic signature "
+			"This program adds a cryptographic signature "
 			"to a bundle, which can be used to verify the integrity "
 			"of the bundle.\n\n"
 			"The following command line options are supported:"
@@ -179,7 +228,21 @@ protected:
 		if (_keyPath.empty()) throw Poco::Util::MissingOptionException("key", "A private key is required for signing a bundle.");
 
 		std::string alias(_alias);
-		Poco::Crypto::RSAKey rsaKey("", _keyPath, _passphrase);
+		if (_pRSAKey == nullptr)
+		{
+			// The key is loaded once for all bundles, so the passphrase is not needed afterwards.
+			try
+			{
+				_pRSAKey = std::make_unique<Poco::Crypto::RSAKey>("", _keyPath, _passphrase);
+			}
+			catch (...)
+			{
+				Poco::secureClear(_passphrase);
+				throw;
+			}
+			Poco::secureClear(_passphrase);
+		}
+		const Poco::Crypto::RSAKey& rsaKey = *_pRSAKey;
 		if (_certificatePath.empty())
 		{
 			if (alias.empty())
@@ -216,54 +279,66 @@ protected:
 
 	void verify(const std::string& path)
 	{
-		BundleVerifier::VerificationResult result = BundleVerifier::BUNDLE_VERIFICATION_OK;
-		std::vector<std::string> messages;
-		std::string signer;
-		BundleVerifier verifier(path);
-		std::string alias(_alias);
-		if (alias.empty()) alias = verifier.firstSigner();
-		if (!alias.empty())
+		Poco::Crypto::X509Certificate::List trustedCertificates;
+		if (!_certificatePath.empty())
 		{
-			if (_certificatePath.empty())
+			trustedCertificates.push_back(Poco::Crypto::X509Certificate(_certificatePath));
+		}
+		if (!_caFilePath.empty())
+		{
+			Poco::Crypto::X509Certificate::List caCertificates = Poco::Crypto::X509Certificate::readPEM(_caFilePath);
+			trustedCertificates.insert(trustedCertificates.end(), caCertificates.begin(), caCertificates.end());
+		}
+		if (trustedCertificates.empty())
+		{
+			std::cout << "Cannot verify bundle "
+				<< path
+				<< ": No trusted certificate specified (--certificate or --ca-file)."
+				<< std::endl;
+			_result = Application::EXIT_USAGE;
+			return;
+		}
+
+		BundleVerifier::VerificationResult result = BundleVerifier::BUNDLE_VERIFICATION_NO_SIGNATURE;
+		std::vector<std::string> messages;
+		BundleVerifier verifier(path);
+		verifier.setAllowSHA1(_allowSHA1);
+		std::string alias(_alias);
+		if (alias.empty())
+		{
+			try
 			{
-				BundleVerifier::CertificatePtr pCert = verifier.extractCertificate(alias);
-				if (pCert)
-				{
-					signer = pCert->subjectName();
-					result = verifier.verify(alias, *pCert, messages);
-				}
-				else
-				{
-					std::cout << "Cannot verify bundle "
-						<< path
-						<< ": No certificate found in bundle and no certificate file specified."
-						<< std::endl;
-					_result = Application::EXIT_USAGE;
-					return;
-				}
+				alias = verifier.firstSigner();
 			}
-			else
+			catch (Poco::DataFormatException& exc)
 			{
-				Poco::Crypto::X509Certificate cert(_certificatePath);
-				signer = cert.subjectName();
-				result = verifier.verify(alias, cert, messages);
+				std::cout << "Bundle verification failed for bundle "
+					<< path << ":" << std::endl
+					<< exc.message() << std::endl;
+				_result = Application::EXIT_DATAERR;
+				return;
 			}
 		}
-		else
+		if (!alias.empty())
 		{
-			result = BundleVerifier::BUNDLE_VERIFICATION_NO_SIGNATURE;
+			result = verifier.verify(alias, trustedCertificates, messages);
 		}
 		switch (result)
 		{
 		case BundleVerifier::BUNDLE_VERIFICATION_OK:
-			std::cout << "Bundle verification successful for bundle "
-				<< path << " (using alias " << alias << ", signed by " << signer << ")."
-				<< std::endl;
+			{
+				std::cout << "Bundle verification successful for bundle "
+					<< path << " (using alias " << alias;
+				BundleVerifier::CertificatePtr pCert = verifier.extractCertificate(alias);
+				if (pCert != nullptr) std::cout << ", signed by " << pCert->subjectName();
+				std::cout << ")." << std::endl;
+			}
 			break;
 		case BundleVerifier::BUNDLE_VERIFICATION_NO_SIGNATURE:
-			std::cout << "Bundle verification skipped for bundle "
+			std::cout << "Bundle verification failed for bundle "
 				<< path << " (not signed)."
 				<< std::endl;
+			_result = Application::EXIT_DATAERR;
 			break;
 		case BundleVerifier::BUNDLE_VERIFICATION_INVALID_SIGNATURE:
 			std::cout << "Bundle verification failed for bundle "
@@ -314,10 +389,13 @@ private:
 	bool         _showHelp;
 	std::string  _alias;
 	std::string  _certificatePath;
+	std::string  _caFilePath;
 	std::string  _keyPath;
 	std::string  _passphrase;
+	std::unique_ptr<Poco::Crypto::RSAKey> _pRSAKey;
 	std::string  _digestType;
 	bool         _verify;
+	bool         _allowSHA1;
 	bool         _signers;
 	int          _result;
 };

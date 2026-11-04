@@ -15,12 +15,6 @@
 
 
 #include "Poco/OSP/Unit/TestCase.h"
-#include "CppUnit/TestResult.h"
-#include "Poco/Exception.h"
-
-
-using CppUnit::TestResult;
-using CppUnit::CppUnitException;
 
 
 namespace Poco {
@@ -39,43 +33,6 @@ TestCase::TestCase(const std::string& name):
 	
 TestCase::~TestCase()
 {
-}
-
-
-void TestCase::run(TestResult* result)
-{
-	result->startTest(this);
-
-	setUp();
-	try 
-	{
-		runTest();
-	}
-	catch (CppUnitException& e) 
-	{
-		CppUnitException* copy = new CppUnitException(e);
-		result->addFailure(this, copy);
-	}
-	catch (Poco::Exception& e)
-	{
-		result->addError(this, new CppUnitException(e.displayText()));
-	}
-	catch (std::exception& e)
-	{
-		std::string msg(typeid(e).name());
-		msg.append(": ");
-		msg.append(e.what());
-		result->addError(this, new CppUnitException(msg));
-	}
-#if !defined(_WIN32)
-	catch (...)
-	{
-		CppUnitException *e = new CppUnitException ("unknown exception");
-		result->addError (this, e);
-	}
-#endif
-	tearDown();
-	result->endTest(this);
 }
 
 

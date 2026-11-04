@@ -11,78 +11,28 @@
 
 
 #include "BundleVerifierTest.h"
+#include "TestData.h"
 #include "Poco/OSP/BundleSign/BundleVerifier.h"
 #include "Poco/OSP/BundleSign/BundleSigner.h"
+#include "Poco/OSP/BundleSign/SignatureFile.h"
+#include "Poco/OSP/BundleFile.h"
 #include "Poco/Crypto/RSAKey.h"
 #include "Poco/Zip/Decompress.h"
+#include "Poco/Zip/ZipManipulator.h"
 #include "Poco/File.h"
 #include "Poco/Path.h"
 #include "Poco/FileStream.h"
 #include "Poco/SharedPtr.h"
+#include "Poco/Format.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
+#include <cstddef>
 #include <sstream>
 #include <fstream>
 
 
 using namespace Poco::OSP::BundleSign;
 using namespace Poco::OSP;
-
-
-static const std::string APPINF_PEM(
-	"-----BEGIN CERTIFICATE-----\n"
-	"MIIESzCCAzOgAwIBAgIBATALBgkqhkiG9w0BAQUwgdMxEzARBgNVBAMMCmFwcGlu\n"
-	"Zi5jb20xNjA0BgNVBAoMLUFwcGxpZWQgSW5mb3JtYXRpY3MgU29mdHdhcmUgRW5n\n"
-	"aW5lZXJpbmcgR21iSDEUMBIGA1UECwwLRGV2ZWxvcG1lbnQxEjAQBgNVBAgMCUNh\n"
-	"cmludGhpYTELMAkGA1UEBhMCQVQxHjAcBgNVBAcMFVN0LiBKYWtvYiBpbSBSb3Nl\n"
-	"bnRhbDEtMCsGCSqGSIb3DQEJARYeZ3VlbnRlci5vYmlsdHNjaG5pZ0BhcHBpbmYu\n"
-	"Y29tMB4XDTA5MDUwNzE0NTY1NloXDTI5MDUwMjE0NTY1NlowgdMxEzARBgNVBAMM\n"
-	"CmFwcGluZi5jb20xNjA0BgNVBAoMLUFwcGxpZWQgSW5mb3JtYXRpY3MgU29mdHdh\n"
-	"cmUgRW5naW5lZXJpbmcgR21iSDEUMBIGA1UECwwLRGV2ZWxvcG1lbnQxEjAQBgNV\n"
-	"BAgMCUNhcmludGhpYTELMAkGA1UEBhMCQVQxHjAcBgNVBAcMFVN0LiBKYWtvYiBp\n"
-	"bSBSb3NlbnRhbDEtMCsGCSqGSIb3DQEJARYeZ3VlbnRlci5vYmlsdHNjaG5pZ0Bh\n"
-	"cHBpbmYuY29tMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA89GolWCR\n"
-	"KtLQclJ2M2QtpFqzNC54hUQdR6n8+DAeruH9WFwLSdWW2fEi+jrtd/WEWCdt4PxX\n"
-	"F2/eBYeURus7Hg2ZtJGDd3je0+Ygsv7+we4cMN/knaBY7rATqhmnZWk+yBpkf5F2\n"
-	"IHp9gBxUaJWmt/bq3XrvTtzrDXpCd4zg4zPXZ8IC8ket5o3K2vnkAOsIsgN+Ffqd\n"
-	"4GjF4dsblG6u6E3VarGRLwGtgB8BAZOA/33mV4FHSMkc4OXpAChaK3tM8YhrLw+m\n"
-	"XtsfqDiv1825S6OWFCKGj/iX8X2QAkrdB63vXCSpb3de/ByIUfp31PpMlMh6dKo1\n"
-	"vf7yj0nb2w0utQIDAQABoyowKDAOBgNVHQ8BAf8EBAMCB4AwFgYDVR0lAQH/BAww\n"
-	"CgYIKwYBBQUHAwMwDQYJKoZIhvcNAQEFBQADggEBAM0cpfb4BgiU/rkYe121P581\n"
-	"ftg5Ck1PYYda1Fy/FgzbgJh2AwVo/6sn6GF79/QkEcWEgtCMNNO3LMTTddUUApuP\n"
-	"jnEimyfmUhIThyud/vryzTMNa/eZMwaAqUQWqLf+AwgqjUsBSMenbSHavzJOpsvR\n"
-	"LI0PQ1VvqB+3UGz0JUnBJiKvHs83Fdm4ewPAf3M5fGcIa+Fl2nU5Plzwzskj84f6\n"
-	"73ZlEEi3aW9JieNy7RWsMM+1E8Sj2CGRZC4BM9V1Fgnsh4+VHX8Eu7eHucvfeIYx\n"
-	"3mmLMoK4sCayL/FGhrUDw5AkWb8tKNpRXY+W60Et281yxQSeWLPIbatVzIWI0/M=\n"
-	"-----END CERTIFICATE-----\n"
-	"-----BEGIN RSA PRIVATE KEY-----\n"
-	"MIIEowIBAAKCAQEA89GolWCRKtLQclJ2M2QtpFqzNC54hUQdR6n8+DAeruH9WFwL\n"
-	"SdWW2fEi+jrtd/WEWCdt4PxXF2/eBYeURus7Hg2ZtJGDd3je0+Ygsv7+we4cMN/k\n"
-	"naBY7rATqhmnZWk+yBpkf5F2IHp9gBxUaJWmt/bq3XrvTtzrDXpCd4zg4zPXZ8IC\n"
-	"8ket5o3K2vnkAOsIsgN+Ffqd4GjF4dsblG6u6E3VarGRLwGtgB8BAZOA/33mV4FH\n"
-	"SMkc4OXpAChaK3tM8YhrLw+mXtsfqDiv1825S6OWFCKGj/iX8X2QAkrdB63vXCSp\n"
-	"b3de/ByIUfp31PpMlMh6dKo1vf7yj0nb2w0utQIDAQABAoIBAC0YFL7z6kVqUiUi\n"
-	"vTvKBmsEX2qCQcYcD/JGLURV2gbsQygJdgkE2O6cG6T+KxdpsD2BpV/cK9to1D5f\n"
-	"kfv/26I2T7xGwXLiRwwX3upcIRALEumzLxw8INaceDaYog4uhe8KepXheGCPZxC/\n"
-	"rJjfPMN/hnbKGuKSF2MZvptP0fQTMQ3vayi804Wswk43/dSAN64cJwsCN9GavKrf\n"
-	"1ZehGi1Lw8NBUnbWTbWAnq4eXW+FDBHIP98EIm9gqwnzr3FqLPlAAFvbfGCeFRbi\n"
-	"FL7ofUNYvkLHwWoyebHY4hP0q9S9kMvXDWtHWYk8oOqx9/0yh5kdK7ILIx6jhHcP\n"
-	"4FxqsYECgYEA/8xOS2NIFD9r+CjcIELohHBHEINyJUP/0Xti+I+j3hCVJmhdrnhG\n"
-	"QTXCjdTNrKiOY50qWpAMVIuZnr4n1vlm4NueD0sFai7HXy3RN+KDdb4clLx963qd\n"
-	"+GXNaZtTICHM/YPxbZNzhahy3d1GUyb7lGEt/a0tUWl9giWmv+Zwm1UCgYEA9ALu\n"
-	"jRUMu0l6fJwPcah3TvaSes+8Aiv0EZ4yAd7+ROQDw+r3fWrJxfi+vYDEfLavZdwl\n"
-	"gqZHMigTvfaWRMhmyJAOGlYND256Zy6UFShFCyTP/AJLlE4Fs1QhGnOU9mEAh4mC\n"
-	"QsJAyP0GBaAr/Kcu66iH3P/G9SWKpTjyjhrcBeECgYEAq9qZJ3D2NhQ996WL7mjF\n"
-	"SmUceW22PG8o6ZZZ8eCfGUxOyFUJy3Omz5zMrvkvjTZZI3etwtZQUmTPuqTKo1U/\n"
-	"1wX1dRTT+HihHcLscv1NkMc+8HaKqq/gfcf3b2IZQNc0n4YLp7COxldbhM9qtebU\n"
-	"0uVPPsUgUzfqSIv/MaIiOVkCgYAOCWUjpIRY+b8cD/YreZ9zYWfHvM956IFfyhPi\n"
-	"W6uQ1vUIfinCgzQcOVTvncqvyeqJF4Lo4xvRXNDV6qt2RXj0LKVDCpQxwQ81hE5s\n"
-	"cSaXn4R/YLpsS5i0WjCVTvTQv3/CTDy8DmSfqz5/cFlXbV6bm9RE+Em/rGsvWflK\n"
-	"B22EwQKBgDwsj7myJW+FubsKB7v+1+60fxIebZjui2hJ/1kj/oELnMwUDJOMSFM9\n"
-	"VpsYtRjTQFRgffd8IPbrE3PqKl20sN9XhmZZdzhQ6gxrunXNOvDYmlC++mvaz9Hz\n"
-	"L31sbcb8eK6Z7p0gMBJc7cDEAaI5aApJyOBFSY474jpfK3xWNfxv\n"
-	"-----END RSA PRIVATE KEY-----\n"
-);
 
 
 BundleVerifierTest::BundleVerifierTest(const std::string& name): CppUnit::TestCase(name)
@@ -97,32 +47,29 @@ BundleVerifierTest::~BundleVerifierTest()
 
 void BundleVerifierTest::testVerifyFile()
 {
-	BundleVerifier verifier1("testBundle.zip");
+	BundleVerifier verifier1(_bundleFile);
 	std::vector<std::string> aliases;
 	verifier1.listSigners(aliases);
 	assert (aliases.empty());
 
-	BundleVerifier::CertificatePtr pCert = verifier1.extractCertificate("appinf.com");
+	BundleVerifier::CertificatePtr pCert = verifier1.extractCertificate("test.signer");
 	assertNull (pCert);
 
-	std::istringstream istr(APPINF_PEM);
-	Poco::Crypto::RSAKey rsaKey(0, &istr, "secret");
-	istr.clear();
-	istr.seekg(0);
-	Poco::Crypto::X509Certificate cert(istr);
-	BundleSigner signer("appinf.com", rsaKey);
-	signer.signBundle("testBundle.zip", cert);	
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey);
+	signer.signBundle(_bundleFile, cert);
 	
-	BundleVerifier verifier2("testBundle.zip");
+	BundleVerifier verifier2(_bundleFile);
 	verifier2.listSigners(aliases);
 	assert (aliases.size() == 1);
-	assert (aliases[0] == "appinf.com");
+	assert (aliases[0] == "test.signer");
 	
-	pCert = verifier2.extractCertificate("appinf.com");
+	pCert = verifier2.extractCertificate("test.signer");
 	assertNotNull (pCert);
 	
 	std::vector<std::string> messages;
-	BundleVerifier::VerificationResult result = verifier2.verify("appinf.com", *pCert, messages);
+	BundleVerifier::VerificationResult result = verifier2.verify("test.signer", *pCert, messages);
 	assert (result == BundleVerifier::BUNDLE_VERIFICATION_OK);
 	assert (messages.empty());
 }
@@ -130,32 +77,29 @@ void BundleVerifierTest::testVerifyFile()
 
 void BundleVerifierTest::testVerifyFileSHA256()
 {
-	BundleVerifier verifier1("testBundle.zip");
+	BundleVerifier verifier1(_bundleFile);
 	std::vector<std::string> aliases;
 	verifier1.listSigners(aliases);
 	assert (aliases.empty());
 
-	BundleVerifier::CertificatePtr pCert = verifier1.extractCertificate("appinf.com");
+	BundleVerifier::CertificatePtr pCert = verifier1.extractCertificate("test.signer");
 	assertNull (pCert);
 
-	std::istringstream istr(APPINF_PEM);
-	Poco::Crypto::RSAKey rsaKey(0, &istr, "secret");
-	istr.clear();
-	istr.seekg(0);
-	Poco::Crypto::X509Certificate cert(istr);
-	BundleSigner signer("appinf.com", rsaKey, "SHA256");
-	signer.signBundle("testBundle.zip", cert);	
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey, "SHA256");
+	signer.signBundle(_bundleFile, cert);
 	
-	BundleVerifier verifier2("testBundle.zip");
+	BundleVerifier verifier2(_bundleFile);
 	verifier2.listSigners(aliases);
 	assert (aliases.size() == 1);
-	assert (aliases[0] == "appinf.com");
+	assert (aliases[0] == "test.signer");
 	
-	pCert = verifier2.extractCertificate("appinf.com");
+	pCert = verifier2.extractCertificate("test.signer");
 	assertNotNull (pCert);
 	
 	std::vector<std::string> messages;
-	BundleVerifier::VerificationResult result = verifier2.verify("appinf.com", *pCert, messages);
+	BundleVerifier::VerificationResult result = verifier2.verify("test.signer", *pCert, messages);
 	assert (result == BundleVerifier::BUNDLE_VERIFICATION_OK);
 	assert (messages.empty());
 }
@@ -163,73 +107,53 @@ void BundleVerifierTest::testVerifyFileSHA256()
 
 void BundleVerifierTest::testVerifyDirectory()
 {
-	Poco::File bundleFile("testBundle");
-	if (bundleFile.exists())
-	{
-		bundleFile.remove(true);
-	}
-
-	std::ifstream bundleStream("testBundle.zip", std::ios::binary);
-	Poco::Zip::Decompress decompress(bundleStream, "testBundle");
+	std::ifstream bundleStream(_bundleFile, std::ios::binary);
+	Poco::Zip::Decompress decompress(bundleStream, _bundleDirectory);
 	decompress.decompressAllFiles();
 	bundleStream.close();
 
-	BundleVerifier verifier1("testBundle");
+	BundleVerifier verifier1(_bundleDirectory);
 	std::vector<std::string> aliases;
 	verifier1.listSigners(aliases);
 	assert (aliases.empty());
 
-	BundleVerifier::CertificatePtr pCert = verifier1.extractCertificate("appinf.com");
+	BundleVerifier::CertificatePtr pCert = verifier1.extractCertificate("test.signer");
 	assertNull (pCert);
 	
-	std::istringstream istr(APPINF_PEM);
-	Poco::Crypto::RSAKey rsaKey(0, &istr, "secret");
-	istr.clear();
-	istr.seekg(0);
-	Poco::Crypto::X509Certificate cert(istr);
-	BundleSigner signer("appinf.com", rsaKey);
-	signer.signBundle("testBundle", cert);	
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey);
+	signer.signBundle(_bundleDirectory, cert);
 
-	BundleVerifier verifier2("testBundle");
+	BundleVerifier verifier2(_bundleDirectory);
 	verifier2.listSigners(aliases);
 	assert (aliases.size() == 1);
-	assert (aliases[0] == "appinf.com");
+	assert (aliases[0] == "test.signer");
 	
-	pCert = verifier2.extractCertificate("appinf.com");
+	pCert = verifier2.extractCertificate("test.signer");
 	assertNotNull (pCert);
 	
 	std::vector<std::string> messages;
-	BundleVerifier::VerificationResult result = verifier2.verify("appinf.com", *pCert, messages);
+	BundleVerifier::VerificationResult result = verifier2.verify("test.signer", *pCert, messages);
 	assert (result == BundleVerifier::BUNDLE_VERIFICATION_OK);
 	assert (messages.empty());
-
-	bundleFile.remove(true);
 }
 
 
 void BundleVerifierTest::testVerifyFailModifyFile()
 {
-	Poco::File bundleFile("testBundle");
-	if (bundleFile.exists())
-	{
-		bundleFile.remove(true);
-	}
-
-	std::ifstream bundleStream("testBundle.zip", std::ios::binary);
-	Poco::Zip::Decompress decompress(bundleStream, "testBundle");
+	std::ifstream bundleStream(_bundleFile, std::ios::binary);
+	Poco::Zip::Decompress decompress(bundleStream, _bundleDirectory);
 	decompress.decompressAllFiles();
 	bundleStream.close();
 
-	std::istringstream istr(APPINF_PEM);
-	Poco::Crypto::RSAKey rsaKey(0, &istr, "secret");
-	istr.clear();
-	istr.seekg(0);
-	Poco::Crypto::X509Certificate cert(istr);
-	BundleSigner signer("appinf.com", rsaKey);
-	signer.signBundle("testBundle", cert);	
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey);
+	signer.signBundle(_bundleDirectory, cert);
 
 	// tamper with manifest file
-	Poco::Path manifPath("testBundle");
+	Poco::Path manifPath(_bundleDirectory);
 	manifPath.makeDirectory();
 	manifPath.pushDirectory("META-INF");
 	manifPath.setFileName("manifest.mf");
@@ -239,128 +163,95 @@ void BundleVerifierTest::testVerifyFailModifyFile()
 		"Bundle-Name: Bad Bundle\n";
 	manifStream.close();
 
-	BundleVerifier verifier("testBundle");	
-	BundleVerifier::CertificatePtr pCert = verifier.extractCertificate("appinf.com");
+	BundleVerifier verifier(_bundleDirectory);
+	BundleVerifier::CertificatePtr pCert = verifier.extractCertificate("test.signer");
 	assertNotNull (pCert);
 	
 	std::vector<std::string> messages;
-	BundleVerifier::VerificationResult result = verifier.verify("appinf.com", *pCert, messages);
+	BundleVerifier::VerificationResult result = verifier.verify("test.signer", *pCert, messages);
 	assert (result == BundleVerifier::BUNDLE_VERIFICATION_FAILED);
 	assert (messages.size() == 1);
-	
-	bundleFile.remove(true);
 }
 
 
 void BundleVerifierTest::testVerifyFailRemoveFile()
 {
-	Poco::File bundleFile("testBundle");
-	if (bundleFile.exists())
-	{
-		bundleFile.remove(true);
-	}
-
-	std::ifstream bundleStream("testBundle.zip", std::ios::binary);
-	Poco::Zip::Decompress decompress(bundleStream, "testBundle");
+	std::ifstream bundleStream(_bundleFile, std::ios::binary);
+	Poco::Zip::Decompress decompress(bundleStream, _bundleDirectory);
 	decompress.decompressAllFiles();
 	bundleStream.close();
 
-	std::istringstream istr(APPINF_PEM);
-	Poco::Crypto::RSAKey rsaKey(0, &istr, "secret");
-	istr.clear();
-	istr.seekg(0);
-	Poco::Crypto::X509Certificate cert(istr);
-	BundleSigner signer("appinf.com", rsaKey);
-	signer.signBundle("testBundle", cert);	
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey);
+	signer.signBundle(_bundleDirectory, cert);
 
 	// remove a file
-	Poco::Path propsPath("testBundle");
+	Poco::Path propsPath(_bundleDirectory);
 	propsPath.makeDirectory();
 	propsPath.setFileName("bundle.properties");
 	Poco::File propsFile(propsPath.toString());
 	propsFile.remove();
 
-	BundleVerifier verifier("testBundle");	
-	BundleVerifier::CertificatePtr pCert = verifier.extractCertificate("appinf.com");
+	BundleVerifier verifier(_bundleDirectory);
+	BundleVerifier::CertificatePtr pCert = verifier.extractCertificate("test.signer");
 	assertNotNull (pCert);
 	
 	std::vector<std::string> messages;
-	BundleVerifier::VerificationResult result = verifier.verify("appinf.com", *pCert, messages);
+	BundleVerifier::VerificationResult result = verifier.verify("test.signer", *pCert, messages);
 	assert (result == BundleVerifier::BUNDLE_VERIFICATION_FAILED);
 	assert (messages.size() == 1);
-	
-	bundleFile.remove(true);
 }
 
 
 void BundleVerifierTest::testVerifyFailAddFile()
 {
-	Poco::File bundleFile("testBundle");
-	if (bundleFile.exists())
-	{
-		bundleFile.remove(true);
-	}
-
-	std::ifstream bundleStream("testBundle.zip", std::ios::binary);
-	Poco::Zip::Decompress decompress(bundleStream, "testBundle");
+	std::ifstream bundleStream(_bundleFile, std::ios::binary);
+	Poco::Zip::Decompress decompress(bundleStream, _bundleDirectory);
 	decompress.decompressAllFiles();
 	bundleStream.close();
 
-	std::istringstream istr(APPINF_PEM);
-	Poco::Crypto::RSAKey rsaKey(0, &istr, "secret");
-	istr.clear();
-	istr.seekg(0);
-	Poco::Crypto::X509Certificate cert(istr);
-	BundleSigner signer("appinf.com", rsaKey);
-	signer.signBundle("testBundle", cert);	
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey);
+	signer.signBundle(_bundleDirectory, cert);
 
 	// add a file
-	Poco::Path filePath("testBundle");
+	Poco::Path filePath(_bundleDirectory);
 	filePath.makeDirectory();
 	filePath.setFileName("someAddedFile");
 	Poco::FileOutputStream fileStream(filePath.toString());
 	fileStream << "This is a file that does not belong into that bundle.";
 	fileStream.close();
 
-	BundleVerifier verifier("testBundle");	
-	BundleVerifier::CertificatePtr pCert = verifier.extractCertificate("appinf.com");
+	BundleVerifier verifier(_bundleDirectory);
+	BundleVerifier::CertificatePtr pCert = verifier.extractCertificate("test.signer");
 	assertNotNull (pCert);
 	
 	std::vector<std::string> messages;
-	BundleVerifier::VerificationResult result = verifier.verify("appinf.com", *pCert, messages);
+	BundleVerifier::VerificationResult result = verifier.verify("test.signer", *pCert, messages);
 	assert (result == BundleVerifier::BUNDLE_VERIFICATION_FAILED);
 	assert (messages.size() == 1);
-	
-	bundleFile.remove(true);
 }
 
 
 void BundleVerifierTest::testVerifyFailBadSignature()
 {
-	Poco::File bundleFile("testBundle");
-	if (bundleFile.exists())
-	{
-		bundleFile.remove(true);
-	}
-
-	std::ifstream bundleStream("testBundle.zip", std::ios::binary);
-	Poco::Zip::Decompress decompress(bundleStream, "testBundle");
+	std::ifstream bundleStream(_bundleFile, std::ios::binary);
+	Poco::Zip::Decompress decompress(bundleStream, _bundleDirectory);
 	decompress.decompressAllFiles();
 	bundleStream.close();
 
-	std::istringstream istr(APPINF_PEM);
-	Poco::Crypto::RSAKey rsaKey(0, &istr, "secret");
-	istr.clear();
-	istr.seekg(0);
-	Poco::Crypto::X509Certificate cert(istr);
-	BundleSigner signer("appinf.com", rsaKey);
-	signer.signBundle("testBundle", cert);	
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey);
+	signer.signBundle(_bundleDirectory, cert);
 
 	// tamper with signature file
-	Poco::Path sfPath("testBundle");
+	Poco::Path sfPath(_bundleDirectory);
 	sfPath.makeDirectory();
 	sfPath.pushDirectory("META-INF");
-	sfPath.setFileName("appinf.com.sf");
+	sfPath.setFileName("test.signer.sf");
 	Poco::FileOutputStream sfStream(sfPath.toString());
 	sfStream <<
 		"Signature-Version: 1.0\n"
@@ -374,98 +265,445 @@ void BundleVerifierTest::testVerifyFailBadSignature()
 		"\n";
 	sfStream.close();
 
-	BundleVerifier verifier("testBundle");	
-	BundleVerifier::CertificatePtr pCert = verifier.extractCertificate("appinf.com");
+	BundleVerifier verifier(_bundleDirectory);
+	BundleVerifier::CertificatePtr pCert = verifier.extractCertificate("test.signer");
 	assertNotNull (pCert);
 	
 	std::vector<std::string> messages;
-	BundleVerifier::VerificationResult result = verifier.verify("appinf.com", *pCert, messages);
+	BundleVerifier::VerificationResult result = verifier.verify("test.signer", *pCert, messages);
 	assert (result == BundleVerifier::BUNDLE_VERIFICATION_FAILED);
 	assert (messages.size() == 1);
-	
-	bundleFile.remove(true);
 }
 
 
 void BundleVerifierTest::testVerifyFailMissingSignature()
 {
-	Poco::File bundleFile("testBundle");
-	if (bundleFile.exists())
-	{
-		bundleFile.remove(true);
-	}
-
-	std::ifstream bundleStream("testBundle.zip", std::ios::binary);
-	Poco::Zip::Decompress decompress(bundleStream, "testBundle");
+	std::ifstream bundleStream(_bundleFile, std::ios::binary);
+	Poco::Zip::Decompress decompress(bundleStream, _bundleDirectory);
 	decompress.decompressAllFiles();
 	bundleStream.close();
 
-	std::istringstream istr(APPINF_PEM);
-	Poco::Crypto::RSAKey rsaKey(0, &istr, "secret");
-	istr.clear();
-	istr.seekg(0);
-	Poco::Crypto::X509Certificate cert(istr);
-	BundleSigner signer("appinf.com", rsaKey);
-	signer.signBundle("testBundle", cert);	
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey);
+	signer.signBundle(_bundleDirectory, cert);
 
 	// remove rsa signature file
-	Poco::Path rsaPath("testBundle");
+	Poco::Path rsaPath(_bundleDirectory);
 	rsaPath.makeDirectory();
 	rsaPath.pushDirectory("META-INF");
-	rsaPath.setFileName("appinf.com.rsa");
+	rsaPath.setFileName("test.signer.rsa");
 	Poco::File rsaFile(rsaPath.toString());
 	rsaFile.remove();
 
-	BundleVerifier verifier("testBundle");	
+	BundleVerifier verifier(_bundleDirectory);
 	
 	std::vector<std::string> messages;
-	BundleVerifier::VerificationResult result = verifier.verify("appinf.com", cert, messages);
+	BundleVerifier::VerificationResult result = verifier.verify("test.signer", cert, messages);
 	assert (result == BundleVerifier::BUNDLE_VERIFICATION_NO_SIGNATURE);
 	assert (messages.size() == 0);
-	
-	bundleFile.remove(true);
+}
+
+
+void BundleVerifierTest::testVerifyFailUnsupportedSignatureType()
+{
+	signBundleDirectory(BundleSigner::SHA256);
+	TestData::replaceInFile(bundleDirectoryFile("META-INF/test.signer.rsa"), "RSA-SHA256-Signature", "RSA-MD5-Signature");
+
+	BundleVerifier verifier(_bundleDirectory);
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	std::vector<std::string> messages;
+	assertTrue (verifier.verify("test.signer", cert, messages) == BundleVerifier::BUNDLE_VERIFICATION_FAILED);
+	assertTrue (messages.size() == 1);
+	assertEqual ("The signature type \"RSA-MD5-Signature\" is not supported", messages[0]);
+}
+
+
+void BundleVerifierTest::testVerifyFailMalformedSignatureBlockFile()
+{
+	signBundleDirectory(BundleSigner::SHA256);
+	Poco::FileOutputStream rsaStream(bundleDirectoryFile("META-INF/test.signer.rsa"));
+	rsaStream << "garbage";
+	rsaStream.close();
+
+	BundleVerifier verifier(_bundleDirectory);
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	std::vector<std::string> messages;
+	assertTrue (verifier.verify("test.signer", cert, messages) == BundleVerifier::BUNDLE_VERIFICATION_INVALID_SIGNATURE);
+	assertTrue (messages.size() == 1);
+}
+
+
+void BundleVerifierTest::testVerifyFailSignatureNotHexadecimal()
+{
+	signBundleDirectory(BundleSigner::SHA256);
+	Poco::FileOutputStream rsaStream(bundleDirectoryFile("META-INF/test.signer.rsa"));
+	rsaStream <<
+		"Signature-Version: 1.0\n"
+		"Name: META-INF/test.signer.sf\n"
+		"RSA-SHA256-Signature: zz\n";
+	rsaStream.close();
+
+	BundleVerifier verifier(_bundleDirectory);
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	std::vector<std::string> messages;
+	assertTrue (verifier.verify("test.signer", cert, messages) == BundleVerifier::BUNDLE_VERIFICATION_INVALID_SIGNATURE);
+	assertTrue (messages.size() == 1);
+}
+
+
+void BundleVerifierTest::testVerifyFailOversizedSignatureBlockFile()
+{
+	signBundleDirectory(BundleSigner::SHA256);
+	Poco::FileOutputStream rsaStream(bundleDirectoryFile("META-INF/test.signer.rsa"), std::ios::app);
+	rsaStream << std::string(SignatureFile::MAX_SIGNATURE_BLOCK_SIZE, 'x') << "\n";
+	rsaStream.close();
+
+	BundleVerifier verifier(_bundleDirectory);
+	assertNull (verifier.extractCertificate("test.signer"));
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	std::vector<std::string> messages;
+	assertTrue (verifier.verify("test.signer", cert, messages) == BundleVerifier::BUNDLE_VERIFICATION_INVALID_SIGNATURE);
+	assertTrue (messages.size() == 1);
+}
+
+
+void BundleVerifierTest::testVerifyFailSignatureFileWithMoreEntriesThanFiles()
+{
+	signBundleDirectory(BundleSigner::SHA256);
+	Poco::FileOutputStream sfStream(bundleDirectoryFile("META-INF/test.signer.sf"), std::ios::app);
+	// The bundle has four files; 20 entries of long paths exceed what a signature file for them can hold.
+	constexpr int ADDED_ENTRIES = 20;
+	constexpr std::size_t SHA256_HEX_LENGTH = 64;
+	const std::string longPath(SignatureFile::MAX_PATH_LENGTH - 10, 'p');
+	for (int i = 0; i < ADDED_ENTRIES; ++i)
+	{
+		sfStream << "Name: " << longPath << i << "\n"
+			<< "SHA256-Digest: " << std::string(SHA256_HEX_LENGTH, '0') << "\n"
+			<< "\n";
+	}
+	sfStream.close();
+
+	BundleVerifier verifier(_bundleDirectory);
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	std::vector<std::string> messages;
+	assertTrue (verifier.verify("test.signer", cert, messages) == BundleVerifier::BUNDLE_VERIFICATION_INVALID_SIGNATURE);
+	assertTrue (messages.size() == 1);
+}
+
+
+void BundleVerifierTest::testVerifyBundleWithManyFiles()
+{
+	Poco::File(bundleDirectoryFile("META-INF")).createDirectories();
+	Poco::FileOutputStream manifestStream(bundleDirectoryFile("META-INF/manifest.mf"));
+	manifestStream << "Manifest-Version: 1.0\n";
+	manifestStream.close();
+	Poco::File(bundleDirectoryFile("resources")).createDirectories();
+	// The signature file for this many files is larger than 1 MB.
+	constexpr int FILE_COUNT = 9000;
+	for (int i = 0; i < FILE_COUNT; ++i)
+	{
+		Poco::FileOutputStream fileStream(bundleDirectoryFile(Poco::format("resources/file-with-a-longer-name-%05d.txt", i)));
+		fileStream << i;
+	}
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey, BundleSigner::SHA256);
+	signer.signBundle(_bundleDirectory);
+
+	BundleVerifier verifier(_bundleDirectory);
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	std::vector<std::string> messages;
+	assertTrue (verifier.verify("test.signer", cert, messages) == BundleVerifier::BUNDLE_VERIFICATION_OK);
+	assertTrue (messages.empty());
+}
+
+
+void BundleVerifierTest::testVerifyFailAddedFileWithoutDirectoryEntry()
+{
+	signBundleFile();
+	Poco::Zip::ZipManipulator manip(_bundleFile, false);
+	manip.addFile("en/bundle.properties", writeWorkFile("bundle.properties", "foo: baz\n"));
+	manip.commit();
+
+	BundleVerifier verifier(_bundleFile);
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	std::vector<std::string> messages;
+	assertTrue (verifier.verify("test.signer", cert, messages) == BundleVerifier::BUNDLE_VERIFICATION_FAILED);
+	assertTrue (messages.size() == 1);
+	assertEqual ("No signature found for file: en/bundle.properties", messages[0]);
+}
+
+
+void BundleVerifierTest::testVerifyFailReplacedFileWithoutDirectoryEntry()
+{
+	TestData::writeBundle(_bundleFile, {
+		{"META-INF/manifest.mf", "Manifest-Version: 1.0\n"},
+		{"bundle.properties", "foo: bar\n\n"},
+		{"en/bundle.properties", "foo: baz\n"}
+	});
+	signBundleFile();
+	Poco::Zip::ZipManipulator manip(_bundleFile, false);
+	manip.replaceFile("en/bundle.properties", writeWorkFile("bundle.properties", "foo: changed\n"));
+	manip.commit();
+
+	BundleVerifier verifier(_bundleFile);
+	std::vector<std::string> aliases;
+	verifier.listSigners(aliases);
+	assertTrue (aliases.size() == 1);
+	assertEqual ("test.signer", aliases[0]);
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	std::vector<std::string> messages;
+	assertTrue (verifier.verify("test.signer", cert, messages) == BundleVerifier::BUNDLE_VERIFICATION_FAILED);
+	assertTrue (messages.size() == 1);
+	assertEqual ("Signature mismatch for file: en/bundle.properties", messages[0]);
+}
+
+
+void BundleVerifierTest::testVerifyFailNonCanonicalEntryName()
+{
+	TestData::writeBundle(_bundleFile, {
+		{"META-INF/manifest.mf", "Manifest-Version: 1.0\n"},
+		{"aa/x.txt", "x"}
+	});
+	signBundleFile();
+	TestData::renameEntry(_bundleFile, "aa/x.txt", "../x.txt");
+
+	BundleVerifier verifier(_bundleFile);
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	std::vector<std::string> messages;
+	assertTrue (verifier.verify("test.signer", cert, messages) == BundleVerifier::BUNDLE_VERIFICATION_FAILED);
+	assertTrue (messages.size() == 1);
+	assertMessageEqual ("Invalid entry name in bundle: ../x.txt", messages[0]);
+}
+
+
+void BundleVerifierTest::testVerifyTrustedSigner()
+{
+	signBundleFile("signer.pem", true);
+	std::vector<std::string> messages;
+	assertTrue (verifyBundleFile("signer.pem", messages) == BundleVerifier::BUNDLE_VERIFICATION_OK);
+	assertTrue (messages.empty());
+}
+
+
+void BundleVerifierTest::testVerifyTrustedSignerWithoutCertificateInBundle()
+{
+	signBundleFile("signer.pem", false);
+	std::vector<std::string> messages;
+	assertTrue (verifyBundleFile("signer.pem", messages) == BundleVerifier::BUNDLE_VERIFICATION_OK);
+	assertTrue (messages.empty());
+	assertTrue (verifyBundleFile("foreign.pem", messages) == BundleVerifier::BUNDLE_VERIFICATION_FAILED);
+	assertTrue (messages.size() == 1);
+}
+
+
+void BundleVerifierTest::testVerifyIssuedSigner()
+{
+	signBundleFile("issued.pem", true);
+	std::vector<std::string> messages;
+	assertTrue (verifyBundleFile("ca.pem", messages) == BundleVerifier::BUNDLE_VERIFICATION_OK);
+	assertTrue (messages.empty());
+}
+
+
+void BundleVerifierTest::testVerifyFailResignedWithForeignKey()
+{
+	signBundleFile("signer.pem", true);
+	signBundleFile("foreign.pem", true);
+
+	BundleVerifier verifier(_bundleFile);
+	BundleVerifier::CertificatePtr pCert = verifier.extractCertificate("test.signer");
+	assertNotNull (pCert);
+	Poco::Crypto::X509Certificate signerCert(TestData::path("signer.pem"));
+	assertEqual (signerCert.subjectName(), pCert->subjectName());
+
+	std::vector<std::string> messages;
+	assertTrue (verifyBundleFile("signer.pem", messages) == BundleVerifier::BUNDLE_VERIFICATION_FAILED);
+	assertTrue (messages.size() == 1);
+}
+
+
+void BundleVerifierTest::testVerifyFailExpiredSigner()
+{
+	signBundleFile("expired.pem", true);
+	std::vector<std::string> messages;
+	assertTrue (verifyBundleFile("expired.pem", messages) == BundleVerifier::BUNDLE_VERIFICATION_FAILED);
+	assertTrue (messages.size() == 1);
+}
+
+
+void BundleVerifierTest::testVerifyFailSignerWithoutCodeSigning()
+{
+	signBundleFile("server.pem", true);
+	std::vector<std::string> messages;
+	assertTrue (verifyBundleFile("server.pem", messages) == BundleVerifier::BUNDLE_VERIFICATION_FAILED);
+	assertTrue (messages.size() == 1);
+}
+
+
+void BundleVerifierTest::testVerifyFailUnsignedWithTrustedCertificate()
+{
+	std::vector<std::string> messages;
+	assertTrue (verifyBundleFile("signer.pem", messages) == BundleVerifier::BUNDLE_VERIFICATION_NO_SIGNATURE);
+}
+
+
+void BundleVerifierTest::testVerifySHA1OnlyIfAllowed()
+{
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey, BundleSigner::SHA1);
+	signer.signBundle(_bundleFile);
+
+	BundleVerifier verifier(_bundleFile);
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	std::vector<std::string> messages;
+	assertTrue (verifier.verify("test.signer", cert, messages) == BundleVerifier::BUNDLE_VERIFICATION_FAILED);
+	assertTrue (messages.size() == 1);
+
+	verifier.setAllowSHA1(true);
+	assertTrue (verifier.verify("test.signer", cert, messages) == BundleVerifier::BUNDLE_VERIFICATION_OK);
+	assertTrue (messages.empty());
+}
+
+
+void BundleVerifierTest::testVerifyBundleStorage()
+{
+	signBundleFile();
+
+	BundleVerifier verifier(new Poco::OSP::BundleFile(_bundleFile));
+	const Poco::Crypto::X509Certificate::List trustedCertificates{Poco::Crypto::X509Certificate(TestData::path("signer.pem"))};
+	std::vector<std::string> messages;
+	assertTrue (verifier.verify("test.signer", trustedCertificates, messages) == BundleVerifier::BUNDLE_VERIFICATION_OK);
+	assertTrue (messages.empty());
+}
+
+
+void BundleVerifierTest::testVerifyTrustedCertificateWithoutRSAKeyIsSkipped()
+{
+	signBundleFile("signer.pem", false);
+
+	BundleVerifier verifier(_bundleFile);
+	const Poco::Crypto::X509Certificate::List trustedCertificates{
+		Poco::Crypto::X509Certificate(TestData::path("ec.pem")),
+		Poco::Crypto::X509Certificate(TestData::path("signer.pem"))
+	};
+	std::vector<std::string> messages;
+	assertTrue (verifier.verify("test.signer", trustedCertificates, messages) == BundleVerifier::BUNDLE_VERIFICATION_OK);
+	assertTrue (messages.empty());
+}
+
+
+void BundleVerifierTest::testVerifyFailCertificateWithoutRSAKey()
+{
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	Poco::Crypto::X509Certificate ecCert(TestData::path("ec.pem"));
+	BundleSigner signer("test.signer", rsaKey, BundleSigner::SHA256);
+	signer.signBundle(_bundleFile, ecCert);
+
+	std::vector<std::string> messages;
+	assertTrue (verifyBundleFile("ec.pem", messages) == BundleVerifier::BUNDLE_VERIFICATION_FAILED);
+	assertTrue (messages.size() == 1);
+}
+
+
+void BundleVerifierTest::testVerifyWithManyTrustedCertificates()
+{
+	signBundleFile("signer.pem", false);
+
+	constexpr std::size_t OTHER_CERTIFICATES = 50;
+	const std::vector<std::string> otherFiles{"ec.pem", "foreign.pem", "expired.pem", "server.pem", "ca.pem", "issued.pem"};
+	Poco::Crypto::X509Certificate::List trustedCertificates;
+	while (trustedCertificates.size() < OTHER_CERTIFICATES)
+	{
+		trustedCertificates.emplace_back(TestData::path(otherFiles[trustedCertificates.size() % otherFiles.size()]));
+	}
+	trustedCertificates.emplace_back(TestData::path("signer.pem"));
+
+	BundleVerifier verifier(_bundleFile);
+	std::vector<std::string> messages;
+	assertTrue (verifier.verify("test.signer", trustedCertificates, messages) == BundleVerifier::BUNDLE_VERIFICATION_OK);
+	assertTrue (messages.empty());
+}
+
+
+void BundleVerifierTest::signBundleFile()
+{
+	signBundleFile("signer.pem", true);
+}
+
+
+void BundleVerifierTest::signBundleFile(const std::string& keyFile, bool includeCertificate)
+{
+	Poco::Crypto::RSAKey rsaKey("", TestData::path(keyFile));
+	BundleSigner signer("test.signer", rsaKey, BundleSigner::SHA256);
+	if (includeCertificate)
+	{
+		Poco::Crypto::X509Certificate cert(TestData::path(keyFile));
+		signer.signBundle(_bundleFile, cert);
+	}
+	else
+	{
+		signer.signBundle(_bundleFile);
+	}
+}
+
+
+BundleVerifier::VerificationResult BundleVerifierTest::verifyBundleFile(const std::string& trustedCertificateFile, std::vector<std::string>& messages) const
+{
+	BundleVerifier verifier(_bundleFile);
+	const Poco::Crypto::X509Certificate::List trustedCertificates{Poco::Crypto::X509Certificate(TestData::path(trustedCertificateFile))};
+	return verifier.verify("test.signer", trustedCertificates, messages);
+}
+
+
+std::string BundleVerifierTest::writeWorkFile(const std::string& name, const std::string& content) const
+{
+	Poco::Path p(_workDir);
+	p.makeDirectory();
+	p.setFileName(name);
+	Poco::FileOutputStream ostr(p.toString());
+	ostr << content;
+	return p.toString();
+}
+
+
+void BundleVerifierTest::signBundleDirectory(const std::string& digestAlgorithm)
+{
+	std::ifstream bundleStream(_bundleFile, std::ios::binary);
+	Poco::Zip::Decompress decompress(bundleStream, _bundleDirectory);
+	decompress.decompressAllFiles();
+	bundleStream.close();
+
+	Poco::Crypto::RSAKey rsaKey("", TestData::path("signer.pem"));
+	Poco::Crypto::X509Certificate cert(TestData::path("signer.pem"));
+	BundleSigner signer("test.signer", rsaKey, digestAlgorithm);
+	signer.signBundle(_bundleDirectory, cert);
+}
+
+
+std::string BundleVerifierTest::bundleDirectoryFile(const std::string& path) const
+{
+	Poco::Path p(_bundleDirectory);
+	p.makeDirectory();
+	p.append(Poco::Path(path, Poco::Path::PATH_UNIX));
+	return p.toString();
 }
 
 
 void BundleVerifierTest::setUp()
 {
-	// The following is a ZIP file containing the same
-	// directory hierarchy as is used in BundleDirectoryTest.
-	static const unsigned char TEST_BUNDLE_ZIP[] = 
-	{
-		0x50, 0x4b, 0x03, 0x04, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x76, 0x83, 0x36, 0xe8, 0x16,
-		0xfa, 0x93, 0x0a, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x62, 0x75,
-		0x6e, 0x64, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x66,
-		0x6f, 0x6f, 0x3a, 0x20, 0x62, 0x61, 0x72, 0x0a, 0x0a, 0x50, 0x4b, 0x03, 0x04, 0x0a, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x11, 0x76, 0x83, 0x36, 0x7a, 0xdf, 0x5a, 0x20, 0x16, 0x00, 0x00, 0x00, 0x16,
-		0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x4d, 0x45, 0x54, 0x41, 0x2d, 0x49, 0x4e, 0x46, 0x2f,
-		0x6d, 0x61, 0x6e, 0x69, 0x66, 0x65, 0x73, 0x74, 0x2e, 0x6d, 0x66, 0x4d, 0x61, 0x6e, 0x69, 0x66,
-		0x65, 0x73, 0x74, 0x2d, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x3a, 0x20, 0x31, 0x2e, 0x30,
-		0x0a, 0x50, 0x4b, 0x03, 0x04, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x76, 0x83, 0x36, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x4d,
-		0x45, 0x54, 0x41, 0x2d, 0x49, 0x4e, 0x46, 0x2f, 0x50, 0x4b, 0x01, 0x02, 0x14, 0x00, 0x0a, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x11, 0x76, 0x83, 0x36, 0xe8, 0x16, 0xfa, 0x93, 0x0a, 0x00, 0x00, 0x00,
-		0x0a, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x20, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x62, 0x75, 0x6e, 0x64, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f,
-		0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x50, 0x4b, 0x01, 0x02, 0x14, 0x00, 0x0a, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x11, 0x76, 0x83, 0x36, 0x7a, 0xdf, 0x5a, 0x20, 0x16, 0x00, 0x00, 0x00, 0x16,
-		0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x20, 0x00, 0x00,
-		0x00, 0x39, 0x00, 0x00, 0x00, 0x4d, 0x45, 0x54, 0x41, 0x2d, 0x49, 0x4e, 0x46, 0x2f, 0x6d, 0x61,
-		0x6e, 0x69, 0x66, 0x65, 0x73, 0x74, 0x2e, 0x6d, 0x66, 0x50, 0x4b, 0x01, 0x02, 0x14, 0x00, 0x0a,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x76, 0x83, 0x36, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
-		0x00, 0x00, 0x00, 0x81, 0x00, 0x00, 0x00, 0x4d, 0x45, 0x54, 0x41, 0x2d, 0x49, 0x4e, 0x46, 0x2f,
-		0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x03, 0x00, 0xb8, 0x00, 0x00, 0x00,
-		0xa8, 0x00, 0x00, 0x00, 0x00, 0x00
-	};
-
-	std::ofstream ostr("testBundle.zip", std::ios::binary);
-	ostr.write(reinterpret_cast<const char*>(&TEST_BUNDLE_ZIP[0]), sizeof(TEST_BUNDLE_ZIP));
+	_workDir = TestData::createWorkDirectory();
+	Poco::Path workPath(_workDir);
+	workPath.makeDirectory();
+	_bundleFile = Poco::Path(workPath, "testBundle.zip").toString();
+	_bundleDirectory = Poco::Path(workPath, "testBundle").toString();
+	TestData::writeTestBundle(_bundleFile);
 }
 
 
 void BundleVerifierTest::tearDown()
 {
+	Poco::File(_workDir).remove(true);
 }
 
 
@@ -481,6 +719,27 @@ CppUnit::Test* BundleVerifierTest::suite()
 	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailAddFile);
 	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailBadSignature);
 	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailMissingSignature);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailUnsupportedSignatureType);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailMalformedSignatureBlockFile);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailSignatureNotHexadecimal);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailOversizedSignatureBlockFile);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailSignatureFileWithMoreEntriesThanFiles);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyBundleWithManyFiles);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailAddedFileWithoutDirectoryEntry);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailReplacedFileWithoutDirectoryEntry);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailNonCanonicalEntryName);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyTrustedSigner);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyTrustedSignerWithoutCertificateInBundle);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyIssuedSigner);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailResignedWithForeignKey);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailExpiredSigner);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailSignerWithoutCodeSigning);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailUnsignedWithTrustedCertificate);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifySHA1OnlyIfAllowed);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyBundleStorage);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyTrustedCertificateWithoutRSAKeyIsSkipped);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyFailCertificateWithoutRSAKey);
+	CppUnit_addTest(pSuite, BundleVerifierTest, testVerifyWithManyTrustedCertificates);
 
 	return pSuite;
 }

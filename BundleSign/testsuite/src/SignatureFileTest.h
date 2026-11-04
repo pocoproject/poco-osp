@@ -28,6 +28,8 @@ public:
 
 	void testRead();
 	void testWrite();
+	void testReadRejectsLongEntry();
+	void testWriteRejectsLongPath();
 
 	void setUp();
 	void tearDown();

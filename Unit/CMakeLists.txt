@@ -32,6 +32,10 @@ target_include_directories(OSPUnit
 # No package: POCO does not export Poco::CppUnit, which the public headers include.
 POCO_INSTALL(OSPUnit)
 
+if(POCO_OSP_ENABLE_TESTS)
+	add_subdirectory(testsuite)
+endif()
+
 if(POCO_OSP_ENABLE_SAMPLES)
 	add_subdirectory(samples)
 endif()

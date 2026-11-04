@@ -16,15 +16,14 @@
 #include "Poco/Util/OptionSet.h"
 #include "Poco/Util/HelpFormatter.h"
 #include "Poco/Util/AbstractConfiguration.h"
-#include "Poco/OSP/OSPSubsystem.h"
-#include "Poco/OSP/ServiceRegistry.h"
 #include "Poco/OSP/BundleManifest.h"
-#include "Poco/OSP/VersionRange.h"
 #include "Poco/OSP/Version.h"
 #include "Poco/Zip/Compress.h"
+#include "Poco/Zip/ZipCommon.h"
 #include "Poco/NumberFormatter.h"
 #include "Poco/Environment.h"
 #include "Poco/StringTokenizer.h"
+#include "Poco/String.h"
 #include "Poco/Path.h"
 #include "Poco/File.h"
 #include "Poco/Glob.h"
@@ -33,11 +32,21 @@
 #include "Poco/Thread.h"
 #include "Poco/Random.h"
 #include "Poco/Process.h"
+#include "Poco/TemporaryFile.h"
+#include "Poco/Ascii.h"
+#include "Poco/Exception.h"
+#include "Poco/Format.h"
+#include "Poco/Error.h"
 #include "ManifestInfo.h"
 #include <iostream>
-#include <cctype>
+#include <cerrno>
+#include <climits>
+#include <cstddef>
 #include <set>
+#include <string>
 #ifndef POCO_OS_FAMILY_WINDOWS
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 #endif
 
@@ -49,10 +58,7 @@ using Poco::Util::OptionSet;
 using Poco::Util::HelpFormatter;
 using Poco::Util::AbstractConfiguration;
 using Poco::Util::OptionCallback;
-using Poco::OSP::OSPSubsystem;
-using Poco::OSP::ServiceRegistry;
 using Poco::OSP::BundleManifest;
-using Poco::OSP::VersionRange;
 using Poco::OSP::Version;
 using Poco::Zip::Compress;
 using Poco::File;
@@ -247,7 +253,8 @@ protected:
 			Option("symlinks"s, "y"s,
 				"Preserve symbolic links in the bundle. When enabled, symlinks "
 				"in <files> are stored as symlinks rather than being resolved. "
-				"Uses the system zip command to create the bundle file."s)
+				"Uses the system zip command to create the bundle file. "
+				"Not supported on Windows."s)
 				.required(false)
 				.repeatable(false)
 				.callback(OptionCallback<BundleCreatorApplication>(this, &BundleCreatorApplication::handleSymlinks)));
@@ -330,7 +337,11 @@ protected:
 
 	void handleSymlinks(const std::string& name, const std::string& value)
 	{
+#ifdef POCO_OS_FAMILY_WINDOWS
+		throw Poco::NotImplementedException("The --symlinks option is not supported on Windows"s);
+#else
 		_symlinks = true;
+#endif
 	}
 
 	void defineProperty(const std::string& def)
@@ -398,14 +409,14 @@ protected:
 			for (std::vector<std::string>::const_iterator it = args.begin(); it != args.end(); ++it)
 			{
 				_ptrCfg = new XMLConfiguration(*it);
-				handleConfig();
+				handleConfig(*it);
 			}
 		}
 		return Application::EXIT_OK;
 	}
 
 private:
-	void handleConfig()
+	void handleConfig(const std::string& specPath)
 	{
 		File outputDir(_outputDir);
 		outputDir.createDirectories();
@@ -413,11 +424,14 @@ private:
 		Path outputPath(_outputDir);
 		outputPath.makeDirectory();
 		ManifestInfo mi(loadManifest());
+		checkFileName(mi.symbolicName(), "symbolic name", specPath);
+		checkFileName(mi.version().toString(), "version", specPath);
 		std::string bndlName(mi.symbolicName() + "_" + mi.version().toString());
 		Path bndlPath(outputPath, bndlName);
 
 		File bndlDir(bndlPath);
 		FileLock lock(bndlDir.path());
+		_destinations.clear();
 		if (bndlDir.exists())
 		{
 			safeRemove(bndlDir);
@@ -433,35 +447,20 @@ private:
 			{
 				Path bndlFilePath(bndlPath);
 				bndlFilePath.setFileName(bndlFilePath.getFileName() + ".bndl");
-#ifndef POCO_OS_FAMILY_WINDOWS
-				if (_symlinks)
+				// The bundle file is written under a temporary name and renamed when it is complete,
+				// so that an existing bundle file is replaced, and never updated or left truncated.
+				// The extension keeps zip from appending ".zip" to the name.
+				const std::string tempFilePath(Poco::TemporaryFile::tempName(outputPath.toString()) + ".bndl");
+				try
 				{
-					// Poco::Zip::Compress does not support storing symlinks —
-					// it follows them, which fails on broken links and loses
-					// the link structure. Use system zip -y which stores
-					// symlinks via the de-facto Unix external_attr convention.
-					Poco::Process::Args args;
-					args.push_back("-ryq"s);
-					if (_noDeflate) args.push_back("-0"s);
-					args.push_back(Path(bndlFilePath).makeAbsolute().toString());
-					args.push_back("."s);
-					Poco::ProcessHandle ph = Poco::Process::launch("zip"s, args, bndlPath.toString());
-					int rc = ph.wait();
-					if (rc != 0)
-						throw Poco::RuntimeException("zip command failed with exit code "s + std::to_string(rc));
+					createBundleFile(bndlPath, tempFilePath);
+					File(tempFilePath).renameTo(bndlFilePath.toString());
 				}
-				else
-#endif
+				catch (...)
 				{
-					FileOutputStream out(bndlFilePath.toString());
-					Compress compr(out, true);
-					if (!_storeExtensions.empty())
-					{
-						compr.setStoreExtensions(_storeExtensions);
-					}
-					compr.addRecursive(bndlPath, _noDeflate ? Poco::Zip::ZipCommon::CM_STORE : Poco::Zip::ZipCommon::CM_AUTO, Poco::Zip::ZipCommon::CL_MAXIMUM, true);
-					compr.close();
-					out.close();
+					File tempFile(tempFilePath);
+					if (tempFile.exists()) tempFile.remove();
+					throw;
 				}
 				if (!_keep)
 				{
@@ -478,6 +477,55 @@ private:
 				bndlDir.remove(true);
 			}
 			throw;
+		}
+	}
+
+	void createBundleFile(const Path& bndlPath, const std::string& filePath)
+	{
+#ifndef POCO_OS_FAMILY_WINDOWS
+		if (_symlinks)
+		{
+			// Poco::Zip::Compress does not support storing symlinks -
+			// it follows them, which fails on broken links and loses
+			// the link structure. Use system zip -y which stores
+			// symlinks via the de-facto Unix external_attr convention.
+			Poco::Process::Args args;
+			args.push_back("-ryq"s);
+			if (_noDeflate)
+			{
+				args.push_back("-0"s);
+			}
+			else if (!_storeExtensions.empty())
+			{
+				std::string suffixes;
+				for (const auto& extension: _storeExtensions)
+				{
+					if (!suffixes.empty()) suffixes += ':';
+					suffixes += '.';
+					suffixes += extension;
+				}
+				args.push_back("-n"s);
+				args.push_back(suffixes);
+			}
+			args.push_back(Path(filePath).makeAbsolute().toString());
+			args.push_back("."s);
+			Poco::ProcessHandle ph = Poco::Process::launch("zip"s, args, bndlPath.toString());
+			int rc = ph.wait();
+			if (rc != 0)
+				throw Poco::RuntimeException("zip command failed with exit code "s + std::to_string(rc));
+		}
+		else
+#endif
+		{
+			FileOutputStream out(filePath);
+			Compress compr(out, true);
+			if (!_storeExtensions.empty())
+			{
+				compr.setStoreExtensions(_storeExtensions);
+			}
+			compr.addRecursive(bndlPath, _noDeflate ? Poco::Zip::ZipCommon::CM_STORE : Poco::Zip::ZipCommon::CM_AUTO, Poco::Zip::ZipCommon::CL_MAXIMUM, true);
+			compr.close();
+			out.close();
 		}
 	}
 
@@ -719,7 +767,6 @@ private:
 	{
 		std::set<std::string> files;
 		Poco::StringTokenizer incTokenizer(globs, ",;\n"s, Poco::StringTokenizer::TOK_IGNORE_EMPTY | Poco::StringTokenizer::TOK_TRIM);
-		std::vector<std::string> inc;
 		for (Poco::StringTokenizer::Iterator it = incTokenizer.begin(); it != incTokenizer.end(); ++it)
 		{
 			Poco::Glob::glob(*it, files, Poco::Glob::GLOB_DOT_SPECIAL);
@@ -730,7 +777,13 @@ private:
 		for (; itF != itFEnd; ++itF)
 		{
 			File aFile(*itF);
-			if (aFile.exists())
+			bool exists = aFile.exists();
+#ifndef POCO_OS_FAMILY_WINDOWS
+			// A dangling symbolic link does not exist(); with --symlinks, it is copied as in <files>.
+			struct stat linkStat{};
+			if (!exists && _symlinks && ::lstat(aFile.path().c_str(), &linkStat) == 0) exists = S_ISLNK(linkStat.st_mode);
+#endif
+			if (exists)
 			{
 				File platformFile(platformDir);
 				platformFile.createDirectories();
@@ -791,7 +844,6 @@ private:
 			std::string globs = getString("files"s);
 			std::set<std::string> files;
 			Poco::StringTokenizer incTokenizer(globs, ",;\r"s, Poco::StringTokenizer::TOK_IGNORE_EMPTY | Poco::StringTokenizer::TOK_TRIM);
-			std::vector<std::string> inc;
 			for (Poco::StringTokenizer::Iterator it = incTokenizer.begin(); it != incTokenizer.end(); ++it)
 			{
 				Poco::Glob::glob(*it, files, Poco::Glob::GLOB_DOT_SPECIAL);
@@ -826,11 +878,19 @@ private:
 		}
 	}
 
+	static void checkFileName(const std::string& value, const std::string& what, const std::string& specPath)
+	{
+		// The symbolic name and the version become the name of the bundle directory and file,
+		// which are removed and written.
+		if (!Poco::OSP::BundleManifest::isValidFileName(value))
+			throw Poco::DataFormatException(Poco::format("The bundle %s in %s cannot be used as a file name"s, what, specPath), value);
+	}
+
 	void makeValidFileName(std::string& name)
 	{
 		for (std::string::iterator it = name.begin(); it != name.end(); ++it)
 		{
-			if (!(std::isalnum(*it) || *it == '-')) *it = '_';
+			if (!(Poco::Ascii::isAlphaNumeric(*it) || *it == '-')) *it = '_';
 		}
 	}
 
@@ -862,10 +922,11 @@ private:
 		}
 	}
 
-	void copyFile(const File& file, const std::string& destPath) const
+	void copyFile(const File& file, const std::string& destPath)
 	{
 		logger().debug("Copying %s to %s"s, file.path(), destPath);
 
+		if (file.isHidden()) return;
 #ifndef POCO_OS_FAMILY_WINDOWS
 		// Copy symlinks using readlink/symlink directly, bypassing
 		// Poco::File which would follow the link via stat() and throw
@@ -880,24 +941,27 @@ private:
 				dest.makeDirectory();
 				dest.setFileName(src.getFileName());
 			}
+			addDestination(dest.toString(), file.path());
 			// Read the symlink target and recreate it
-			char buf[PATH_MAX];
-			ssize_t len = ::readlink(file.path().c_str(), buf, sizeof(buf) - 1);
-			if (len > 0)
+			std::string target(PATH_MAX, '\0');
+			const ssize_t len = ::readlink(file.path().c_str(), target.data(), target.size() - 1);
+			if (len < 0)
 			{
-				buf[len] = '\0';
-				File existing(dest.toString());
-				if (existing.exists()) existing.remove();
-				if (::symlink(buf, dest.toString().c_str()) != 0)
-				{
-					logger().warning("Failed to create symlink %s -> %s"s, dest.toString(), std::string(buf, len));
-				}
+				const int error = errno;
+				throw Poco::FileException(Poco::format("Cannot read symbolic link: %s"s, Poco::Error::getMessage(error)), file.path());
+			}
+			if (static_cast<std::size_t>(len) == target.size() - 1)
+				throw Poco::FileException("The target of the symbolic link is too long"s, file.path());
+			target.resize(static_cast<std::size_t>(len));
+			if (::symlink(target.c_str(), dest.toString().c_str()) != 0)
+			{
+				const int error = errno;
+				throw Poco::FileException(Poco::format("Cannot create symbolic link to %s: %s"s, target, Poco::Error::getMessage(error)), dest.toString());
 			}
 			return;
 		}
 #endif
 
-		if (file.isHidden()) return;
 		Path src(file.path());
 		Path dest(destPath);
 		File destFile(destPath);
@@ -907,12 +971,24 @@ private:
 			dest.setFileName(src.getFileName());
 		}
 		if (file.isDirectory())
+		{
 			copyDirectory(file, dest.toString());
+		}
 		else
+		{
+			addDestination(dest.toString(), file.path());
 			file.copyTo(destPath);
+		}
 	}
 
-	void copyDirectory(const File& file, const std::string& destPath) const
+	void addDestination(const std::string& destPath, const std::string& sourcePath)
+	{
+		// Files are copied by their name, so two source files can have the same destination.
+		if (!_destinations.insert(destPath).second)
+			throw Poco::FileExistsException(Poco::format("Two files are copied to %s; the second one is"s, destPath), sourcePath);
+	}
+
+	void copyDirectory(const File& file, const std::string& destPath)
 	{
 		File target(destPath);
 		target.createDirectories();
@@ -956,6 +1032,7 @@ private:
 	std::string _defaultVersion;
 	std::string _code;
 	std::string _strip;
+	std::set<std::string> _destinations;
 };
 
 

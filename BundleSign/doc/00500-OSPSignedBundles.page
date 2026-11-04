@@ -15,7 +15,10 @@ bundles. Digitally signed bundles offer the following features:
 
    - allowing only bundles from certain well-known and trusted sources being loaded
      into the application, and
-   - preventing end users from tampering with the contents of bundles.
+   - detecting bundles whose contents have been modified.
+
+Both require that the application verifies every bundle against the certificates
+it trusts, as described in the section Verifying Signed Bundles.
 
 It must be stated that a signed bundle is not an encrypted bundle. All files
 stored in a signed bundle are unencrypted (unless they have been encrypted by
@@ -47,10 +50,13 @@ especially public-key cryptography. If not, or to refresh that knowledge, the fo
 
 !!! A Note Regarding the SHA-1 Hash Function
 
-The SHA-1 has function, which has been used for signing OSP bundles, is no longer
-considered secure, due to possible collision attacks. New applications should use
-one of the SHA-2 hash functions (SHA256) for signing bundles. Furthermore, existing
-applications should be upgraded to use a stronger SHA-2 hash function as well.
+The SHA-1 hash function, which has been used for signing OSP bundles, is no longer
+considered secure, due to possible collision attacks. Bundles are signed with the
+SHA-2 hash function SHA256 by default, and the verification refuses a signature that
+uses SHA-1, unless it is explicitly allowed with
+Poco::OSP::BundleSign::BundleVerifier::setAllowSHA1(), or with the
+<[--allow-sha1]> option of the <*signbundle*> tool. Bundles signed with SHA-1
+should be signed again with a SHA-2 hash function.
 
 
 !!! Anatomy of a Signed Bundle
@@ -122,31 +128,9 @@ An example for a signature block file is shown below.
     Name: META-INF/appinf.com.sf
     RSA-SHA1-Signature: 0129b7172527d6510c87d64a33e52d33b28eba5568324cc3...
 
-    X509-Certificate: appinf.com
+    X509-Certificate: <common name of the signer>
     -----BEGIN CERTIFICATE-----
-    MIIESzCCAzOgAwIBAgIBATALBgkqhkiG9w0BAQUwgdMxEzARBgNVBAMMCmFwcGlu
-    Zi5jb20xNjA0BgNVBAoMLUFwcGxpZWQgSW5mb3JtYXRpY3MgU29mdHdhcmUgRW5n
-    aW5lZXJpbmcgR21iSDEUMBIGA1UECwwLRGV2ZWxvcG1lbnQxEjAQBgNVBAgMCUNh
-    cmludGhpYTELMAkGA1UEBhMCQVQxHjAcBgNVBAcMFVN0LiBKYWtvYiBpbSBSb3Nl
-    bnRhbDEtMCsGCSqGSIb3DQEJARYeZ3VlbnRlci5vYmlsdHNjaG5pZ0BhcHBpbmYu
-    Y29tMB4XDTA5MDUwNzE0NTY1NloXDTI5MDUwMjE0NTY1NlowgdMxEzARBgNVBAMM
-    CmFwcGluZi5jb20xNjA0BgNVBAoMLUFwcGxpZWQgSW5mb3JtYXRpY3MgU29mdHdh
-    cmUgRW5naW5lZXJpbmcgR21iSDEUMBIGA1UECwwLRGV2ZWxvcG1lbnQxEjAQBgNV
-    BAgMCUNhcmludGhpYTELMAkGA1UEBhMCQVQxHjAcBgNVBAcMFVN0LiBKYWtvYiBp
-    bSBSb3NlbnRhbDEtMCsGCSqGSIb3DQEJARYeZ3VlbnRlci5vYmlsdHNjaG5pZ0Bh
-    cHBpbmYuY29tMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA89GolWCR
-    KtLQclJ2M2QtpFqzNC54hUQdR6n8+DAeruH9WFwLSdWW2fEi+jrtd/WEWCdt4PxX
-    F2/eBYeURus7Hg2ZtJGDd3je0+Ygsv7+we4cMN/knaBY7rATqhmnZWk+yBpkf5F2
-    IHp9gBxUaJWmt/bq3XrvTtzrDXpCd4zg4zPXZ8IC8ket5o3K2vnkAOsIsgN+Ffqd
-    4GjF4dsblG6u6E3VarGRLwGtgB8BAZOA/33mV4FHSMkc4OXpAChaK3tM8YhrLw+m
-    XtsfqDiv1825S6OWFCKGj/iX8X2QAkrdB63vXCSpb3de/ByIUfp31PpMlMh6dKo1
-    vf7yj0nb2w0utQIDAQABoyowKDAOBgNVHQ8BAf8EBAMCB4AwFgYDVR0lAQH/BAww
-    CgYIKwYBBQUHAwMwDQYJKoZIhvcNAQEFBQADggEBAM0cpfb4BgiU/rkYe121P581
-    ftg5Ck1PYYda1Fy/FgzbgJh2AwVo/6sn6GF79/QkEcWEgtCMNNO3LMTTddUUApuP
-    jnEimyfmUhIThyud/vryzTMNa/eZMwaAqUQWqLf+AwgqjUsBSMenbSHavzJOpsvR
-    LI0PQ1VvqB+3UGz0JUnBJiKvHs83Fdm4ewPAf3M5fGcIa+Fl2nU5Plzwzskj84f6
-    73ZlEEi3aW9JieNy7RWsMM+1E8Sj2CGRZC4BM9V1Fgnsh4+VHX8Eu7eHucvfeIYx
-    3mmLMoK4sCayL/FGhrUDw5AkWb8tKNpRXY+W60Et281yxQSeWLPIbatVzIWI0/M=
+    <signer certificate, Base64-encoded>
     -----END CERTIFICATE-----
 ----
 
@@ -169,10 +153,10 @@ To sign a bundle, the following steps are performed.
   2. Create a file (the <*signature file*>) containing
      the names of all files in the bundle, along with
      their hashes.
-  3. Create a hash (SHA-1 or SHA-2) of the <*signature file*>, and
-     encrypt the hash with the signer's private key (using the
-     RSA algorithm).
-  4. Store the encrypted hash, along with the certificate
+  3. Create a digital signature of the <*signature file*>
+     with the signer's private key (an RSA signature, PKCS #1 v1.5,
+     over a SHA-1 or SHA-2 hash of the signature file).
+  4. Store the signature, along with the certificate
      (optionally) in the bundle (the <*signature block file*>).
 
 After performing these four steps the bundle is digitally
@@ -185,10 +169,10 @@ steps are performed.
 
   1. Create a hash (SHA-1 or SHA-2) of the <*signature file*> in the
      bundle.
-  2. Decrypt the encrypted hash stored in the <*signature block file*>
-     with the signer's public key (from the signer's certificate)
-     and compare it with the computed hash.
-     If both are equal, the signature file is okay. If not, the
+  2. Verify the signature stored in the <*signature block file*>
+     against the computed hash, with the signer's public key (from
+     the signer's certificate).
+     If the signature is valid, the signature file is okay. If not, the
      signature file has been tampered with, and verification fails.
   3. For every file stored in the bundle, compute a message
      digest (or cryptographic hash).
@@ -201,13 +185,15 @@ For example, if someone attempts to change the content of a file in the
 bundle, the file's new hash no longer matches the hash stored in the
 signature file. If the signature file is modified as well (with the
 file's updated hash value), the hash of the signature file no longer
-matches the (encrypted) hash value stored in the signature block file.
-To encrypt the new hash value, access to the signer's private key would
+matches the signature stored in the signature block file.
+To sign the new signature file, access to the signer's private key would
 be required. All an attacker could do is remove the existing
 signature, sign the entire bundle with his own private key, and include his
 own certificate.
-This can be detected as well, through examination of the certificate's
-subject, and through verifying the certificate chain.
+Such a certificate can carry any subject, including the subject of the
+original signer, so the subject proves nothing. Only a verification against
+the certificates the application trusts detects such a bundle: the signer's
+certificate must be one of the trusted certificates, or be issued by one of them.
 
 
 !! Signer Aliases And Multiple Signers
@@ -246,8 +232,11 @@ The private key and certificate file must be passed to the
 <[/certificate]> (or <[--certificate]>) command line options.
 
 If the private key is protected by a passphrase, the passphrase
-must be passed to the tool with the <[/passphrase]> (or
-<[--passphrase]>) option.
+must be passed to the tool, preferably in a file whose first line is
+the passphrase, with the <[/passphrase-file]> (or <[--passphrase-file]>)
+option. The <[/passphrase]> (or <[--passphrase]>) option takes the
+passphrase on the command line, where other users of the system can
+see it in the process list.
 
 An alias name for the signer can be specified as well, using the
 <[/alias]> (or <[--alias]>) option. If no alias name is specified,
@@ -276,8 +265,9 @@ Bundles can be signed programmatically, using the Poco::OSP::BundleSign::BundleS
 Signing a bundle is straightforward. First, a Poco::Crypto::RSAKey object must be
 created. The key object must contain the private key used for signing.
 Then a Poco::OSP::BundleSign::BundleSigner is created, by passing the
-path of the bundle file or directory, and the private key to the constructor.
-Then, the <[signBundle()]> member function is called. If the signer's certificate
+signer's alias, the private key and the name of the digest algorithm to the constructor.
+Then, the <[signBundle()]> member function is called with the path of the bundle
+file or directory. If the signer's certificate
 should be included in the bundle, a Poco::Crypto::X509Certificate object
 containing the certificate must be passed to the signBundle() member function.
 
@@ -298,25 +288,31 @@ using the Poco::OSP::BundleSign::BundleVerifier class.
 !! Verifying With The Bundle Signer Tool
 
 A signed bundle can be verified by passing the <[/verify]> (or
-<[--verify]>) option to the <*signbundle*> tool. If the
-bundle does not contain the signer's certificate, the
-certificate to be used for verifying the bundle's signature
-must be passed to the tool as well, using the
-<[/certificate]> (or <[--certificate]>) option.
-The certificate must be stored in a file in PEM format.
+<[--verify]>) option to the <*signbundle*> tool, together with
+the certificates that the verification trusts: the signer's
+certificate with the <[/certificate]> (or <[--certificate]>)
+option, or a file containing the certificates of the certification
+authorities that issue signer certificates with the <[/ca-file]>
+(or <[--ca-file]>) option. The certificates must be stored in
+files in PEM format. Without a trusted certificate, the tool does
+not verify the bundle; a certificate stored in the bundle is not
+trusted by itself.
+
+The tool exits with a status other than 0 if the bundle is not
+signed, if its signature is malformed, if it has been modified, or
+if its signer is not trusted.
 
 In case of multiple signers, the signature to verify can
 be specified via the <[/alias]> (or <[--alias]>) command-line
 option.
 
 Example (Windows):
-    C:\Sample> signbundle com.appinf.osp.bundleadmin_1.1.0.bndl /verify /certificate:appinf.com.pem
+    C:\Sample> signbundle com.appinf.osp.bundleadmin_1.1.0.bndl /verify /alias:signer /certificate:signer.pem
 ----
 
 Provided the bundle signature could be verified, the output of the above command would be:
-    Bundle verification successful for bundle com.appinf.osp.bundleadmin_1.1.0.bndl (signed
-    by /CN=appinf.com/O=Applied Informatics Software Engineering GmbH/OU=Development/ST=Car
-    inthia/C=AT/L=St. Jakob im Rosental/emailAddress=guenter.obiltschnig@appinf.com).
+    Bundle verification successful for bundle com.appinf.osp.bundleadmin_1.1.0.bndl (using
+    alias signer, signed by CN=Example Signer,O=Example).
 ----
 
 !! Verifying Bundles Programmatically
@@ -325,65 +321,46 @@ The verification of a bundle's signature can of course be done programmatically,
 For this purpose, the Poco::OSP::BundleSign::BundleVerifier class is used.
 To verify the signature of a bundle, the following steps must be performed:
 
-  1. The signer of the bundle must be obtained. This is done by looking for
-     signature files in the bundle. Since a signature file's name includes
-     the signer's alias name, it's easy to get the alias name once a signature file
-     has been found in the bundle. The easiest way to do this is
-     to call Poco::OSP::BundleSign::BundleVerifier::firstSigner().
-  2. The signer's certificate (containing the signer's public key)
-     for verifying the bundle's signature must be obtained.
-     The certificate can be obtained directly
-     from the bundle (by calling Poco::OSP::BundleSign::BundleVerifier::extractCertificate()),
-     if it is store therein, or it can be obtained from another
-     location (e.g., a certificate store), by application specific means.
-  3. Once the signer's alias name is known and the signer's certificate is available,
-     the bundle's signature can be verified. This is done by calling
-     Poco::OSP::BundleSign::BundleVerifier::verify().
+  1. The application determines the alias of the signer whose signature it requires.
+     The alias is part of the application's configuration, like the trusted
+     certificates; it is not taken from the bundle, which may contain
+     signatures of other signers.
+  2. The application loads the certificates it trusts, for example with
+     Poco::Crypto::X509Certificate::readPEM(). A trusted certificate is either the
+     signer's certificate itself, or the certificate of the certification authority
+     that issued the signer's certificate.
+  3. The bundle's signature is verified by calling
+     Poco::OSP::BundleSign::BundleVerifier::verify() with the alias and the
+     trusted certificates. Besides the integrity of the bundle, this checks that
+     the signer's certificate is trusted, within its validity period, and allows
+     code signing.
+
+Any result other than <[BUNDLE_VERIFICATION_OK]> means that the bundle must not
+be accepted: <[BUNDLE_VERIFICATION_NO_SIGNATURE]> for a bundle without the signature
+(an unsigned bundle, or one whose signature files have been removed),
+<[BUNDLE_VERIFICATION_INVALID_SIGNATURE]> for malformed signature files, and
+<[BUNDLE_VERIFICATION_FAILED]> for a modified bundle or a signer that is not trusted.
 
 Following code sample shows how to do these steps in C++.
     using Poco::OSP::BundleSign::BundleVerifier;
+    Poco::Crypto::X509Certificate::List trustedCertificates = Poco::Crypto::X509Certificate::readPEM("trusted-signers.pem");
     BundleVerifier verifier("com.appinf.osp.bundleadmin_1.1.0.bndl");
-    std::string alias = verifier.firstSigner();
-    if (!alias.empty())
+    std::vector<std::string> messages;
+    BundleVerifier::VerificationResult result = verifier.verify("signer", trustedCertificates, messages);
+    if (result != BundleVerifier::BUNDLE_VERIFICATION_OK)
     {
-        BundleVerifier::CertificatePtr pCert = verifier.extractCertificate(alias);
-        if (pCert)
-        {
-            std::vector<std::string> messages;
-            BundleVerifier::VerificationResult result = verifier.verify(alias, *pCert, messages);
-            switch (result)
-            {
-            case BundleVerifier::BUNDLE_VERIFICATION_OK:
-                // Everything is okay. However, the application might want to
-                // verify the certificate and its certificate chain as well.
-                break;
-            case BundleVerifier::BUNDLE_VERIFICATION_NO_SIGNATURE:
-                // The bundle does not contain a signature. Note that this
-                // cannot happen if we have obtained the certificate from
-                // the bundle, as in this example.
-                // Depending on the application's policy, this may be okay or not.
-                break;
-            case BundleVerifier::BUNDLE_VERIFICATION_INVALID_SIGNATURE:
-                // The signature is invalid because of a malformed signature file.
-                break;
-            case BundleVerifier::BUNDLE_VERIFICATION_FAILED:
-                // The signature cannot be verified and the bundle has
-                // very likely been tampered with.
-                // The exact reason for the failure can be found by looking
-                // at the error messages stored in the messages vector.
-                break;
-            }
-        }
-        else
-        {
-            // The bundle does not contain the signer's certificate.
-        }
-    }
-    else
-    {
-        // The bundle does not contain a signature.
+        // The bundle is not signed by a trusted signer, or it has been modified.
+        // The reason for the failure can be found by looking at the
+        // error messages stored in the messages vector.
     }
 ----
+
+Poco::OSP::BundleSign::BundleVerifier::verify() can also be called with a single
+certificate. That variant only checks that the bundle has not been modified since
+it was signed with the key of the given certificate, and takes no decision whether
+the certificate is trusted. It must not be called with a certificate obtained from
+the bundle itself (Poco::OSP::BundleSign::BundleVerifier::extractCertificate()),
+since anyone can sign a bundle and include a certificate.
 
 !! Integrating Bundle Verification Into an Application
 
@@ -402,6 +379,11 @@ is shown in the following:
     class VerifyingOSPSubsystem: public OSPSubsystem
     {
     public:
+        VerifyingOSPSubsystem():
+            _trustedCertificates(Poco::Crypto::X509Certificate::readPEM("trusted-signers.pem"))
+        {
+        }
+
         void startBundles(Poco::Util::Application& app)
         {
             bundleLoader().events().bundleResolving += Delegate<VerifyingOSPSubsystem, BundleEvent>(
@@ -416,47 +398,23 @@ is shown in the following:
 
         void verifyBundle(Bundle::Ptr pBundle)
         {
-            BundleVerifier verifier(pBundle->path());
-            std::string alias = verifier.firstSigner();
-            if (!alias.empty())
+            // Verify the storage that the bundle loader reads the bundle from.
+            BundleVerifier verifier(Poco::OSP::BundleStorage::Ptr(&pBundle->storage(), true));
+            std::vector<std::string> messages;
+            BundleVerifier::VerificationResult result = verifier.verify("signer", _trustedCertificates, messages);
+            if (result != BundleVerifier::BUNDLE_VERIFICATION_OK)
             {
-                BundleVerifier::CertificatePtr pCert = verifier.extractCertificate(alias);
-                if (pCert)
-                {
-                    std::vector<std::string> messages;
-                    BundleVerifier::VerificationResult result = verifier.verify(alias, *pCert, messages);
-                    switch (result)
-                    {
-                    case BundleVerifier::BUNDLE_VERIFICATION_OK:
-                        // Everything is okay. However, the application might want to
-                        // verify the certificate and its certificate chain as well.
-                        break;
-                    case BundleVerifier::BUNDLE_VERIFICATION_NO_SIGNATURE:
-                        // The bundle does not contain a signature. Note that this
-                        // cannot happen if we have obtained the certificate from
-                        // the bundle, as in this example.
-                        // Depending on the application's policy, this may be okay or not.
-                        break;
-                    case BundleVerifier::BUNDLE_VERIFICATION_INVALID_SIGNATURE:
-                        // The signature is invalid because of a malformed signature file.
-                        throw Poco::OSP::BundleResolveException("Bundle signature is malformed");
-                    case BundleVerifier::BUNDLE_VERIFICATION_FAILED:
-                        // The signature cannot be verified and the bundle has
-                        // very likely been tampered with.
-                        // The exact reason for the failure can be found by looking
-                        // at the error messages stored in the messages vector.
-                        throw Poco::OSP::BundleResolveException("Bundle verification failed");
-                    }
-                }
-                else
-                {
-                    // The bundle does not contain the signer's certificate.
-                }
-            }
-            else
-            {
-                // The bundle does not contain a signature.
+                // The bundle is not signed by a trusted signer, its signature is
+                // malformed, or it has been modified. The reasons are in messages.
+                throw Poco::OSP::BundleResolveException("Bundle verification failed", pBundle->symbolicName());
             }
         }
+
+    private:
+        Poco::Crypto::X509Certificate::List _trustedCertificates;
     };
 ----
+
+Note: the verification covers the bundle file or directory. Shared libraries that
+the bundle loader takes from the code cache are not verified, so the code cache
+directory must not be writable by users who are not trusted.

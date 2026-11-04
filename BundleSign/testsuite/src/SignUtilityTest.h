@@ -27,6 +27,9 @@ public:
 	~SignUtilityTest();
 
 	void testSignUtility();
+	void testFilesWithoutDirectoryEntriesAreIncluded();
+	void testDuplicateEntryIsRejected();
+	void testNonCanonicalEntryNameIsRejected();
 
 	void setUp();
 	void tearDown();
@@ -34,6 +37,8 @@ public:
 	static CppUnit::Test* suite();
 
 private:
+	std::string _workDir;
+	std::string _bundleFile;
 };
 
 
