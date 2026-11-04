@@ -63,8 +63,8 @@ The query language is similar to C++ expressions and supports comparison (==, !=
 Subexpressions can be grouped with parenthesis. The data types string, integer, float and boolean are
 supported. The simplified syntax for the query language is given in the following.
 
-  expr          ::= andExpr ["||" andExpr]
-  andExpr       ::= relExpr ["&&" relExpr]
+  expr          ::= andExpr ("||" andExpr)*
+  andExpr       ::= relExpr ("&&" relExpr)*
   relExpr       ::= ["!"] (id [relOp value | "=~" matchExpr]) | subExpr
   subExpr       ::= "(" expr ")"
   relOp         ::= "==" | "!=" | "<" | "<=" | ">" | ">="
@@ -84,7 +84,14 @@ A <[stringLiteral]> after <[=~]> is a pattern as used by Poco::Glob, with at mos
 an expression with more is a syntax error.
 
 A regular expression is matched with the match limit of PCRE; a match that reaches
-it fails with a Poco::RegularExpressionException.
+it fails with a Poco::RegularExpressionException. A service listener does not report
+a service registered after its creation for which its query fails, and logs a warning.
+If the query fails for a service that is registered when the listener is created,
+the creation of the listener fails with the exception.
+
+A property that a service does not have is compared as an empty string, as 0 or as
+<[false]>, depending on the value it is compared with: <[a == 0]> also matches a
+service without the property <[a]>.
 
 Examples for valid queries are given in the following:
   * <[name == "com.appinf.osp.sample.service"]> -- a simple string comparison for equality.

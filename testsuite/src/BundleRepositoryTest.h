@@ -31,6 +31,9 @@ public:
 
 	void testLoadFindsNewestVersionOfEachBundle();
 	void testLoadKeepsNewerVersionFoundFirst();
+	void testLoadContinuesAfterBundleThatCannotBeLoaded();
+	void testLoadUnloadsBundleWhoseLoadedDelegateFails();
+	void testLoadReportsWhetherFailedBundleIsUnloaded();
 	void testLoadChoosesBundleOfSameVersionByName();
 	void testInstallWritesArchiveIntoFirstPathOnce();
 	void testFilterThatAcceptsAllLoadsEveryBundle();
@@ -53,6 +56,9 @@ public:
 	void testReplacementDoesNotReportReplacedFileAsKept();
 	void testReplacementStartsRequiringBundleAgain();
 	void testActivatorInstallsBundlesDuringReplacement();
+	void testReplacementOfUnresolvedBundleWithLibrary();
+	void testFailedUninstallOfReplacedBundleReportsItsError();
+	void testFailedInstallReportsBundleAsUnloaded();
 	void testInstallOfCorruptArchiveLeavesNoFile();
 	void testMissingRepositoryPathIsSkipped();
 	void testRepositoryPathWithGlobPattern();
@@ -64,7 +70,10 @@ public:
 	static CppUnit::Test* suite();
 
 protected:
-	[[nodiscard]] std::string findBundleRepository();
+	[[nodiscard]] std::string createBundleRepository();
+		/// Copies the test bundles into the directory that holds the files
+		/// of the test, adds an archive of bundle2 to them, and returns the
+		/// path of the copy.
 	[[nodiscard]] static std::vector<std::string> loadedBundleNames(const Poco::OSP::BundleLoader& loader);
 		/// Returns the symbolic names of the bundles of the loader, sorted.
 	[[nodiscard]] std::string codeCachePath() const;

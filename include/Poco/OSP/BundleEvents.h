@@ -68,7 +68,7 @@ public:
 	Poco::BasicEvent<BundleEvent> bundleUninstalling;
 		/// Fired when uninstalling a bundle has
 		/// started. The bundle is still in "installed"
-		/// state.
+		/// or "resolved" state.
 		
 	Poco::BasicEvent<BundleEvent> bundleUninstalled;
 		/// Fired when uninstalling a bundle has completed

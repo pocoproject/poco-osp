@@ -73,8 +73,8 @@ public:
 	struct BundleError
 	{
 		Bundle::Ptr pBundle;
-		Bundle::State targetState;
-		Poco::Exception* pException;
+		Bundle::State targetState = Bundle::BUNDLE_INSTALLED;
+		Poco::Exception* pException = nullptr;
 	};
 
 	Poco::BasicEvent<const BundleError> bundleError;
@@ -131,10 +131,11 @@ public:
 		/// loaded, a BundleVersionConflictException is thrown.
 
 	void unloadBundle(Bundle::Ptr pBundle);
-		/// Unloads the given bundle.
+		/// Unloads the given bundle, which must not be started.
 		///
 		/// The bundle is removed from the bundle map and
 		/// its activator library, if loaded, is unloaded.
+		/// Serialized with the start of the bundle.
 
 	void listBundles(std::vector<Bundle::Ptr>& bundles) const;
 		/// Fills the given vector with all bundles
@@ -147,9 +148,10 @@ public:
 
 	void listRequiringBundles(Bundle::ConstPtr pBundle, std::vector<Bundle::Ptr>& bundles) const;
 		/// Fills the given vector with the resolved bundles that
-		/// require the given bundle, directly or through other
-		/// bundles, in the order in which they can be stopped:
-		/// a bundle comes before the bundles it requires.
+		/// require the given bundle or a module it provides,
+		/// directly or through other bundles, in the order in
+		/// which they can be stopped: a bundle comes before the
+		/// bundles it requires.
 
 	void resolveAllBundles();
 		/// Resolves all bundles.
@@ -249,18 +251,38 @@ protected:
 	void resolveBundle(Bundle* pBundle);
 		/// Resolves the given bundle.
 		///
-		/// The bundles it requires are resolved on the way, with
-		/// _mutex held. Their bundleResolving and bundleResolved
-		/// events are fired in the order in which they occurred,
-		/// once _mutex has been released.
+		/// The bundles it requires, and the bundle it extends, are
+		/// resolved first, without _mutex held, so that their
+		/// bundleResolving and bundleResolved events are fired
+		/// as they happen; a delegate may call back into the loader.
+
+	void unresolvedRequirements(Bundle* pBundle, std::vector<Bundle::Ptr>& unresolved) const;
+		/// Appends the bundles that unresolvedDependencies() appends and,
+		/// for an extension bundle, the extended bundle if it is installed,
+		/// but not resolved yet. Requires _mutex to be held.
+
+	void checkCircularReference(Bundle* pBundle, const std::vector<Bundle::Ptr>& required) const;
+		/// Throws a BundleResolveException if the given bundle can be
+		/// reached from the given bundles that it requires, through the
+		/// bundles that unresolvedRequirements() returns for each of them.
+		/// Requires _mutex to be held.
+		///
+		/// Called before a required bundle is resolved, so that two
+		/// threads that resolve two bundles of a cycle fail instead of
+		/// waiting for each other's lifecycle mutex.
+
+	void resolveRequiredBundles(Bundle* pBundle, const std::vector<Bundle::Ptr>& required);
+		/// Resolves the bundles in required that are installed, each
+		/// with its lifecycle mutex held. Must be called without
+		/// holding _mutex.
+		///
+		/// Throws a BundleResolveException if one of them is being
+		/// resolved in the calling thread (a circular reference),
+		/// or the exception of the first resolution that fails.
 
 	void resolveBundleImpl(Bundle* pBundle);
-		/// Resolves the given bundle. Requires _mutex to be held.
-
-	void fireResolveEvent(BundleEvent& event);
-		/// Fires the given bundleResolving or bundleResolved event.
-		/// While resolveBundle() holds _mutex in the calling thread,
-		/// the event is collected and fired by resolveBundle().
+		/// Resolves the given bundle, whose required bundles have been
+		/// resolved. Requires _mutex to be held.
 
 	[[nodiscard]] Bundle::ModuleProviders resolveModules(Bundle* pBundle) const;
 		/// Determines the bundles providing the required modules.
@@ -280,7 +302,7 @@ protected:
 	void startBundle(Bundle* pBundle);
 		/// Starts the given bundle.
 
-	class StartingBundle
+	class OSP_API StartingBundle
 		/// Records, for the calling thread, the bundle whose start is
 		/// in progress, for the error message of startAllBundles().
 		///
@@ -310,16 +332,15 @@ protected:
 	void uninstallBundle(Bundle* pBundle);
 		/// Uninstalls the given bundle. Its file or directory is
 		/// deleted if setDeleteOnUninstall() has set true for it.
+		/// If it cannot be deleted, a warning is logged and the
+		/// bundle is uninstalled nevertheless.
 
 	void resolveDependency(Bundle* pBundle, const BundleManifest::Dependency& dependency, Bundle::ResolvedDependencies* pResolved = nullptr);
-		/// Resolves a single dependency of a bundle.
+		/// Resolves a single dependency of a bundle. The required
+		/// bundle must have been resolved before.
 		///
 		/// The resolved dependency is added to pResolved if given,
 		/// to the bundle otherwise.
-
-	[[nodiscard]] bool isResolving(Bundle* pBundle) const;
-		/// Returns true iff the given bundle
-		/// is currently being resolved.
 
 	void startDependencies(Bundle* pBundle);
 		/// Starts all bundles that the given
@@ -379,7 +400,11 @@ protected:
 
 	void uninstallLibraries(Bundle* pBundle);
 		/// Removes all shared libraries belonging
-		/// to the given bundle from the code cache.
+		/// to the given bundle from the code cache,
+		/// except those that another bundle of the
+		/// loader ships, whatever its state. A library
+		/// that cannot be removed is logged and stays
+		/// in the code cache.
 
 	void installLibrary(Bundle* pBundle, const Poco::Path& p, const Poco::Timestamp* pTS = nullptr);
 		/// Copies the library to the code cache.
@@ -393,6 +418,11 @@ protected:
 	void listLibraries(Bundle* pBundle, std::vector<std::string>& list);
 		/// Lists all shared libraries contained in the bundle
 		/// for the current platform.
+
+	[[nodiscard]] Poco::Path libraryDirectory() const;
+		/// Returns the relative path of the directory in a bundle
+		/// that holds its shared libraries for the current
+		/// platform: bin/<os>/<arch>/.
 
 	void sortBundles(std::vector<Bundle::Ptr>& bundles) const;
 		/// Sorts all bundles topologically, based on
@@ -437,9 +467,6 @@ private:
 	std::string               _osArch;
 	BundleMap                 _bundles;
 	BundleIdMap               _bundleIds;
-	BundleSet                 _resolvingBundles;
-	int                       _resolveDepth = 0;
-	std::vector<BundleEvent>  _deferredResolveEvents;
 	Poco::Logger&             _logger;
 	mutable Poco::Mutex       _mutex;
 

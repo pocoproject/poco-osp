@@ -18,7 +18,10 @@
 #include "Poco/File.h"
 #include "Poco/Path.h"
 #include "Poco/Delegate.h"
+#include "Poco/Event.h"
 #include "Poco/Exception.h"
+#include <memory>
+#include <thread>
 
 
 using Poco::OSP::Preferences;
@@ -41,7 +44,20 @@ void PreferencesTest::testDelegateReadsPreferences()
 
 	_pPrefs = pPrefs;
 	pPrefs->propertyChanged += Poco::delegate(this, &PreferencesTest::onPropertyChanged);
-	pPrefs->setString("key", "new");
+	// Changed in a thread of its own, which is left running if it does not
+	// return, so that the test fails instead of blocking the runner.
+	auto pDone = std::make_shared<Poco::Event>();
+	std::thread setter([pPrefs, pDone]() mutable
+	{
+		pPrefs->setString("key", "new");
+		pDone->set();
+	});
+	if (!pDone->tryWait(WAIT_MS))
+	{
+		setter.detach();
+		fail("setString() does not return while a delegate reads the preferences");
+	}
+	setter.join();
 	pPrefs->propertyChanged -= Poco::delegate(this, &PreferencesTest::onPropertyChanged);
 	_pPrefs = nullptr;
 
@@ -112,6 +128,15 @@ void PreferencesTest::testServiceKeepsPreferencesUnderItsDirectory()
 
 	PreferencesService::Ptr pReloaded(new PreferencesService(_path, pGlobalConfig));
 	assertEqual ("saved", pReloaded->preferences("com.appinf.osp.test")->getString("key"));
+
+	try
+	{
+		Preferences::Ptr pOutside = pService->preferences("../outside");
+		fail("an ID that is no file name - must throw");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
 
 	assertEqual ("globalValue", pService->configuration()->getString("global.key"));
 	try

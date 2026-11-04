@@ -34,6 +34,7 @@ public:
 	void testLoggerIsNamedAfterService();
 	void testServiceConfigIncludesConfigurationOfPreferencesService();
 	void testServiceFinderFindsServiceOfType();
+	void testAuthServiceEnablesEveryUserByDefault();
 
 	void setUp() override;
 	void tearDown() override;

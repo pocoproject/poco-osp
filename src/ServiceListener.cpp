@@ -18,7 +18,14 @@
 #include "Poco/OSP/QLExpr.h"
 #include "Poco/OSP/QLParser.h"
 #include "Poco/Delegate.h"
+#include "Poco/Exception.h"
+#include "Poco/Logger.h"
 #include "Poco/Mutex.h"
+#include "Poco/Bugcheck.h"
+#include <string>
+
+
+using namespace std::string_literals;
 
 
 namespace Poco::OSP {
@@ -26,8 +33,15 @@ namespace Poco::OSP {
 
 ServiceListener::~ServiceListener()
 {
-	_registry.serviceRegistered   -= Poco::delegate(this, &ServiceListener::onServiceRegistered);
-	_registry.serviceUnregistered -= Poco::delegate(this, &ServiceListener::onServiceUnregistered);
+	try
+	{
+		_registry.serviceRegistered   -= Poco::delegate(this, &ServiceListener::onServiceRegistered);
+		_registry.serviceUnregistered -= Poco::delegate(this, &ServiceListener::onServiceUnregistered);
+	}
+	catch (...)
+	{
+		poco_unexpected();
+	}
 }
 
 
@@ -55,7 +69,7 @@ void ServiceListener::init(const std::string& query)
 				bool unregistered = false;
 				{
 					Poco::FastMutex::ScopedLock lock(_mutex);
-					unregistered = _unregisteredWhileInitializing.find(*it) != _unregisteredWhileInitializing.end();
+					unregistered = _unregisteredWhileInitializing.contains(*it);
 				}
 				if (unregistered)
 				{
@@ -91,11 +105,24 @@ void ServiceListener::onServiceUnregistered(ServiceEvent& event)
 
 void ServiceListener::onServiceRefRegistered(const ServiceRef::Ptr& pServiceRef)
 {
-	if (_pExpr->evaluate(pServiceRef->properties()))
+	// An evaluation error must not fail the registration of the service.
+	bool matches = false;
+	try
+	{
+		matches = _pExpr->evaluate(pServiceRef->properties());
+	}
+	catch (Poco::Exception& exc)
+	{
+		Poco::Logger::get("osp.core.ServiceRegistry"s).warning(
+			"The query of a service listener cannot be evaluated for service %s, "
+			"which is not reported to the listener: %s"s,
+			pServiceRef->name(), exc.displayText());
+	}
+	if (matches)
 	{
 		bool notify = false;
 		Poco::ScopedLockWithUnlock<Poco::FastMutex> lock(_mutex);
-		if (_refs.find(pServiceRef) == _refs.end())
+		if (!_refs.contains(pServiceRef))
 		{
 			_refs.insert(pServiceRef);
 			notify = true;

@@ -69,9 +69,9 @@ class MyBundleActivator: public BundleActivator
 {
 public:
 	MyBundleActivator() = default;
-	
+
 	~MyBundleActivator() override = default;
-	
+
 	void start(BundleContext::Ptr pContext) override
 	{
 		std::string msg("MyBundleActivator::start() for ");
@@ -79,7 +79,7 @@ public:
 		pContext->logger().information(msg);
 		_pServiceRef = pContext->registry().registerService(pContext->thisBundle()->symbolicName() + ".activated", new ActivatedService, Poco::OSP::Properties());
 	}
-		
+
 	void stop(BundleContext::Ptr pContext) override
 	{
 		std::string msg("MyBundleActivator::stop() for ");

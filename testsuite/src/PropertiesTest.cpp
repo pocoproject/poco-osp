@@ -12,9 +12,11 @@
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
 #include "Poco/OSP/Properties.h"
+#include "Poco/Event.h"
 #include "Poco/Exception.h"
 #include "Poco/Types.h"
 #include <atomic>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -233,6 +235,49 @@ void PropertiesTest::testCopyAndSwapWhileModified()
 }
 
 
+void PropertiesTest::testOppositeAndSelfSwapsInThreadsComplete()
+{
+	// Shared with the threads, which are left running if they block,
+	// so that the test fails instead of blocking the runner.
+	struct Shared
+	{
+		Properties first;
+		Properties second;
+		std::atomic<int> finished{0};
+		Poco::Event done;
+	};
+	auto pShared = std::make_shared<Shared>();
+	pShared->first.set("key", "first");
+	pShared->second.set("key", "second");
+
+	auto swapping = [pShared](bool fromFirst)
+	{
+		Properties& from = fromFirst ? pShared->first : pShared->second;
+		Properties& to = fromFirst ? pShared->second : pShared->first;
+		for (int i = 0; i < ITERATIONS; ++i)
+		{
+			from.swap(to);
+			from.swap(from);
+		}
+		if (++pShared->finished == 2) pShared->done.set();
+	};
+	std::thread forward(swapping, true);
+	std::thread backward(swapping, false);
+	if (!pShared->done.tryWait(WAIT_MS))
+	{
+		forward.detach();
+		backward.detach();
+		fail("swaps in two threads do not complete");
+	}
+	forward.join();
+	backward.join();
+
+	// an even number of swaps
+	assertEqual ("first", pShared->first.get("key"));
+	assertEqual ("second", pShared->second.get("key"));
+}
+
+
 void PropertiesTest::setUp()
 {
 }
@@ -253,6 +298,7 @@ CppUnit::Test* PropertiesTest::suite()
 	CppUnit_addTest(pSuite, PropertiesTest, testKeysDifferingInCaseAreOneKey);
 	CppUnit_addTest(pSuite, PropertiesTest, testCopyAssignAndSwap);
 	CppUnit_addTest(pSuite, PropertiesTest, testCopyAndSwapWhileModified);
+	CppUnit_addTest(pSuite, PropertiesTest, testOppositeAndSelfSwapsInThreadsComplete);
 
 	return pSuite;
 }

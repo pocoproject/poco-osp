@@ -18,7 +18,7 @@
 #include "Poco/Path.h"
 
 
-std::string OSPBundleTestSuite::findBundlesPath()
+std::string OSPBundleTestSuite::testBundlesPath()
 {
 	return Poco::Environment::get(TEST_BUNDLES_VARIABLE, "");
 }
@@ -26,7 +26,7 @@ std::string OSPBundleTestSuite::findBundlesPath()
 
 std::string OSPBundleTestSuite::findBundle(const std::string& name)
 {
-	return Poco::Path(findBundlesPath(), name).toString();
+	return Poco::Path(testBundlesPath(), name).toString();
 }
 
 

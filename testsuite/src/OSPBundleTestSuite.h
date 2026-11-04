@@ -27,7 +27,7 @@ public:
 
 	static CppUnit::Test* suite();
 
-	[[nodiscard]] static std::string findBundlesPath();
+	[[nodiscard]] static std::string testBundlesPath();
 		/// Returns the path of the test bundles, or an empty string
 		/// if the environment variable is not set.
 

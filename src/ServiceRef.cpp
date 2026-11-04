@@ -14,10 +14,7 @@
 
 #include "Poco/OSP/ServiceRef.h"
 #include "Poco/OSP/ServiceFactory.h"
-#ifdef POCO_HAVE_CXXABI_H
-#include <cxxabi.h>
-#include <cstdlib>
-#endif
+#include "Poco/Types.h"
 
 
 using namespace std::string_literals;
@@ -53,23 +50,7 @@ Service::Ptr ServiceRef::instance() const
 
 std::string ServiceRef::demangle(const char* typeName)
 {
-	std::string result;
-#ifdef POCO_HAVE_CXXABI_H
-	int status;
-	char* demangled = abi::__cxa_demangle(typeName, nullptr, nullptr, &status);
-	if (demangled != nullptr)
-	{
-		result = demangled;
-		std::free(demangled);
-	}
-	else
-	{
-		result = typeName;
-	}
-#else
-	result = typeName;
-#endif	
-	return result;
+	return Poco::demangle(typeName);
 }
 
 

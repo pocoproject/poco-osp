@@ -13,7 +13,6 @@
 
 
 #include "Poco/OSP/OSPException.h"
-#include <typeinfo>
 
 
 namespace Poco::OSP {

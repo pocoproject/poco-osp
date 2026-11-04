@@ -53,6 +53,9 @@ public:
 		/// Returns the preferences object for the given bundle or
 		/// service. A bundle should specify its symbolic name as
 		/// ID. A service should specify its service name.
+		///
+		/// Throws a Poco::InvalidArgumentException if the ID cannot be
+		/// used as a file name (see BundleManifest::isValidFileName()).
 
 	[[nodiscard]] Configuration::Ptr configuration();
 		/// Returns the global application configuration.

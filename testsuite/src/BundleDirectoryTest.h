@@ -30,6 +30,13 @@ public:
 	void testParentDirectoryIsRejected();
 	void testLastModifiedIsTimeOfFile();
 	void testStorageOpenReturnsBundleDirectory();
+	void testGetResourceIgnoresOtherCaseOfName();
+	void testGetResourceIgnoresOtherNormalizationOfName();
+	void testGetResourceFollowsSymbolicLinks();
+	void testIsExactPathRejectsPathOutsideRoot();
+#if defined(POCO_OS_FAMILY_WINDOWS)
+	void testGetResourceIgnoresWindowsAliases();
+#endif
 
 	void setUp() override;
 	void tearDown() override;

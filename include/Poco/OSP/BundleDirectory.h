@@ -29,6 +29,9 @@ namespace Poco::OSP {
 class OSP_API BundleDirectory: public BundleStorage
 	/// BundleDirectory implements the BundleStorage interface
 	/// for bundles stored in directories.
+	///
+	/// getResource() opens a file only under the names stored on
+	/// disk (see isExactPath()).
 {
 public:
 	BundleDirectory(const std::string& path);
@@ -45,6 +48,16 @@ public:
 	void list(const std::string& path, std::vector<std::string>& files) const override;
 	Poco::Timestamp lastModified(const std::string& path) const override;
 	[[nodiscard]] std::string path() const override;
+
+	[[nodiscard]] static bool isExactPath(const Poco::Path& root, const Poco::Path& path);
+		/// Returns true if every segment of path below the directory
+		/// root is, byte for byte, the name of an entry of its parent
+		/// directory. Returns false if path does not begin with root.
+		///
+		/// A file system can open a file under another spelling of
+		/// its name (case, Unicode normalization, Windows short names,
+		/// streams, trailing dots and spaces); such a spelling returns
+		/// false. Passes on the exceptions of Poco::DirectoryIterator.
 
 protected:
 	[[nodiscard]] Poco::Path buildPath(const std::string& path) const;

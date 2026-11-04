@@ -119,9 +119,14 @@ public:
 		/// matching the given query and returns the number
 		/// of matches found.
 		///
+		/// The query is evaluated without the lock of the registry,
+		/// on the services registered when the evaluation starts, so
+		/// that services can be registered, unregistered and looked
+		/// up while it runs.
+		///
 		/// The query language syntax is as follows:
-		///     expr          ::= andExpr ["||" andExpr]
-		///     andExpr       ::= relExpr ["&&" relExpr]
+		///     expr          ::= andExpr ("||" andExpr)*
+		///     andExpr       ::= relExpr ("&&" relExpr)*
 		///     relExpr       ::= ["!"] (id [relOp value | "=~" matchExpr]) | subExpr
 		///     subExpr       ::= "(" expr ")"
 		///     relOp         ::= "==" | "!=" | "<" | "<=" | ">" | ">="

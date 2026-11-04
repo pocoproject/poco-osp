@@ -188,7 +188,14 @@ Also, the properties <[osName]> and <[osArch]> can be used.
 Shared libraries that cannot be found are ignored. This allows you to use
 the same bundle specification on different platforms.
 
-This element is optional.
+The libraries are copied into the directory <[bin/<osname>/<osarch>]> of the bundle.
+The optional <[platform]> attribute gives this directory as <[<osname>/<osarch>]>,
+two names that can be used as file names; the Bundle Creator tool rejects any other
+value that contains a slash. Without the attribute, or with a value without a slash,
+the operating system name and architecture of the host system, or those given with
+<[--osname]> and <[--osarch]>, are used. An empty name is rejected.
+
+This element is optional. It can occur more than once.
 
 If the `--code` (or `/code`) option is specified on the command-line when
 invoking the Bundle Creator tool, the value specified on the command-line
@@ -202,6 +209,9 @@ part of the bundle. Glob expressions (see Poco::Glob) can be used.
 Directories are copied recursively. Files and directories are copied into the
 bundle's root directory by their name; directories with the same name are
 merged, but two files with the same path in the bundle are an error.
+A file <[META-INF/manifest.mf]> among them replaces the manifest that the
+Bundle Creator tool writes; it must have the symbolic name and the version
+given in the <[manifest]> element.
 
 This element is optional.
 
@@ -218,9 +228,9 @@ created. The following command-line options are supported:
     Specify the directory where the bundle is saved.
   - `-k`, `--keep-bundle-dir`, `/keep-bundle-dir`:
     Keep intermediary bundle directory.
-  - `-d`, `--bundle-dir-only`, `--bundle-dir-only`:
+  - `-d`, `--bundle-dir-only`, `/bundle-dir-only`:
     Create bundle directory only, no bundle (.bndl) file
-    (implies `-d`).
+    (implies `--keep-bundle-dir`).
   - `-n <osname>`, `--osname <osname>`, `/osname=<osname>`:
     Specify default target operating system name (e.g., "Linux").
     This is mostly useful when cross-compiling.
@@ -243,6 +253,19 @@ created. The following command-line options are supported:
     specified, overrides the <code> element in the bundle specification
     file. Value is a comma- or semicolon-separated list of file names or
     glob expressions. Can be specified multiple times.
+  - `-S <command>`, `--strip <command>`, `/strip=<command>`:
+    Specify the command that is used to strip debugging symbols from the
+    shared libraries and executables copied into the bundle's bin directory
+    (see below).
+  - `-y`, `--symlinks`, `/symlinks`:
+    Preserve symbolic links in the bundle: symbolic links are stored as
+    links rather than being resolved. Uses the system's zip command to
+    create the bundle file. Not supported on Windows.
+
+The bundle file is written under a temporary name with the extension <[.tmp]>
+and replaces an existing bundle file only when it is complete. A bundle
+repository skips a file or directory with that extension in a directory that
+it scans for bundles, also one that a killed build has left.
 
 
 !! Invoking the Bundle Creator Tool from Visual Studio
@@ -257,78 +280,131 @@ the Post-Build Event of the project, as shown below.
 %>
 
 
-!! Invoking the Bundle Creator Tool from a Makefile
-
-The Bundle Creator tool can be invoked from a Makefile platforms as part of the build process.
-If the GNU Make based build system from the POCO C++ Libraries is used, the Bundle Creator tool invocation
-can be done as a post-build step. A post-build step can be defined by assigning a command to
-the <[postbuild]> Make variable, as shown below.
-
-
-    include $(POCO_BASE)/build/rules/global
-    include $(POCO_BASE)/OSP/BundleCreator/BundleCreator.make
-
-    objects = Greeter
-
-    target         = com.appinf.osp.samples.greeter
-    target_version = 1
-    target_libs    = PocoOSP PocoUtil PocoXML PocoFoundation
-
-    postbuild      = $(BUNDLE_TOOL) -o../bundles Greeter.bndlspec
-
-    include $(POCO_BASE)/build/rules/dylib
-----
-
-
 !! Invoking the Bundle Creator Tool from CMake
 
 As part of the CMake build system support, a custom function `poco_osp_bundle`
 is provided, which takes care of invoking the Bundle Creator tool appropriately.
-The function is defined in `PocoOSPHelpers.cmake`, which can be found in the
+The function is defined in `PocoOspBundle.cmake`, which can be found in the
 top-level `cmake` directory. An example `CMakeLists.txt` for building a bundle
-is shown below:
+(from the ServiceListener sample) is shown below:
 
     set(TARGET "com.appinf.osp.samples.servicelistener")
     set(BUNDLE_SPEC "${CMAKE_CURRENT_SOURCE_DIR}/ServiceListener.bndlspec")
 
-        # Sources
-    file(GLOB SRCS "src/*.cpp")
+    # Sources
+    file(GLOB TARGET_SRCS "src/*.cpp")
 
     # Dynamic Library
-    add_library(${TARGET} MODULE ${SRCS})
-    set_target_properties(${TARGET}
-        PROPERTIES
-        PREFIX ""
-    )
+    poco_osp_bundle_module(${TARGET} ${TARGET_SRCS})
 
-    # On macOS, use .dylib instead of .so
-    if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
-        set_target_properties(${TARGET} PROPERTIES SUFFIX ".dylib")
-    endif()
-
-    target_link_libraries(${TARGET} Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation)
+    target_link_libraries(${TARGET} PRIVATE Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation)
 
     # Build Bundle
-    add_dependencies(${TARGET} BundleCreator)
     poco_osp_bundle(${TARGET}-bundle
-        DEPENDS ${LIBNAME} ${TARGET}
+        DEPENDS ${TARGET}
         SPEC ${BUNDLE_SPEC}
         CODE $<TARGET_FILE:${TARGET}>
         DESTINATION ${POCO_OSP_BUNDLE_DIR}
-    )
-
-    install(
-        DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
-        DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
-        FILES_MATCHING PATTERN "${TARGET}*.bndl"/bundles
+        INSTALL_COMPONENT Samples
     )
 ----
 
+The function `poco_osp_bundle_module`, also defined in `PocoOspBundle.cmake`, adds
+the library of the bundle as a <[MODULE]> library with the file name that OSP loads:
+the target name without a prefix, with the suffix of Poco::SharedLibrary::suffix()
+(<[.dylib]> on macOS, preceded by <[d]> in a Debug build). The function does not add
+the <[d]>: the build of poco-osp sets <[CMAKE_DEBUG_POSTFIX]> to <[d]>, and a project
+that builds Debug bundles sets it too.
+
 With CMake, it's recommended to specify the binaries that should go into the bundle
 on the command-line and not in the bundle specification file's `<code>` element,
-as shown in the above example. Note that the above `CMakeLists.txt` file is
-intended to be referenced by a higher-level `CMakeLists.txt`, which would also
-include the `PocoOSPHelpers.cmake` file containing the `poco_osp_bundle` function.
+as shown in the above example. The <[CODE]> argument of `poco_osp_bundle` is passed
+to the Bundle Creator tool with the <[--code]> option, and the <[SYMLINKS]> option
+passes <[--symlinks]>. The function runs the tool in the directory of the bundle
+specification file, unless another directory is given with <[WORKING_DIRECTORY]>,
+and makes the bundle depend on the files in the <[bundle]> directory of that
+directory. With <[INSTALL_COMPONENT]>, the bundle file is installed into
+<[POCO_INSTALL_BUNDLEDIR]> (<[bundles]> if it is not set) with that install component.
+<[POCO_OSP_BUNDLE_DIR]> is the directory into which the build of poco-osp writes
+the bundles, <[${CMAKE_BINARY_DIR}/${POCO_INSTALL_BUNDLEDIR}]> unless it is set.
+
+In the build of poco-osp, `cmake/PocoOSPComponents.cmake` includes `PocoOspBundle.cmake`.
+A project that uses an installed poco-osp gets `poco_osp_bundle`, `poco_osp_bundle_module`
+and `poco_remote_gen` (see below) with
+
+    find_package(Poco REQUIRED COMPONENTS OSPBundleCreator)
+----
+
+which also provides the Bundle Creator tool as the imported target
+<[Poco::OSP::BundleCreator]>.
+
+
+!! Generating Sources with RemoteGenNG from CMake
+
+The function `poco_remote_gen`, defined in `PocoOspRemoteGen.cmake` in the top-level
+`cmake` directory, runs RemoteGenNG, the code generator of the POCO RemotingNG library,
+at configure time, so that the generated sources can be added to a target:
+
+    poco_remote_gen(<configuration> GEN_DIR_NAME <directory> [DEFINES <property>...])
+----
+
+The caller sets <[POCO_REMOTEGEN_NG]> to the RemoteGenNG command; the configure stops
+if it is empty. A name without a directory is looked up in <[PATH]>, and a relative
+directory is relative to <[CMAKE_CURRENT_SOURCE_DIR]>, as is a relative path of the
+configuration file (<[<configuration>]>). RemoteGenNG gets the option <[compiler]> with
+the value <[msvc]>, <[gcc]> or <[clang]> from <[CMAKE_CXX_COMPILER_ID]>; for another
+compiler, the configure stops. It also gets the properties <[DEFINES]>
+(<[<name>=<value>]>, or <[<name>]> for an empty value), <[CMAKE_CURRENT_SOURCE_DIR]>,
+<[POCO_OSP_BASE]> if it is defined, and <[RemoteGen.output.timestamps=false]>, which keeps
+the content of an unchanged output the same, except for <[<Activator>Impl.cpp]> (see
+below). <[POCO_OSP_BASE]> defaults to the root of the poco-osp source tree when the
+module is the one in that tree; a configuration names
+the OSP headers with it, and its own headers with <[CMAKE_CURRENT_SOURCE_DIR]>, for example
+<[${CMAKE_CURRENT_SOURCE_DIR}/include/Service.h]>.
+
+RemoteGenNG runs in the directory <[remotegen-<id>]> of <[CMAKE_CURRENT_BINARY_DIR]>,
+which is emptied before it generates, so the output directories of the configuration
+are relative to it. When a generation completes, the files that the previous generation
+wrote and this one does not are removed, and each file written is copied to the same
+relative path under <[CMAKE_CURRENT_BINARY_DIR]> if its content differs; a file with the
+same content keeps its time and is not compiled again. A file that cannot be removed or
+copied stops the configure, and the next configure generates again. With
+<[RemoteGen.output.osp.bundleActivator]>, every generation writes
+<[<Activator>Impl.cpp]> anew, with the time of the generation (to the second) in its
+header, so the file is normally copied, and compiled again if it is a source of a
+target. The edited implementation is kept in the source tree.
+
+<[GEN_DIR_NAME]>, relative to <[CMAKE_CURRENT_BINARY_DIR]>, is the directory that the
+configuration writes to. Generated files are replaced and removed in it, so the
+configure stops if it is or contains the source or binary directory (top-level or
+current), or the directory of the configuration file or of the file it resolves to,
+each as named and with symbolic links resolved.
+
+A RemoteGenNG whose help names the option <[list-dependencies]> lists at every configure
+the headers that it reads and the directories that decide them. It generates if the
+output directory does not exist, if the build directory has no completed generation of
+the call, if a listed header does not exist, if the command or the list differs from
+the one of the last completed generation, or if the configuration, a listed header or
+the RemoteGenNG executable (if <[POCO_REMOTEGEN_NG]> names it with a directory) is newer
+than the start of that generation. The configuration and the listed paths are
+dependencies of the build, so a change of them configures again. Without the option,
+RemoteGenNG generates at every configure, the configuration is the only dependency,
+and a warning says so.
+
+The configuration file or a listed path that contains a "[", "]", ";", double quote, "$",
+"|", control character or (not on Windows) backslash is not a dependency of the build, nor
+is a listed directory that is or is in the build directory or the binary directory of the
+call, as named or with symbolic links resolved; a warning names them. A change of them
+runs RemoteGenNG only at the next configure.
+
+Example, for a configuration <[RemoteGen.xml]> whose output directories are
+<[generated/include]> and <[generated/src]>:
+
+    poco_remote_gen(RemoteGen.xml GEN_DIR_NAME generated)
+    file(GLOB GENERATED_SRCS "${CMAKE_CURRENT_BINARY_DIR}/generated/src/*.cpp")
+    target_sources(${TARGET} PRIVATE ${GENERATED_SRCS})
+    target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated/include)
+----
 
 
 !! Bundles and Cross-Compiling for Embedded Linux
@@ -354,24 +430,14 @@ system name and architecture as command line arguments to the Bundle Creator too
 using the <[--osname]> (or <[-n]>), and <[--osarch]> (or <[-a]>) command line arguments.
 
 Note that when cross-compiling an OSP application, you must build the POCO and OSP libraries and
-executables twice -- once for the host system, and once for the target system. When using the
-build system from the POCO C++ Libraries, libraries and executables for both the host and
-the target system(s) can be kept in parallel. To support cross-compiling a bundle, the
-Makefile for building a bundle using the POCO build system must be modified as follows:
-
-    include $(POCO_BASE)/build/rules/global
-    include $(POCO_BASE)/OSP/BundleCreator/BundleCreator.make
-
-    objects = Greeter
-
-    target         = com.appinf.osp.samples.greeter
-    target_version = 1
-    target_libs    = PocoOSP PocoUtil PocoXML PocoFoundation
-
-    postbuild      = $(BUNDLE_TOOL) -o../bundles Greeter.bndlspec -a$(OSARCH)
-
-    include $(POCO_BASE)/build/rules/dylib
-----
+executables twice -- once for the host system, and once for the target system. A CMake build for
+the target system (<[CMAKE_CROSSCOMPILING]>) creates the bundles with the <*bundle*> program found
+in <[PATH]>, which must be the Bundle Creator tool of the host build. The `poco_osp_bundle` function
+passes the CMake variables <[OSP_OSNAME]> and <[OSP_OSARCH]> to the tool as <[--osname]> and
+<[--osarch]>. Unless they are set, <[OSP_OSNAME]> is <[Windows_NT]> for Windows and
+<[CMAKE_SYSTEM_NAME]> for other systems, and <[OSP_OSARCH]> is <[CMAKE_SYSTEM_PROCESSOR]>.
+Set <[OSP_OSARCH]> where <[CMAKE_SYSTEM_PROCESSOR]> differs from the output of <[uname -m]>
+on the target system.
 
 !! Stripping Shared Libraries and Executables
 
@@ -385,7 +451,8 @@ To solve this issue, the Bundle Creator tool can optionally strip debug symbols
 from all shared libraries and executables incorporated into a bundle (via the
 <[code]> element in the bundle specification file, or the respective command-line option). 
 This happens after the files have been copied into the temporary directory from which they 
-are copied into the bundle. Therefore the original files are not modified.
+are copied into the bundle. Therefore the original files are not modified. A symbolic link that
+is copied with <[--symlinks]> is not stripped, since its target can be outside the bundle.
 
 To enable this feature, the <[--strip]> (or <[/strip]> on Windows) command-line option
 can be used. The name of the strip tool (usually <[strip]>, with the usual prefix for cross-compiling)

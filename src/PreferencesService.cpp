@@ -13,6 +13,8 @@
 
 
 #include "Poco/OSP/PreferencesService.h"
+#include "Poco/OSP/BundleManifest.h"
+#include "Poco/Exception.h"
 
 
 namespace Poco::OSP {
@@ -35,6 +37,10 @@ PreferencesService::~PreferencesService() = default;
 
 Preferences::Ptr PreferencesService::preferences(const std::string& bundleOrServiceID)
 {
+	// The ID names the file that holds the preferences.
+	if (!BundleManifest::isValidFileName(bundleOrServiceID))
+		throw Poco::InvalidArgumentException("Preferences ID cannot be used as a file name", bundleOrServiceID);
+
 	Poco::FastMutex::ScopedLock lock(_mutex);
 	
 	PrefsMap::iterator it = _prefsMap.find(bundleOrServiceID);

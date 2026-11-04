@@ -62,9 +62,10 @@ public:
 		/// Returns the primary tag.
 		
 	[[nodiscard]] const std::string& subTags() const;
-		/// Returns the first sub tag (the region, such as "AT"
-		/// in "de-AT"), in upper case. Further sub tags are
-		/// not kept.
+		/// Returns the sub tags. A LanguageTag created from a
+		/// string or from the system's default language keeps
+		/// only the first one, the region ("AT" in "de-AT"),
+		/// in upper case if created from a string.
 		
 	[[nodiscard]] std::string toString() const;
 		/// Returns a string representation of the language tag:

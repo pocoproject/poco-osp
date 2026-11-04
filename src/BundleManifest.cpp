@@ -18,7 +18,6 @@
 #include "Poco/Format.h"
 #include "Poco/Ascii.h"
 #include "Poco/Exception.h"
-#include <memory>
 #include <algorithm>
 #include <string>
 

@@ -15,7 +15,6 @@
 #include "Poco/OSP/QLExpr.h"
 #include "Poco/OSP/Properties.h"
 #include "Poco/NumberParser.h"
-#include "Poco/String.h"
 #include "Poco/Glob.h"
 #include "Poco/Exception.h"
 #include <algorithm>

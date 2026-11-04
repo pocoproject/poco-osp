@@ -9,6 +9,7 @@
 
 
 #include "ServiceRegistryTest.h"
+#include "TestService.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
 #include "Poco/OSP/ServiceRegistry.h"
@@ -16,8 +17,14 @@
 #include "Poco/OSP/Service.h"
 #include "Poco/OSP/ServiceFactory.h"
 #include "Poco/OSP/Properties.h"
+#include "Poco/OSP/QLExpr.h"
 #include "Poco/Delegate.h"
+#include "Poco/Event.h"
+#include "Poco/AutoPtr.h"
 #include "Poco/Exception.h"
+#include <atomic>
+#include <string>
+#include <thread>
 #include <vector>
 
 
@@ -32,23 +39,6 @@ using Poco::Delegate;
 
 namespace
 {
-	class TestService: public Service
-	{
-	public:
-		using Ptr = Poco::AutoPtr<TestService>;
-
-		[[nodiscard]] const std::type_info& type() const override
-		{
-			return typeid(TestService);
-		}
-
-		[[nodiscard]] bool isA(const std::type_info& otherType) const override
-		{
-			std::string name(typeid(TestService).name());
-			return name == otherType.name() || Service::isA(otherType);
-		}
-	};
-
 	class OtherTestService: public Service
 	{
 	public:
@@ -64,6 +54,51 @@ namespace
 			std::string name(typeid(OtherTestService).name());
 			return name == otherType.name() || Service::isA(otherType);
 		}
+	};
+
+	constexpr long WAIT_MS = 10000;
+
+	class BlockingExpr: public Poco::OSP::QLExpr
+		/// Matches every service, and holds each evaluation
+		/// until unblock() is called or WAIT_MS have passed.
+	{
+	public:
+		BlockingExpr() = default;
+		BlockingExpr(const BlockingExpr&) = delete;
+		BlockingExpr(BlockingExpr&&) = delete;
+		BlockingExpr& operator = (const BlockingExpr&) = delete;
+		BlockingExpr& operator = (BlockingExpr&&) = delete;
+
+		[[nodiscard]] bool evaluate(const Properties& /*props*/) const override
+		{
+			_evaluating.set();
+			if (!_released.tryWait(WAIT_MS)) _timedOut = true;
+			return true;
+		}
+
+		[[nodiscard]] Poco::Event& evaluating()
+		{
+			return _evaluating;
+		}
+
+		void unblock()
+			/// Named so as not to hide RefCountedObject::release().
+		{
+			_released.set();
+		}
+
+		[[nodiscard]] bool timedOut() const
+		{
+			return _timedOut;
+		}
+
+	protected:
+		~BlockingExpr() override = default;
+
+	private:
+		mutable Poco::Event _evaluating;
+		mutable Poco::Event _released{Poco::Event::EVENT_MANUALRESET};
+		mutable std::atomic<bool> _timedOut{false};
 	};
 
 	class TestServiceFactory: public ServiceFactory
@@ -201,7 +236,7 @@ void ServiceRegistryTest::testServicesReturnsCopy()
 	reg.unregisterService("Service1");
 
 	assertTrue (services.size() == 1);
-	assertTrue (services.find("Service1") != services.end());
+	assertTrue (services.contains("Service1"));
 	assertTrue (reg.services().empty());
 }
 
@@ -270,6 +305,32 @@ void ServiceRegistryTest::testFindWithSyntaxErrorKeepsResults()
 }
 
 
+void ServiceRegistryTest::testLookupDoesNotWaitForQueryEvaluation()
+{
+	ServiceRegistry reg;
+	reg.registerService("Service1", new TestService, Properties());
+	Poco::AutoPtr<BlockingExpr> pExpr(new BlockingExpr);
+
+	std::vector<ServiceRef::Ptr> results;
+	std::thread finding([&]()
+	{
+		reg.find(*pExpr, results);
+	});
+	const bool evaluating = pExpr->evaluating().tryWait(WAIT_MS);
+	reg.registerService("Service2", new TestService, Properties());
+	const bool found = reg.findByName("Service1") != nullptr;
+	reg.unregisterService("Service2");
+	pExpr->unblock();
+	finding.join();
+
+	assertTrue (evaluating);
+	assertTrue (found);
+	// The evaluation would have timed out if the lookup had waited for it.
+	assertFalse (pExpr->timedOut());
+	assertEqual (1, static_cast<int>(results.size()));
+}
+
+
 void ServiceRegistryTest::handleEvent(const void* /*sender*/, Poco::OSP::ServiceEvent& event)
 {
 	_events.push_back(event);
@@ -295,6 +356,7 @@ CppUnit::Test* ServiceRegistryTest::suite()
 	CppUnit_addTest(pSuite, ServiceRegistryTest, testUnregisterOfUnknownServiceThrowsNotFound);
 	CppUnit_addTest(pSuite, ServiceRegistryTest, testUnregisterOfStaleRefKeepsServiceOfSameName);
 	CppUnit_addTest(pSuite, ServiceRegistryTest, testFindWithSyntaxErrorKeepsResults);
+	CppUnit_addTest(pSuite, ServiceRegistryTest, testLookupDoesNotWaitForQueryEvaluation);
 
 	return pSuite;
 }

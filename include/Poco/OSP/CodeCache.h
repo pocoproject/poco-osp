@@ -70,19 +70,16 @@ public:
 	CodeCache& operator = (const CodeCache&) = delete;
 
 	[[nodiscard]] bool hasLibrary(const std::string& name);
-		/// Returns true if a library with the given name
-		/// is stored in the code cache.
-		///
-		/// The name must not contain an filename extension.
+		/// Returns true if a library with the given file name,
+		/// including its extension, is stored in the code cache.
 
 	[[nodiscard]] Poco::Timestamp libraryTimestamp(const std::string& name);
-		/// Returns library last modification timestamp.
-		///
-		/// The name must not contain an filename extension.
+		/// Returns the last modification timestamp of the library
+		/// with the given file name, including its extension.
 
 	void installLibrary(const std::string& name, std::istream& istr);
-		/// Installs the library with the given name, which
-		/// must not contain an extension, into the code cache.
+		/// Installs the library with the given file name,
+		/// including its extension, into the code cache.
 		///
 		/// The library is copied to a temporary file in the cache
 		/// directory first, which then replaces the installed library.

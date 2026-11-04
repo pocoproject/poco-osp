@@ -54,6 +54,21 @@ namespace
 	thread_local std::string startingBundleName;
 		/// The bundle whose start is in progress in this thread,
 		/// see BundleLoader::StartingBundle.
+
+	thread_local std::set<const Bundle*> resolvingBundles;
+		/// The bundles whose resolution is in progress in this thread,
+		/// see BundleLoader::resolveRequiredBundles().
+
+	[[noreturn]] void throwCircularReference(const Bundle& bundle, const Bundle& required)
+		/// Throws the BundleResolveException for a bundle that requires,
+		/// directly or not, a bundle that requires it.
+	{
+		std::string msg("Circular reference detected involving ");
+		msg += bundle.symbolicName();
+		msg += " and ";
+		msg += required.symbolicName();
+		throw BundleResolveException(msg);
+	}
 }
 
 
@@ -197,6 +212,8 @@ void BundleLoader::loadBundle(Bundle::Ptr pBundle)
 
 void BundleLoader::unloadBundle(Bundle::Ptr pBundle)
 {
+	Poco::Mutex::ScopedLock lifecycleLock(pBundle->_lifecycleMutex);
+
 	if (pBundle->isStarted())
 		throw BundleStateException("An active bundle cannot be unloaded", pBundle->symbolicName());
 
@@ -276,7 +293,7 @@ void BundleLoader::listRequiringBundles(Bundle::ConstPtr pBundle, std::vector<Bu
 		const Bundle::ResolvedDependencies deps = (*it)->resolvedDependencies();
 		const bool requiresBundle = std::any_of(deps.begin(), deps.end(), [&required](const Bundle::ResolvedDependency& dep)
 		{
-			return required.find(dep.symbolicName) != required.end();
+			return required.contains(dep.symbolicName);
 		});
 		if (requiresBundle)
 		{
@@ -426,6 +443,11 @@ void BundleLoader::stopBundleOnShutdown(Bundle::Ptr pBundle)
 		Poco::SystemException se(exc.what());
 		handleStopError(pBundle, se);
 	}
+	catch (...)
+	{
+		Poco::UnhandledException ue("unknown exception");
+		handleStopError(pBundle, ue);
+	}
 }
 
 
@@ -494,63 +516,105 @@ void BundleLoader::unloadAllBundles(bool unloadLibraries)
 
 void BundleLoader::resolveBundle(Bundle* pBundle)
 {
-	// The bundles that pBundle requires are resolved with _mutex held. Their
-	// events are fired once the outermost resolution has released it, as a
-	// delegate may call back into the loader.
-	std::vector<BundleEvent> deferredEvents;
-	std::exception_ptr pException;
+	resolvingBundles.insert(pBundle);
+	try
 	{
-		Poco::Mutex::ScopedLock lock(_mutex);
+		for (;;)
+		{
+			std::vector<Bundle::Ptr> unresolved;
+			{
+				Poco::Mutex::ScopedLock lock(_mutex);
 
-		++_resolveDepth;
-		try
-		{
-			resolveBundleImpl(pBundle);
+				unresolvedRequirements(pBundle, unresolved);
+				if (unresolved.empty())
+				{
+					resolveBundleImpl(pBundle);
+					break;
+				}
+				checkCircularReference(pBundle, unresolved);
+			}
+			resolveRequiredBundles(pBundle, unresolved);
 		}
-		catch (...)
-		{
-			pException = std::current_exception();
-		}
-		if (--_resolveDepth == 0) std::swap(deferredEvents, _deferredResolveEvents);
 	}
-	for (auto& event: deferredEvents)
+	catch (...)
 	{
-		fireResolveEvent(event);
+		resolvingBundles.erase(pBundle);
+		throw;
 	}
-	if (pException != nullptr) std::rethrow_exception(pException);
+	resolvingBundles.erase(pBundle);
 }
 
 
-void BundleLoader::fireResolveEvent(BundleEvent& event)
+void BundleLoader::unresolvedRequirements(Bundle* pBundle, std::vector<Bundle::Ptr>& unresolved) const
 {
+	unresolvedDependencies(pBundle, unresolved);
+	if (pBundle->isExtensionBundle())
 	{
-		Poco::Mutex::ScopedLock lock(_mutex);
-
-		// _resolveDepth changes only with _mutex held, so here it counts
-		// the resolutions of the calling thread.
-		if (_resolveDepth > 0)
+		Bundle::Ptr pExtendedBundle = pBundle->extendedBundle();
+		if (pExtendedBundle != nullptr && !pExtendedBundle->isResolved())
 		{
-			_deferredResolveEvents.push_back(event);
-			return;
+			unresolved.push_back(pExtendedBundle);
 		}
 	}
-	if (event.what() == BundleEvent::EV_BUNDLE_RESOLVING)
-		_events.bundleResolving(event.bundle().get(), event);
-	else
-		_events.bundleResolved(event.bundle().get(), event);
+}
+
+
+void BundleLoader::checkCircularReference(Bundle* pBundle, const std::vector<Bundle::Ptr>& required) const
+{
+	std::set<const Bundle*> visited;
+	std::vector<Bundle::Ptr> pending(required);
+	while (!pending.empty())
+	{
+		Bundle::Ptr pRequired = pending.back();
+		pending.pop_back();
+		if (!visited.insert(pRequired.get()).second) continue;
+
+		std::vector<Bundle::Ptr> next;
+		unresolvedRequirements(pRequired.get(), next);
+		for (const Bundle::Ptr& pNext: next)
+		{
+			if (pNext.get() == pBundle) throwCircularReference(*pRequired, *pBundle);
+			pending.push_back(pNext);
+		}
+	}
+}
+
+
+void BundleLoader::resolveRequiredBundles(Bundle* pBundle, const std::vector<Bundle::Ptr>& required)
+{
+	for (Bundle::Ptr pRequired: required)
+	{
+		if (resolvingBundles.contains(pRequired.get()))
+		{
+			throwCircularReference(*pBundle, *pRequired);
+		}
+		// Waits for a thread that is resolving the required bundle.
+		Poco::Mutex::ScopedLock lock(pRequired->_lifecycleMutex);
+		if (pRequired->state() != Bundle::BUNDLE_INSTALLED) continue;
+		try
+		{
+			pRequired->resolve();
+		}
+		catch (Poco::Exception& exc)
+		{
+			if (_logger.debug())
+			{
+				_logger.debug("Cannot resolve bundle %s, required by %s: %s"s,
+					pRequired->symbolicName(), pBundle->symbolicName(), exc.displayText());
+			}
+			throw;
+		}
+	}
 }
 
 
 void BundleLoader::resolveBundleImpl(Bundle* pBundle)
 {
-	poco_assert (!isResolving(pBundle));
-
 	if (_logger.debug())
 	{
 		_logger.debug("Resolving bundle %s."s, pBundle->symbolicName());
 	}
 
-	_resolvingBundles.insert(pBundle);
 	try
 	{
 		Bundle::ModuleProviders providers = resolveModules(pBundle);
@@ -572,11 +636,9 @@ void BundleLoader::resolveBundleImpl(Bundle* pBundle)
 	}
 	catch (...)
 	{
-		_resolvingBundles.erase(pBundle);
 		pBundle->clearResolvedDependencies();
 		throw;
 	}
-	_resolvingBundles.erase(pBundle);
 
 	if (_logger.debug())
 	{
@@ -589,14 +651,6 @@ void BundleLoader::resolveBundleImpl(Bundle* pBundle)
 		Bundle::Ptr pExtendedBundle = pBundle->extendedBundle();
 		if (pExtendedBundle != nullptr)
 		{
-			if (!pExtendedBundle->isResolved())
-			{
-				if (_logger.information())
-				{
-					_logger.information("Extended bundle %s not yet resolved - resolving now."s, pExtendedBundle->symbolicName());
-				}
-				pExtendedBundle->resolve();
-			}
 			pExtendedBundle->addExtensionBundle(pBundle);
 			if (_logger.information())
 			{
@@ -707,7 +761,7 @@ void BundleLoader::startBundle(Bundle* pBundle)
 	// Phase 1: validate bundle is known. No state held across the unlock.
 	{
 		Poco::Mutex::ScopedLock lock(_mutex);
-		if (_bundles.find(pBundle->symbolicName()) == _bundles.end())
+		if (!_bundles.contains(pBundle->symbolicName()))
 			throw BundleException("The bundle loader does not know the bundle", pBundle->symbolicName());
 	}
 
@@ -850,8 +904,18 @@ void BundleLoader::uninstallBundle(Bundle* pBundle)
 
 	if (info.deleteOnUninstall.has_value() && *info.deleteOnUninstall)
 	{
-		File bundleFile(pBundle->path());
-		bundleFile.remove(true);
+		// The bundle has been removed from the loader, so the uninstall is
+		// completed even if its file or directory cannot be deleted.
+		try
+		{
+			File(pBundle->path()).remove(true);
+		}
+		catch (Poco::Exception& exc)
+		{
+			_logger.warning("Bundle %s is uninstalled, but its file or directory '%s' cannot be deleted, in full or "
+				"in part, and may be loaded again at the next start: %s"s,
+				pBundle->symbolicName(), pBundle->path(), exc.displayText());
+		}
 	}
 	else if (!info.deleteOnUninstall.has_value() && _logger.information())
 	{
@@ -864,7 +928,7 @@ void BundleLoader::uninstallBundle(Bundle* pBundle)
 
 	if (_logger.information())
 	{
-		_logger.information("Bundle  %s uninstalled."s, pBundle->symbolicName());
+		_logger.information("Bundle %s uninstalled."s, pBundle->symbolicName());
 	}
 }
 
@@ -900,21 +964,10 @@ void BundleLoader::resolveDependency(Bundle* pBundle, const BundleManifest::Depe
 	{
 		if (dependency.versions.isEmpty() || dependency.versions.isInRange(pDepBundle->version()))
 		{
+			// resolveBundle() and refreshResolvedDependencies() have
+			// resolved the required bundles before.
 			if (!pDepBundle->isResolved())
-			{
-				if (!isResolving(pDepBundle))
-				{
-					pDepBundle->resolve();
-				}
-				else
-				{
-					std::string msg("Circular reference detected involving ");
-					msg += pBundle->symbolicName();
-					msg += " and ";
-					msg += pDepBundle->symbolicName();
-					throw BundleResolveException(msg);
-				}
-			}
+				throw BundleResolveException("Required bundle not resolved", pDepBundle->symbolicName());
 
 			Bundle::ResolvedDependency resolvedDep;
 			resolvedDep.symbolicName = pDepBundle->symbolicName();
@@ -952,12 +1005,6 @@ void BundleLoader::resolveDependency(Bundle* pBundle, const BundleManifest::Depe
 }
 
 
-bool BundleLoader::isResolving(Bundle* pBundle) const
-{
-	return _resolvingBundles.find(pBundle) != _resolvingBundles.end();
-}
-
-
 bool BundleLoader::hasStaleDependencies(const Bundle* pBundle) const
 {
 	const Bundle::ResolvedDependencies deps = pBundle->resolvedDependencies();
@@ -975,9 +1022,8 @@ bool BundleLoader::hasStaleDependencies(const Bundle* pBundle) const
 
 void BundleLoader::unresolvedDependencies(Bundle* pBundle, std::vector<Bundle::Ptr>& unresolved) const
 {
-	// Exactly the bundles resolveDependency() would call resolve() on. A
-	// required bundle outside of the requested version range is left alone:
-	// the resolution fails on it, and must not resolve it on the way.
+	// A required bundle outside the version range fails the resolution and
+	// must not be resolved on the way.
 	const BundleManifest::Dependencies& deps = pBundle->requiredBundles();
 	for (BundleManifest::Dependencies::const_iterator it = deps.begin(); it != deps.end(); ++it)
 	{
@@ -1022,24 +1068,8 @@ void BundleLoader::refreshResolvedDependencies(Bundle* pBundle)
 		}
 
 		// Without _mutex. A failure is final: resolving the bundle again
-		// under _mutex would only fail for the same reason, firing the
-		// resolve events of the required bundle under the lock.
-		for (std::vector<Bundle::Ptr>::iterator it = unresolved.begin(); it != unresolved.end(); ++it)
-		{
-			if ((*it)->state() != Bundle::BUNDLE_INSTALLED) continue;
-			try
-			{
-				(*it)->resolve();
-			}
-			catch (Poco::Exception& exc)
-			{
-				if (_logger.debug())
-				{
-					_logger.debug("Cannot resolve bundle %s, required by %s: %s"s, (*it)->symbolicName(), pBundle->symbolicName(), exc.displayText());
-				}
-				throw;
-			}
-		}
+		// under _mutex would only fail for the same reason.
+		resolveRequiredBundles(pBundle, unresolved);
 	}
 }
 
@@ -1059,28 +1089,17 @@ void BundleLoader::resolveAgain(Bundle* pBundle)
 	// previous one in one step: a failure leaves the bundle reporting what it
 	// was resolved against, and a concurrent reader never sees a partial list.
 	Bundle::ResolvedDependencies resolved;
-	Bundle::ModuleProviders providers;
-	_resolvingBundles.insert(pBundle);
-	try
+	Bundle::ModuleProviders providers = resolveModules(pBundle);
+	if (!providers.empty())
 	{
-		providers = resolveModules(pBundle);
-		if (!providers.empty())
-		{
-			resolveProviders(pBundle, providers, &resolved);
-		}
+		resolveProviders(pBundle, providers, &resolved);
+	}
 
-		const BundleManifest::Dependencies& deps = pBundle->requiredBundles();
-		if (!deps.empty())
-		{
-			resolveDependencies(pBundle, deps, &resolved);
-		}
-	}
-	catch (...)
+	const BundleManifest::Dependencies& deps = pBundle->requiredBundles();
+	if (!deps.empty())
 	{
-		_resolvingBundles.erase(pBundle);
-		throw;
+		resolveDependencies(pBundle, deps, &resolved);
 	}
-	_resolvingBundles.erase(pBundle);
 
 	pBundle->setResolution(resolved, providers);
 }
@@ -1175,6 +1194,8 @@ void BundleLoader::unloadActivator(BundleInfo& bundleInfo)
 #if !defined(POCO_OSP_STATIC)
 	if (bundleInfo.pClassLoader != nullptr)
 	{
+		// Reset before the library that holds the activator is unloaded.
+		bundleInfo.pBundle->setActivator(nullptr);
 		if (!bundleInfo.pBundle->activatorClass().empty())
 		{
 			std::string libPath(libraryPathFor(bundleInfo.pBundle));
@@ -1185,7 +1206,6 @@ void BundleLoader::unloadActivator(BundleInfo& bundleInfo)
 			bundleInfo.pClassLoader->unloadLibrary(libPath);
 		}
 		bundleInfo.pClassLoader = nullptr;
-		bundleInfo.pBundle->setActivator(nullptr);
 	}
 #endif
 }
@@ -1200,11 +1220,7 @@ void BundleLoader::installLibraries(Bundle* pBundle)
 
 	for (std::vector<std::string>::iterator it = libs.begin(); it != libs.end(); ++it)
 	{
-		Path p(false);
-		p.pushDirectory("bin");
-		p.pushDirectory(_osName);
-		p.pushDirectory(_osArch);
-		p.setFileName(*it);
+		const Path p(libraryDirectory(), *it);
 
 		if (_codeCache.hasLibrary(*it))
 		{
@@ -1271,26 +1287,53 @@ void BundleLoader::uninstallLibraries(Bundle* pBundle)
 	std::vector<std::string> libs;
 	listLibraries(pBundle, libs);
 
+	// Under _mutex: resolveBundleImpl() installs or relies on a library under
+	// it, before the bundle's state is RESOLVED.
+	Poco::Mutex::ScopedLock lock(_mutex);
 	CodeCache::Lock ccLock(_codeCache);
 
 	for (std::vector<std::string>::iterator it = libs.begin(); it != libs.end(); ++it)
 	{
+		// A bundle that has never been resolved has no library in the code cache.
+		if (!_codeCache.hasLibrary(*it)) continue;
+
+		const Path p(libraryDirectory(), *it);
+		const bool shipped = std::any_of(_bundles.begin(), _bundles.end(),
+			[pBundle, &p](BundleMap::value_type& entry)
+		{
+			Bundle::Ptr& pOther = entry.second.pBundle;
+			return pOther.get() != pBundle
+				&& std::unique_ptr<std::istream>(pOther->storage().getResource(p.toString(Path::PATH_UNIX))) != nullptr;
+		});
+		if (shipped)
+		{
+			if (_logger.debug())
+			{
+				_logger.debug("Library %s is kept for another bundle."s, *it);
+			}
+			continue;
+		}
+
 		if (_logger.debug())
 		{
 			_logger.debug("Uninstalling library %s."s, *it);
 		}
-		_codeCache.uninstallLibrary(*it);
+		try
+		{
+			_codeCache.uninstallLibrary(*it);
+		}
+		catch (Poco::Exception& exc)
+		{
+			_logger.warning("Library %s of bundle %s cannot be removed from the code cache and stays there: %s"s,
+				*it, pBundle->symbolicName(), exc.displayText());
+		}
 	}
 }
 
 
 void BundleLoader::listLibraries(Bundle* pBundle, std::vector<std::string>& list)
 {
-	Path p(false);
-	p.pushDirectory("bin");
-	p.pushDirectory(_osName);
-	p.pushDirectory(_osArch);
-	pBundle->storage().list(p.toString(Path::PATH_UNIX), list);
+	pBundle->storage().list(libraryDirectory().toString(Path::PATH_UNIX), list);
 
 	const auto itInvalid = std::remove_if(list.begin(), list.end(), [this, pBundle](const std::string& name)
 	{
@@ -1300,6 +1343,16 @@ void BundleLoader::listLibraries(Bundle* pBundle, std::vector<std::string>& list
 		return true;
 	});
 	list.erase(itInvalid, list.end());
+}
+
+
+Path BundleLoader::libraryDirectory() const
+{
+	Path p(false);
+	p.pushDirectory("bin");
+	p.pushDirectory(_osName);
+	p.pushDirectory(_osArch);
+	return p;
 }
 
 
@@ -1314,11 +1367,11 @@ const std::string& BundleLoader::libraryNameFor(Bundle* pBundle)
 
 void BundleLoader::sortBundles(std::vector<Bundle::Ptr>& bundles) const
 {
-	bundles.clear();
-	bundles.reserve(_bundles.size());
-
 	std::vector<Bundle::Ptr> remaining;
 	listBundles(remaining);
+
+	bundles.clear();
+	bundles.reserve(remaining.size());
 	// account for run level
 	std::sort(remaining.begin(), remaining.end(), RunLevelLess());
 
@@ -1340,7 +1393,7 @@ void BundleLoader::sortBundles(std::vector<Bundle::Ptr>& bundles) const
 			const Bundle::ResolvedDependencies& deps = (*it)->resolvedDependencies();
 			for (Bundle::ResolvedDependencies::const_iterator itDep = deps.begin(); itDep != deps.end(); ++itDep)
 			{
-				if (loaded.find(itDep->symbolicName) != loaded.end() && sorted.find(itDep->symbolicName) == sorted.end())
+				if (loaded.contains(itDep->symbolicName) && !sorted.contains(itDep->symbolicName))
 				{
 					hasDeps = true;
 					break;
@@ -1409,8 +1462,7 @@ int BundleLoader::nextBundleId()
 #if defined(POCO_OSP_STATIC)
 void BundleLoader::registerBundleActivator(const std::string& className, BundleActivatorFactory* pFactory)
 {
-	BundleActivatorFactoryMap::iterator it = _bundleActivatorFactories.find(className);
-	if (it == _bundleActivatorFactories.end())
+	if (!_bundleActivatorFactories.contains(className))
 	{
 		_bundleActivatorFactories[className] = pFactory;
 	}

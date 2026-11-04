@@ -88,6 +88,15 @@ public:
 		///
 		/// Returns true if the user specified by userName exists, otherwise false.
 
+	[[nodiscard]] virtual bool userEnabled(const std::string& userName) const;
+		/// Checks if a user is enabled.
+		///
+		/// Returns false if the user specified by userName has been disabled
+		/// or locked out, otherwise true. The WebServerDispatcher then refuses
+		/// the user's sessions and bearer tokens as well.
+		///
+		/// The default implementation returns true.
+
 	// Service
 	[[nodiscard]] const std::type_info& type() const override;
 	[[nodiscard]] bool isA(const std::type_info& otherType) const override;

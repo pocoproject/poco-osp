@@ -13,7 +13,6 @@
 
 
 #include "Poco/OSP/Auth/AuthService.h"
-#include "Poco/OSP/ServiceFactory.h"
 #include <string>
 
 
@@ -32,6 +31,12 @@ bool AuthService::authenticateAccount(const std::string& userName, const std::st
 	if (!authenticate(userName, credentials)) return false;
 
 	accountName = userName;
+	return true;
+}
+
+
+bool AuthService::userEnabled(const std::string& /*userName*/) const
+{
 	return true;
 }
 

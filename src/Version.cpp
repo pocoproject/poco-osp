@@ -54,7 +54,10 @@ Version::Version(int major, int minor, int revision, const std::string& designat
 }
 
 
-Version::Version(const std::string& version)
+Version::Version(const std::string& version):
+	_major(0),
+	_minor(0),
+	_revision(0)
 {
 	parse(version);
 }

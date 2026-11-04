@@ -38,13 +38,9 @@ public:
 
 	void addProperties(Poco::Util::AbstractConfiguration::Ptr pConfig);
 		/// Adds a configuration.
-		///
-		/// If shared is true, increments the configuration's reference count.
 
 	void addProperties(Poco::Util::AbstractConfiguration::Ptr pConfig, int priority);
 		/// Adds a configuration with the given priority.
-		///
-		/// If shared is true, increments the configuration's reference count.
 
 	void removeProperties(Poco::Util::AbstractConfiguration::Ptr pConfig);
 		/// Removes the given configuration.

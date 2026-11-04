@@ -39,6 +39,8 @@ public:
 	static CppUnit::Test* suite();
 
 private:
+	static constexpr long WAIT_MS = 10000;
+
 	void onPropertyChanged(const void* pSender, Poco::OSP::PreferencesEvent& event);
 
 	std::string _path;

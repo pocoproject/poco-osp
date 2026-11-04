@@ -61,8 +61,8 @@ public:
 		/// that reaches it throws a Poco::RegularExpressionException.
 		///
 		/// The language syntax is as follows:
-		///     expr          ::= andExpr ["||" andExpr]
-		///     andExpr       ::= relExpr ["&&" relExpr]
+		///     expr          ::= andExpr ("||" andExpr)*
+		///     andExpr       ::= relExpr ("&&" relExpr)*
 		///     relExpr       ::= ["!"] (id [relOp value | "=~" matchExpr]) | subExpr
 		///     subExpr       ::= "(" expr ")"
 		///     relOp         ::= "==" | "!=" | "<" | "<=" | ">" | ">="

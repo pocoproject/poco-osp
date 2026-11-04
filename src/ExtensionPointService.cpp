@@ -71,7 +71,7 @@ void ExtensionPointService::registerExtensionPoint(Bundle::ConstPtr pBundle, con
 {
 	FastMutex::ScopedLock lock(_mutex);
 
-	if (_xpMap.find(id) == _xpMap.end())
+	if (!_xpMap.contains(id))
 	{
 		_xpMap[id] = XPInfo{pExtensionPoint, pBundle};
 

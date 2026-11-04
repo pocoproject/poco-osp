@@ -33,11 +33,6 @@ public:
 	void tearDown() override;
 
 	static CppUnit::Test* suite();
-
-protected:
-	[[nodiscard]] std::string findBundle(const std::string& name);
-
-private:
 };
 
 

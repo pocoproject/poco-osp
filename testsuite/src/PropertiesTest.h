@@ -30,6 +30,7 @@ public:
 	void testKeysDifferingInCaseAreOneKey();
 	void testCopyAssignAndSwap();
 	void testCopyAndSwapWhileModified();
+	void testOppositeAndSelfSwapsInThreadsComplete();
 
 	void setUp() override;
 	void tearDown() override;
@@ -39,6 +40,7 @@ public:
 private:
 	static constexpr int ITERATIONS = 10000;
 	static constexpr int KEYS = 100;
+	static constexpr long WAIT_MS = 10000;
 };
 
 

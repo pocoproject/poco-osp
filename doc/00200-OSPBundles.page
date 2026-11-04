@@ -138,8 +138,9 @@ Following is an example for a manifest file.
   Bundle-Activator: OSP::Sample::BundleActivator
 ----
 
-A property value in a manifest file can contain references to the bundle's properties (stored in
-<[bundle.properties]> and its localized variants). A list of currently defined manifest
+The values of the properties Bundle-Name, Bundle-Vendor and Bundle-Copyright can contain
+references to the bundle's properties (stored in <[bundle.properties]> and its localized variants),
+such as <[${name}]>. A list of currently defined manifest
 properties is given in the next sections. If a property is not recognized by OSP, it is ignored.
 
 !! Manifest Properties
@@ -156,7 +157,7 @@ Currently, this is always <["1.0"]>. This property is required.
 ! Bundle-Name
 
 This property contains the human-readable name of the bundle. It is only used for display
-purposes and can be an arbitrary UTF8-encoded string.
+purposes and can be an arbitrary UTF8-encoded string. This property is required.
 
 
 ! Bundle-Vendor
@@ -183,9 +184,11 @@ The version of the bundle. This property is required.
 
 ! Bundle-Activator
 
-The fully-qualified name of the class implementing the Poco::OSP::BundleActivator interface for this bundle.
+The name of the class implementing the Poco::OSP::BundleActivator interface for this bundle: the name under
+which the class loader manifest of the library exports the class (the argument of <[POCO_EXPORT_CLASS]>), or,
+in a build with <[POCO_OSP_STATIC]>, the name given to Poco::OSP::BundleLoader::registerBundleActivator().
 Optionally, the name of the shared library containing the class can be specified. If no shared library name
-is specified, the name of the library is assumed to be the same as the name of the bundle.
+is specified, the name of the library is assumed to be the same as the symbolic name of the bundle.
 
   bundle-activator ::= class-name [";" "library" "=" library-name]
   class-name       ::= id {"::" id}
@@ -201,7 +204,7 @@ A list of bundles that must be available for this bundle to run. Both the name a
 required bundles can be specified. It is possible to specify either a specific version, or an
 interval of supported versions.
 
-  require-bundle   ::= req-name-version ("," req-name-version)
+  require-bundle   ::= req-name-version ("," req-name-version)*
   req-name-version ::= bundle-name [";" "bundle-version" "=" req-version]
   req-version      ::= part-version | interval
   interval         ::= ("[" | "(") part-version "," part-version ("]" | ")")
@@ -288,7 +291,7 @@ Both the name and the possible versions of required modules can be specified.
 It is possible to specify either a specific version, or an
 interval of possible versions.
 
-  require-module       ::= req-mod-name-version ("," req-mod-name-version)
+  require-module       ::= req-mod-name-version ("," req-mod-name-version)*
   req-mod-name-version ::= module-name [";" "module-version" "=" req-version]
   req-version          ::= part-version | interval
   interval             ::= ("[" | "(") part-version "," part-version ("]" | ")")
@@ -308,7 +311,7 @@ bounds are equal and not both included, such as (1.0.0,1.0.0], is an error.
 
 A list of modules (and their specific version numbers) that are provided by this bundle.
 
-  provide-module       ::= pro-mod-name-version ("," pro-mod-name-version)
+  provide-module       ::= pro-mod-name-version ("," pro-mod-name-version)*
   pro-mod-name-version ::= module-name ";" "module-version" "=" pro-version
   pro-version          ::= major ["." minor ["." revision]]
 ----
@@ -375,6 +378,7 @@ The bundle's file or directory is deleted only if it is in the primary bundle re
 (the first path of <[osp.bundleRepository]>), into which bundles are installed at run-time,
 whether it has been installed there or loaded from there. A bundle in another path, such as
 a development tree given with <[--bundles]> (<[-B]>), is unloaded, but its file or directory is kept.
+A file or directory that cannot be deleted is logged with a warning; the bundle is uninstalled nevertheless.
 
 <%
 <img src="images/OSPLifecycle.png" width="300" height="253" alt="OSP Bundle Lifecycle" border="0">
@@ -399,7 +403,7 @@ this would not be possible anyway. After a bundle has been successfully resolved
 find all required shared libraries in a certain place. The shared libraries of a bundle remain in the code cache until
 the bundle is uninstalled, or the code cache directory is cleared by request of an user or administrator.
 
-Starting with release 2014.1, the shared libraries in the code cache are automatically updated if a new
+The shared libraries in the code cache are automatically updated if a new
 version of a bundle is installed. This behavior can be disabled by setting the <[osp.autoUpdateCodeCache]> configuration
 property to <[false]> in the global application configuration.
 
@@ -407,7 +411,7 @@ Since the shared libraries of all bundles eventually end up in a common director
 naming the shared libraries in bundles to avoid name conflicts. Therefore, the naming convention for bundles
 (reverse domain name) should also be used for shared libraries, if possible.
 
-Starting with release 2016.3, multiple processes on system can share the same code cache directory.
+Multiple processes on a system can share the same code cache directory.
 For this to work, it must be guaranteed that all processes share the same bundle versions.
 Furthermore, the configuration property <[osp.sharedCodeCache]> must be set to true to enable
 locking the code cache during install operations, to prevent conflicts between multiple
@@ -449,7 +453,7 @@ Every class acting as bundle activator for a bundle must be derived from this cl
 ----
 
 The bundle activator is the only class loaded from the bundle by the OSP framework.
-Usually, no other dynamic class loading mechanism is needed, since the class loader is responsible for
+Usually, no other dynamic class loading mechanism is needed, since the bundle activator is responsible for
 registering all services provided by the bundle with the service registry.
 
 If a bundle does not provide a bundle activator, there is no way for the bundle to provide services to
@@ -474,6 +478,7 @@ and the bundle activator can store it internally for later use.
 A bundle can opt in to be notified about state changes in other installed bundles by subscribing to the
 various events offered by Poco::OSP::BundleEvents object returned by Poco::OSP::BundleContext::events().
 The POCO events framework is used for all OSP events.
+A <[bundleResolving]> delegate that throws an exception prevents the resolution of the bundle that the event is fired for, and of the bundle that requires it.
 
 
 !! Logging

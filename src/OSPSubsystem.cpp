@@ -155,16 +155,27 @@ void OSPSubsystem::initialize(Poco::Util::Application& app)
 	_pBundleRepository = std::make_unique<BundleRepository>(bundleRepository, *_pBundleLoader, _pBundleFilter);
 	
 	BundleStreamFactory::registerFactory(*_pBundleLoader);
-	
-	Service::Ptr pExtensionPointService(new ExtensionPointService(_pBundleLoader->events()));
-	Service::Ptr pPreferencesService(new PreferencesService(dataPath, &app.config()));
-	Service::Ptr pBundleInstallerService(new BundleInstallerService(*_pBundleRepository));
-	_pServiceRegistry->registerService(ExtensionPointService::SERVICE_NAME, pExtensionPointService, Properties());
-	_pServiceRegistry->registerService(PreferencesService::SERVICE_NAME, pPreferencesService, Properties());
-	_pServiceRegistry->registerService(BundleInstallerService::SERVICE_NAME, pBundleInstallerService, Properties());
-	
-	loadBundles(app);
-	startBundles(app);
+	try
+	{
+		Service::Ptr pExtensionPointService(new ExtensionPointService(_pBundleLoader->events()));
+		Service::Ptr pPreferencesService(new PreferencesService(dataPath, &app.config()));
+		Service::Ptr pBundleInstallerService(new BundleInstallerService(*_pBundleRepository));
+		_pServiceRegistry->registerService(ExtensionPointService::SERVICE_NAME, pExtensionPointService, Properties());
+		_pServiceRegistry->registerService(PreferencesService::SERVICE_NAME, pPreferencesService, Properties());
+		_pServiceRegistry->registerService(BundleInstallerService::SERVICE_NAME, pBundleInstallerService, Properties());
+
+		loadBundles(app);
+		startBundles(app);
+	}
+	catch (...)
+	{
+		// uninitialize() is not called after a failed initialize(). The factory
+		// would refer to the loader after the subsystem is destroyed, and the
+		// services are destroyed before the loader whose events they use.
+		BundleStreamFactory::unregisterFactory();
+		unregisterServices();
+		throw;
+	}
 
 	app.logger().information("Startup complete.");
 }
@@ -212,13 +223,24 @@ void OSPSubsystem::uninitialize()
 
 		_pBundleLoader->stopAllBundles();
 
-		_pServiceRegistry->unregisterService(ExtensionPointService::SERVICE_NAME);
-		_pServiceRegistry->unregisterService(PreferencesService::SERVICE_NAME);
-		_pServiceRegistry->unregisterService(BundleInstallerService::SERVICE_NAME);
+		unregisterServices();
 
 		_pBundleLoader->unloadAllBundles(false);
 
 		Poco::Util::Application::instance().logger().information("Shutdown complete.");
+	}
+}
+
+
+void OSPSubsystem::unregisterServices()
+{
+	for (const std::string& name:
+		{ExtensionPointService::SERVICE_NAME, PreferencesService::SERVICE_NAME, BundleInstallerService::SERVICE_NAME})
+	{
+		if (_pServiceRegistry->findByName(name) != nullptr)
+		{
+			_pServiceRegistry->unregisterService(name);
+		}
 	}
 }
 

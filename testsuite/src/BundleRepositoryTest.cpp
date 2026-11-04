@@ -12,20 +12,15 @@
 #include "OSPBundleTestSuite.h"
 #include "BundleArchive.h"
 #include "CallbackDelegate.h"
+#include "TestLoader.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
 #include "Poco/OSP/BundleRepository.h"
 #include "Poco/OSP/Bundle.h"
-#include "Poco/OSP/BundleFactory.h"
-#include "Poco/OSP/BundleContextFactory.h"
 #include "Poco/OSP/BundleLoader.h"
 #include "Poco/OSP/BundleFilter.h"
-#include "Poco/OSP/CodeCache.h"
-#include "Poco/OSP/ServiceRegistry.h"
-#include "Poco/OSP/LanguageTag.h"
 #include "Poco/OSP/Version.h"
 #include "Poco/OSP/OSPException.h"
-#include "Poco/OSP/SystemEvents.h"
 #include "Poco/OSP/BundleEvents.h"
 #include "Poco/OSP/BundleInstallerService.h"
 #include "Poco/Path.h"
@@ -34,6 +29,7 @@
 #include "Poco/StreamCopier.h"
 #include "Poco/TemporaryFile.h"
 #include "Poco/Logger.h"
+#include "Poco/Message.h"
 #include "Poco/StreamChannel.h"
 #include "Poco/Delegate.h"
 #include "Poco/Exception.h"
@@ -52,12 +48,7 @@
 
 using Poco::OSP::BundleRepository;
 using Poco::OSP::Bundle;
-using Poco::OSP::BundleFactory;
-using Poco::OSP::BundleContextFactory;
 using Poco::OSP::BundleLoader;
-using Poco::OSP::CodeCache;
-using Poco::OSP::ServiceRegistry;
-using Poco::OSP::LanguageTag;
 using Poco::OSP::Version;
 using Poco::OSP::BundleEvent;
 using Poco::Path;
@@ -125,14 +116,9 @@ BundleRepositoryTest::~BundleRepositoryTest() = default;
 
 void BundleRepositoryTest::testLoadFindsNewestVersionOfEachBundle()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-	BundleRepository repo(findBundleRepository(), loader);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+	BundleRepository repo(createBundleRepository(), loader);
 	
 	repo.loadBundles();
 	
@@ -155,13 +141,8 @@ void BundleRepositoryTest::testLoadFindsNewestVersionOfEachBundle()
 
 void BundleRepositoryTest::testLoadKeepsNewerVersionFoundFirst()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	// the entries are loaded in the order of their names, so version 10.0.0 is found before 2.0.0
 	const std::string symbolicName("com.appinf.osp.test.newer");
@@ -180,15 +161,113 @@ void BundleRepositoryTest::testLoadKeepsNewerVersionFoundFirst()
 }
 
 
+void BundleRepositoryTest::testLoadContinuesAfterBundleThatCannotBeLoaded()
+{
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+
+	// Loaded before, version 2.0.0 of the first bundle makes version 1.0.0 conflict.
+	const std::string conflictingPath(Path(_scratchPath, "com.appinf.osp.test.first_2.0.0.bndl").toString());
+	{
+		Poco::FileOutputStream ostr(conflictingPath);
+		ostr << BundleArchive::create({{"META-INF/manifest.mf",
+			BundleArchive::manifest("com.appinf.osp.test.first", "2.0.0")}});
+	}
+	loader.loadBundle(conflictingPath);
+	for (const char* symbolicName: {"com.appinf.osp.test.first", "com.appinf.osp.test.second"})
+	{
+		Poco::FileOutputStream ostr(Path(_developmentPath, std::string(symbolicName) + "_1.0.0.bndl").toString());
+		ostr << BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest(symbolicName, "1.0.0")}});
+	}
+
+	BundleRepository repo(_developmentPath, loader);
+	repo.loadBundles();
+
+	assertTrue (loader.findBundle("com.appinf.osp.test.first")->version() == Version(2, 0, 0));
+	assertTrue (loader.findBundle("com.appinf.osp.test.second") != nullptr);
+}
+
+
+void BundleRepositoryTest::testLoadUnloadsBundleWhoseLoadedDelegateFails()
+{
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+	for (const char* symbolicName: {"com.appinf.osp.test.first", "com.appinf.osp.test.second"})
+	{
+		Poco::FileOutputStream ostr(Path(_installPath, std::string(symbolicName) + "_1.0.0.bndl").toString());
+		ostr << BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest(symbolicName, "1.0.0")}});
+	}
+
+	// bundleLoaded is fired after the loader has added the bundle. The exception does not derive from Poco::Exception.
+	CallbackDelegate loadedFails([](BundleEvent& event)
+	{
+		if (event.bundle()->symbolicName() == "com.appinf.osp.test.first")
+			throw std::runtime_error("bundle cannot be loaded");
+	});
+	loader.events().bundleLoaded += loadedFails;
+	BundleRepository repo(_installPath, loader);
+	repo.loadBundles();
+	loader.events().bundleLoaded -= loadedFails;
+
+	assertTrue (loader.findBundle("com.appinf.osp.test.first") == nullptr);
+	assertTrue (loader.findBundle("com.appinf.osp.test.second") != nullptr);
+}
+
+
+void BundleRepositoryTest::testLoadReportsWhetherFailedBundleIsUnloaded()
+{
+	// declared before the repository, which logs to it until tearDown() restores the channel
+	std::ostringstream log;
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+	for (const char* symbolicName: {"com.appinf.osp.test.first", "com.appinf.osp.test.second"})
+	{
+		Poco::FileOutputStream ostr(Path(_installPath, std::string(symbolicName) + "_1.0.0.bndl").toString());
+		ostr << BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest(symbolicName, "1.0.0")}});
+	}
+
+	// The first bundle is unloaded, and a handler of the unload event fails.
+	// The second bundle is started, so it cannot be unloaded.
+	CallbackDelegate loadedFails([](BundleEvent& event)
+	{
+		Bundle::Ptr pBundle = event.bundle();
+		if (pBundle->symbolicName() == "com.appinf.osp.test.first")
+			throw Poco::IOException("bundle cannot be loaded", pBundle->symbolicName());
+		if (pBundle->symbolicName() == "com.appinf.osp.test.second")
+		{
+			pBundle->resolve();
+			pBundle->start();
+			throw Poco::IOException("bundle cannot be loaded", pBundle->symbolicName());
+		}
+	});
+	CallbackDelegate unloadedFails([](BundleEvent& event)
+	{
+		if (event.bundle()->symbolicName() == "com.appinf.osp.test.first")
+			throw Poco::IllegalStateException("unload handler fails", event.bundle()->symbolicName());
+	});
+	loader.events().bundleLoaded += loadedFails;
+	loader.events().bundleUnloaded += unloadedFails;
+	Logger::get("osp.core.BundleRepository").setChannel(Poco::makeAuto<Poco::StreamChannel>(log));
+	BundleRepository repo(_installPath, loader);
+	repo.loadBundles();
+	loader.events().bundleLoaded -= loadedFails;
+	loader.events().bundleUnloaded -= unloadedFails;
+
+	assertTrue (loader.findBundle("com.appinf.osp.test.first") == nullptr);
+	assertTrue (log.str().find("Bundle com.appinf.osp.test.first, whose loading has failed, is unloaded, ")
+		!= std::string::npos);
+	Bundle::Ptr pSecond = loader.findBundle("com.appinf.osp.test.second");
+	assertTrue (pSecond != nullptr);
+	assertTrue (pSecond->isActive());
+	assertTrue (log.str().find("Failed to unload bundle com.appinf.osp.test.second, whose loading has failed; "
+		"it stays loaded: ") != std::string::npos);
+}
+
+
 void BundleRepositoryTest::testLoadChoosesBundleOfSameVersionByName()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	// enough pairs that the order of a directory listing that is not
 	// sorted by name differs for at least one of them
@@ -257,14 +336,9 @@ void BundleRepositoryTest::testInstallWritesArchiveIntoFirstPathOnce()
 		0x00, 0x00, 0x00, 0x00, 0x00
 	};
 
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-	BundleRepository repo(_installPath + Path::pathSeparator() + findBundleRepository(), loader);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+	BundleRepository repo(_installPath + Path::pathSeparator() + createBundleRepository(), loader);
 
 	std::string bundleData(reinterpret_cast<const char*>(&TEST_BUNDLE_ZIP[0]), sizeof(TEST_BUNDLE_ZIP));
 	std::istringstream istr(bundleData);
@@ -295,15 +369,10 @@ void BundleRepositoryTest::testInstallWritesArchiveIntoFirstPathOnce()
 
 void BundleRepositoryTest::testFilterThatAcceptsAllLoadsEveryBundle()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	Poco::AutoPtr<CountingFilter> pFilter(new CountingFilter(true));
-	BundleRepository repo(findBundleRepository(), loader, pFilter);
+	BundleRepository repo(createBundleRepository(), loader, pFilter);
 	
 	repo.loadBundles();
 	
@@ -314,15 +383,10 @@ void BundleRepositoryTest::testFilterThatAcceptsAllLoadsEveryBundle()
 
 void BundleRepositoryTest::testFilterThatRejectsAllLoadsNoBundle()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	Poco::AutoPtr<CountingFilter> pFilter(new CountingFilter(false));
-	BundleRepository repo(findBundleRepository(), loader, pFilter);
+	BundleRepository repo(createBundleRepository(), loader, pFilter);
 	
 	repo.loadBundles();
 	
@@ -333,14 +397,9 @@ void BundleRepositoryTest::testFilterThatRejectsAllLoadsNoBundle()
 
 void BundleRepositoryTest::testFilterThatAcceptsOneLoadsOnlyThatBundle()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-	BundleRepository repo(findBundleRepository(), loader, new AcceptOneFilter);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+	BundleRepository repo(createBundleRepository(), loader, new AcceptOneFilter);
 	
 	repo.loadBundles();
 	
@@ -350,13 +409,8 @@ void BundleRepositoryTest::testFilterThatAcceptsOneLoadsOnlyThatBundle()
 
 void BundleRepositoryTest::testInstallRejectsSymbolicNameThatIsNoFileName()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath, loader);
 
 	File outside(Path(_scratchPath, "outside_1.0.0.bndl"));
@@ -383,13 +437,8 @@ void BundleRepositoryTest::testInstallRejectsSymbolicNameThatIsNoFileName()
 
 void BundleRepositoryTest::testInstallRejectsBundleThatFilterRejects()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath, loader, new CountingFilter(false));
 
 	std::istringstream istr(BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest("com.appinf.osp.test.filtered", "1.0.0")}}));
@@ -411,13 +460,8 @@ void BundleRepositoryTest::testInstallRejectsBundleThatFilterRejects()
 
 void BundleRepositoryTest::testTemporaryInstallFileIsNotLoaded()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath, loader);
 
 	// left over by an install that did not complete
@@ -433,13 +477,8 @@ void BundleRepositoryTest::testTemporaryInstallFileIsNotLoaded()
 
 void BundleRepositoryTest::testConcurrentInstallsOfSameBundle()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath, loader);
 
 	const std::string archive(BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest("com.appinf.osp.test.twice", "1.0.0")}}));
@@ -479,21 +518,14 @@ void BundleRepositoryTest::testConcurrentInstallsOfSameBundle()
 
 void BundleRepositoryTest::testInstallFiresBundleInstalled()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath, loader);
-
-	assertTrue (Logger::has("osp.core.BundleRepository") != nullptr);
 
 	_installedBundles.clear();
 	loader.events().bundleInstalled += Poco::delegate(this, &BundleRepositoryTest::handleInstalled);
 	std::istringstream istr(BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest("com.appinf.osp.test.installed", "1.0.0")}}));
-	Bundle::Ptr pBundle = repo.installBundle(istr);
+	repo.installBundle(istr);
 	loader.events().bundleInstalled -= Poco::delegate(this, &BundleRepositoryTest::handleInstalled);
 
 	assertTrue (_installedBundles == std::vector<std::string>({"com.appinf.osp.test.installed"}));
@@ -502,13 +534,8 @@ void BundleRepositoryTest::testInstallFiresBundleInstalled()
 
 void BundleRepositoryTest::testUninstallKeepsBundleOutsideInstallRepository()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	const File installedFile(Path(_installPath, "com.appinf.osp.test.installed_1.0.0.bndl"));
 	const File developmentFile(Path(_developmentPath, "com.appinf.osp.test.development_1.0.0.bndl"));
@@ -537,13 +564,8 @@ void BundleRepositoryTest::testUninstallKeepsBundleOutsideInstallRepository()
 
 void BundleRepositoryTest::testUninstallKeepsBundleInstalledIntoSecondaryPath()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath + Path::pathSeparator() + _developmentPath, loader);
 
 	std::istringstream istr(BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest("com.appinf.osp.test.secondary", "1.0.0")}}));
@@ -557,13 +579,8 @@ void BundleRepositoryTest::testUninstallKeepsBundleInstalledIntoSecondaryPath()
 
 void BundleRepositoryTest::testInstallKeepsLeftoverTemporaryFile()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath, loader);
 
 	// left over by an earlier process, under the first temporary name
@@ -584,13 +601,8 @@ void BundleRepositoryTest::testInstallKeepsLeftoverTemporaryFile()
 
 void BundleRepositoryTest::testInstallKeepsLeftoverTemporaryDirectory()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath, loader);
 
 	// a backup of a bundle directory, left over by an earlier process under the first temporary name
@@ -606,13 +618,8 @@ void BundleRepositoryTest::testInstallKeepsLeftoverTemporaryDirectory()
 
 void BundleRepositoryTest::testInstallKeepsFileOfSameNameThatIsNoLoadedBundle()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath, loader);
 
 	// not loaded, for example because the bundle filter rejected it
@@ -643,13 +650,8 @@ void BundleRepositoryTest::testInstallKeepsFileOfSameNameThatIsNoLoadedBundle()
 
 void BundleRepositoryTest::testReplacementWithSameVersion()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath, loader);
 
 	const std::string manifest(BundleArchive::manifest("com.appinf.osp.test.replaced", "1.0.0"));
@@ -668,13 +670,8 @@ void BundleRepositoryTest::testReplacementWithSameVersion()
 
 void BundleRepositoryTest::testFailedReplacementKeepsReplacedBundle()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath, loader);
 
 	std::istringstream oldArchive(BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest("com.appinf.osp.test.replaced", "1.0.0")}}));
@@ -707,13 +704,8 @@ void BundleRepositoryTest::testFailedReplacementKeepsReplacedBundle()
 
 void BundleRepositoryTest::testFailedReplacementIntoSecondaryPathKeepsReplacedBundle()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath + Path::pathSeparator() + _developmentPath, loader);
 
 	std::istringstream oldArchive(BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest("com.appinf.osp.test.replaced", "1.0.0")}}));
@@ -742,13 +734,8 @@ void BundleRepositoryTest::testFailedReplacementIntoSecondaryPathKeepsReplacedBu
 
 void BundleRepositoryTest::testFailedReplacementStartsRequiringBundleAgain()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath, loader);
 
 	std::istringstream oldArchive(BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest("com.appinf.osp.test.replaced", "1.0.0")}}));
@@ -788,23 +775,39 @@ void BundleRepositoryTest::testFailedReplacementStartsRequiringBundleAgain()
 
 void BundleRepositoryTest::testActivatorInstallsBundlesDuringReplacement()
 {
-	// Released only when both threads have finished: threads that block each
-	// other are left running.
-	auto pCodeCache = std::make_unique<CodeCache>(codeCachePath());
-	auto pRegistry = std::make_unique<ServiceRegistry>();
-	auto pSystemEvents = std::make_unique<Poco::OSP::SystemEvents>();
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(*pRegistry, *pSystemEvents));
-	auto pLoader = std::make_unique<BundleLoader>(*pCodeCache, pBundleFactory, pBundleContextFactory);
-	auto pRepo = std::make_unique<BundleRepository>(_installPath, *pLoader);
+	// Shared with the threads and the delegates; threads that block each other
+	// are left running.
+	struct Shared
+	{
+		Shared(const std::string& codeCachePath, const std::string& installPath):
+			testLoader(codeCachePath),
+			repository(installPath, testLoader.loader())
+		{
+		}
 
-	const std::string replacedName("com.appinf.osp.test.replaced");
-	std::istringstream oldArchive(BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest(replacedName, "1.0.0")}}));
-	pRepo->installBundle(oldArchive);
+		const std::string replacedName{"com.appinf.osp.test.replaced"};
+		TestLoader testLoader;
+		BundleRepository repository;
+		Poco::Event newBundleInstalled;
+		Poco::Event newBundleStarting;
+		std::atomic<bool> secondReplacementRejected{false};
+		std::atomic<bool> otherInstalled{false};
+		std::string replacingError;
+		Poco::Event replacingDone;
+		std::string startingError;
+		Poco::Event startingDone;
+	};
+	auto pOwnedShared = std::make_unique<Shared>(codeCachePath(), _installPath);
+	Shared* pShared = pOwnedShared.get();
+	BundleLoader& loader = pShared->testLoader.loader();
+
+	std::istringstream oldArchive(BundleArchive::create({{"META-INF/manifest.mf",
+		BundleArchive::manifest(pShared->replacedName, "1.0.0")}}));
+	pShared->repository.installBundle(oldArchive);
 	std::istringstream userArchive(BundleArchive::create({{"META-INF/manifest.mf",
-		BundleArchive::manifest("com.appinf.osp.test.user", "1.0.0") + "Require-Bundle: " + replacedName + "\n"}}));
-	Bundle::Ptr pUser = pRepo->installBundle(userArchive);
+		BundleArchive::manifest("com.appinf.osp.test.user", "1.0.0")
+			+ "Require-Bundle: " + pShared->replacedName + "\n"}}));
+	Bundle::Ptr pUser = pShared->repository.installBundle(userArchive);
 	pUser->resolve();
 	pUser->start();
 
@@ -812,102 +815,94 @@ void BundleRepositoryTest::testActivatorInstallsBundlesDuringReplacement()
 	// starts the new bundle; then it starts the user, which requires the new
 	// bundle, while the starting thread installs bundles from bundleStarting,
 	// as an activator of the new bundle would.
-	Poco::Event newBundleInstalled;
-	Poco::Event newBundleStarting;
-	CallbackDelegate installedDelegate([&](BundleEvent& event)
+	CallbackDelegate installedDelegate([pShared](BundleEvent& event)
 	{
-		if (event.bundle()->symbolicName() == replacedName && event.bundle()->version() == Version(2, 0, 0))
+		if (event.bundle()->symbolicName() == pShared->replacedName && event.bundle()->version() == Version(2, 0, 0))
 		{
-			newBundleInstalled.set();
-			if (!newBundleStarting.tryWait(WAIT_MS)) throw Poco::TimeoutException("the new bundle is not started");
+			pShared->newBundleInstalled.set();
+			if (!pShared->newBundleStarting.tryWait(WAIT_MS))
+				throw Poco::TimeoutException("the new bundle is not started");
 		}
 	});
-	std::atomic<bool> secondReplacementRejected(false);
-	std::atomic<bool> otherInstalled(false);
-	CallbackDelegate startingDelegate([&](BundleEvent& event)
+	CallbackDelegate startingDelegate([pShared](BundleEvent& event)
 	{
-		if (event.bundle()->symbolicName() == replacedName && event.bundle()->version() == Version(2, 0, 0))
+		if (event.bundle()->symbolicName() == pShared->replacedName && event.bundle()->version() == Version(2, 0, 0))
 		{
-			newBundleStarting.set();
-			std::istringstream secondArchive(BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest(replacedName, "3.0.0")}}));
+			pShared->newBundleStarting.set();
+			std::istringstream secondArchive(BundleArchive::create({{"META-INF/manifest.mf",
+				BundleArchive::manifest(pShared->replacedName, "3.0.0")}}));
 			try
 			{
-				pRepo->installBundle(secondArchive, replacedName);
+				pShared->repository.installBundle(secondArchive, pShared->replacedName);
 			}
 			catch (Poco::OSP::BundleInstallException&)
 			{
-				secondReplacementRejected = true;
+				pShared->secondReplacementRejected = true;
 			}
 			std::istringstream otherArchive(BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest("com.appinf.osp.test.other", "1.0.0")}}));
-			pRepo->installBundle(otherArchive);
-			otherInstalled = true;
+			pShared->repository.installBundle(otherArchive);
+			pShared->otherInstalled = true;
 		}
 	});
-	pLoader->events().bundleInstalled += installedDelegate;
-	pLoader->events().bundleStarting += startingDelegate;
+	loader.events().bundleInstalled += installedDelegate;
+	loader.events().bundleStarting += startingDelegate;
 
-	std::string replacingError;
-	Poco::Event replacingDone;
-	std::thread replacing([&]()
+	std::thread replacing([pShared]()
 	{
 		try
 		{
-			std::istringstream newArchive(BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest(replacedName, "2.0.0")}}));
-			pRepo->installBundle(newArchive, replacedName);
+			std::istringstream newArchive(BundleArchive::create({{"META-INF/manifest.mf",
+				BundleArchive::manifest(pShared->replacedName, "2.0.0")}}));
+			pShared->repository.installBundle(newArchive, pShared->replacedName);
 		}
 		catch (Poco::Exception& exc)
 		{
-			replacingError = exc.displayText();
+			pShared->replacingError = exc.displayText();
 		}
-		replacingDone.set();
+		pShared->replacingDone.set();
 	});
-	std::string startingError;
-	Poco::Event startingDone;
-	std::thread starting([&]()
+	std::thread starting([pShared]()
 	{
 		try
 		{
-			if (!newBundleInstalled.tryWait(WAIT_MS)) throw Poco::TimeoutException("the new bundle is not installed");
-			Bundle::Ptr pNew = pLoader->findBundle(replacedName);
+			if (!pShared->newBundleInstalled.tryWait(WAIT_MS))
+				throw Poco::TimeoutException("the new bundle is not installed");
+			Bundle::Ptr pNew = pShared->testLoader.loader().findBundle(pShared->replacedName);
 			pNew->resolve();
 			pNew->start();
 		}
 		catch (Poco::Exception& exc)
 		{
-			startingError = exc.displayText();
+			pShared->startingError = exc.displayText();
 		}
-		startingDone.set();
+		pShared->startingDone.set();
 	});
 
-	const bool replacingFinished = replacingDone.tryWait(WAIT_MS);
-	const bool startingFinished = startingDone.tryWait(WAIT_MS);
+	const bool replacingFinished = pShared->replacingDone.tryWait(WAIT_MS);
+	const bool startingFinished = pShared->startingDone.tryWait(WAIT_MS);
 	if (!replacingFinished || !startingFinished)
 	{
 		replacing.detach();
 		starting.detach();
 		static std::vector<const void*> blockedObjects;
-		blockedObjects.push_back(pRepo.release());
-		blockedObjects.push_back(pLoader.release());
-		blockedObjects.push_back(pSystemEvents.release());
-		blockedObjects.push_back(pRegistry.release());
-		blockedObjects.push_back(pCodeCache.release());
+		blockedObjects.push_back(pOwnedShared.release());
 		fail("the replacement and the installs from bundleStarting block each other");
 	}
 	replacing.join();
 	starting.join();
-	pLoader->events().bundleInstalled -= installedDelegate;
-	pLoader->events().bundleStarting -= startingDelegate;
+	loader.events().bundleInstalled -= installedDelegate;
+	loader.events().bundleStarting -= startingDelegate;
 
-	assertEqual ("", replacingError);
-	assertEqual ("", startingError);
-	assertTrue (secondReplacementRejected);
-	assertTrue (otherInstalled);
-	Bundle::Ptr pNew = pLoader->findBundle(replacedName);
+	assertEqual ("", pShared->replacingError);
+	assertEqual ("", pShared->startingError);
+	assertTrue (pShared->secondReplacementRejected);
+	assertTrue (pShared->otherInstalled);
+	Bundle::Ptr pNew = loader.findBundle(pShared->replacedName);
 	assertTrue (pNew->version() == Version(2, 0, 0));
 	assertTrue (pNew->isActive());
 	assertTrue (pUser->isActive());
 
-	pLoader->unloadAllBundles();
+	loader.unloadAllBundles();
 }
 
 
@@ -915,13 +910,8 @@ void BundleRepositoryTest::testReplacementDoesNotReportReplacedFileAsKept()
 {
 	// declared before the loader, which logs to it until tearDown() restores the channel
 	std::ostringstream log;
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath + Path::pathSeparator() + _developmentPath, loader);
 
 	// in a secondary path, where an uninstall keeps the file and says so
@@ -930,9 +920,12 @@ void BundleRepositoryTest::testReplacementDoesNotReportReplacedFileAsKept()
 
 	Logger& loaderLogger = Logger::get("osp.core.BundleLoader");
 	loaderLogger.setChannel(new Poco::StreamChannel(log));
+	loaderLogger.setLevel(Poco::Message::PRIO_INFORMATION);
 	std::istringstream newArchive(BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest("com.appinf.osp.test.replaced", "2.0.0")}}));
 	repo.installBundle(_developmentPath, newArchive, "com.appinf.osp.test.replaced");
 
+	// The information messages of the uninstall are logged, and none says the file is kept.
+	assertTrue (log.str().find("uninstalled.") != std::string::npos);
 	assertTrue (log.str().find("is kept") == std::string::npos);
 	std::vector<std::string> files;
 	File(_developmentPath).list(files);
@@ -942,13 +935,8 @@ void BundleRepositoryTest::testReplacementDoesNotReportReplacedFileAsKept()
 
 void BundleRepositoryTest::testReplacementStartsRequiringBundleAgain()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath, loader);
 
 	std::istringstream oldArchive(BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest("com.appinf.osp.test.replaced", "1.0.0")}}));
@@ -972,15 +960,111 @@ void BundleRepositoryTest::testReplacementStartsRequiringBundleAgain()
 }
 
 
+void BundleRepositoryTest::testReplacementOfUnresolvedBundleWithLibrary()
+{
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+	BundleRepository repo(_installPath, loader);
+
+	// The required bundle is missing: the bundle is never resolved, and its
+	// library never reaches the code cache.
+	const std::string libraryPath("bin/" + loader.osName() + "/" + loader.osArchitecture() + "/libunresolved");
+	std::istringstream oldArchive(BundleArchive::create({
+		{"META-INF/manifest.mf", BundleArchive::manifest("com.appinf.osp.test.unresolved", "1.0.0")
+			+ "Require-Bundle: com.appinf.osp.test.missing\n"},
+		{libraryPath, "library"}}));
+	Bundle::Ptr pOld = repo.installBundle(oldArchive);
+	loader.resolveAllBundles();
+	assertTrue (pOld->state() == Bundle::BUNDLE_INSTALLED);
+
+	std::istringstream newArchive(BundleArchive::create({{"META-INF/manifest.mf",
+		BundleArchive::manifest("com.appinf.osp.test.unresolved", "2.0.0")}}));
+	Bundle::Ptr pNew = repo.installBundle(newArchive, "com.appinf.osp.test.unresolved");
+
+	assertTrue (pOld->state() == Bundle::BUNDLE_UNINSTALLED);
+	assertTrue (loader.findBundle("com.appinf.osp.test.unresolved") == pNew);
+	std::vector<std::string> files;
+	File(_installPath).list(files);
+	assertTrue (files == std::vector<std::string>({"com.appinf.osp.test.unresolved_2.0.0.bndl"}));
+}
+
+
+void BundleRepositoryTest::testFailedUninstallOfReplacedBundleReportsItsError()
+{
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+	BundleRepository repo(_installPath, loader);
+
+	std::istringstream oldArchive(BundleArchive::create({{"META-INF/manifest.mf",
+		BundleArchive::manifest("com.appinf.osp.test.replaced", "1.0.0")}}));
+	repo.installBundle(oldArchive);
+
+	// bundleUnloaded is fired after the loader has removed the replaced bundle.
+	CallbackDelegate unloadedFails([](BundleEvent& event)
+	{
+		if (event.bundle()->version() == Version(1, 0, 0))
+			throw Poco::IOException("bundle cannot be unloaded", event.bundle()->symbolicName());
+	});
+	loader.events().bundleUnloaded += unloadedFails;
+	std::istringstream newArchive(BundleArchive::create({{"META-INF/manifest.mf",
+		BundleArchive::manifest("com.appinf.osp.test.replaced", "2.0.0")}}));
+	try
+	{
+		repo.installBundle(newArchive, "com.appinf.osp.test.replaced");
+		fail("the replaced bundle cannot be unloaded - must throw");
+	}
+	catch (Poco::IOException&)
+	{
+	}
+	loader.events().bundleUnloaded -= unloadedFails;
+}
+
+
+void BundleRepositoryTest::testFailedInstallReportsBundleAsUnloaded()
+{
+	// declared before the repository, which logs to it until tearDown() restores the channel
+	std::ostringstream log;
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+	Logger::get("osp.core.BundleRepository").setChannel(Poco::makeAuto<Poco::StreamChannel>(log));
+	BundleRepository repo(_installPath, loader);
+
+	// The bundle is unloaded, and a handler of the unload event fails.
+	CallbackDelegate loadedFails([](BundleEvent& event)
+	{
+		if (event.bundle()->symbolicName() == "com.appinf.osp.test.installed")
+			throw Poco::IOException("bundle cannot be loaded", event.bundle()->symbolicName());
+	});
+	CallbackDelegate unloadedFails([](BundleEvent& event)
+	{
+		if (event.bundle()->symbolicName() == "com.appinf.osp.test.installed")
+			throw Poco::IllegalStateException("unload handler fails", event.bundle()->symbolicName());
+	});
+	loader.events().bundleLoaded += loadedFails;
+	loader.events().bundleUnloaded += unloadedFails;
+	std::istringstream archive(BundleArchive::create({{"META-INF/manifest.mf",
+		BundleArchive::manifest("com.appinf.osp.test.installed", "1.0.0")}}));
+	try
+	{
+		repo.installBundle(archive);
+		fail("the bundle cannot be loaded - must throw");
+	}
+	catch (Poco::IOException&)
+	{
+	}
+	loader.events().bundleLoaded -= loadedFails;
+	loader.events().bundleUnloaded -= unloadedFails;
+
+	assertTrue (loader.findBundle("com.appinf.osp.test.installed") == nullptr);
+	assertTrue (log.str().find("Bundle com.appinf.osp.test.installed, whose installation has failed, is unloaded, ")
+		!= std::string::npos);
+}
+
+
 void BundleRepositoryTest::testInstallOfCorruptArchiveLeavesNoFile()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath, loader);
 
 	std::istringstream istr("this is not a ZIP archive");
@@ -1000,13 +1084,8 @@ void BundleRepositoryTest::testInstallOfCorruptArchiveLeavesNoFile()
 
 void BundleRepositoryTest::testMissingRepositoryPathIsSkipped()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	{
 		Poco::FileOutputStream ostr(Path(_installPath, "com.appinf.osp.test.present_1.0.0.bndl").toString());
 		ostr << BundleArchive::create({{"META-INF/manifest.mf", BundleArchive::manifest("com.appinf.osp.test.present", "1.0.0")}});
@@ -1020,13 +1099,8 @@ void BundleRepositoryTest::testMissingRepositoryPathIsSkipped()
 
 void BundleRepositoryTest::testRepositoryPathWithGlobPattern()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	for (const std::string name: {"a", "b"})
 	{
 		const std::string repoPath(Path(_scratchPath, "repo-" + name).toString());
@@ -1043,13 +1117,8 @@ void BundleRepositoryTest::testRepositoryPathWithGlobPattern()
 
 void BundleRepositoryTest::testInstallerServiceInstallsFromUriAndReplaces()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	BundleRepository repo(_installPath, loader);
 	Poco::AutoPtr<Poco::OSP::BundleInstallerService> pInstaller(new Poco::OSP::BundleInstallerService(repo));
 
@@ -1139,11 +1208,24 @@ std::vector<std::string> BundleRepositoryTest::loadedBundleNames(const BundleLoa
 }
 
 
-std::string BundleRepositoryTest::findBundleRepository()
+std::string BundleRepositoryTest::createBundleRepository()
 {
-	std::string path = OSPBundleTestSuite::findBundlesPath();
-	assert(!path.empty());
-	return path;
+	Path repositoryPath(Path::forDirectory(_scratchPath));
+	repositoryPath.pushDirectory("bundles");
+	File(repositoryPath).createDirectories();
+	const std::string testBundlesPath(OSPBundleTestSuite::testBundlesPath());
+	std::vector<std::string> names;
+	File(testBundlesPath).list(names);
+	for (const auto& name: names)
+	{
+		File(Path(Path::forDirectory(testBundlesPath), name)).copyTo(repositoryPath.toString());
+	}
+
+	Poco::FileOutputStream ostr(Path(repositoryPath, "com.appinf.osp.bundle2_1.0.0.bndl").toString());
+	ostr << BundleArchive::createFromDirectory(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle2_1.0.0"));
+	ostr.close();
+
+	return repositoryPath.toString();
 }
 
 
@@ -1153,6 +1235,9 @@ CppUnit::Test* BundleRepositoryTest::suite()
 
 	CppUnit_addTest(pSuite, BundleRepositoryTest, testLoadFindsNewestVersionOfEachBundle);
 	CppUnit_addTest(pSuite, BundleRepositoryTest, testLoadKeepsNewerVersionFoundFirst);
+	CppUnit_addTest(pSuite, BundleRepositoryTest, testLoadContinuesAfterBundleThatCannotBeLoaded);
+	CppUnit_addTest(pSuite, BundleRepositoryTest, testLoadUnloadsBundleWhoseLoadedDelegateFails);
+	CppUnit_addTest(pSuite, BundleRepositoryTest, testLoadReportsWhetherFailedBundleIsUnloaded);
 	CppUnit_addTest(pSuite, BundleRepositoryTest, testLoadChoosesBundleOfSameVersionByName);
 	CppUnit_addTest(pSuite, BundleRepositoryTest, testInstallWritesArchiveIntoFirstPathOnce);
 	CppUnit_addTest(pSuite, BundleRepositoryTest, testFilterThatAcceptsAllLoadsEveryBundle);
@@ -1175,6 +1260,9 @@ CppUnit::Test* BundleRepositoryTest::suite()
 	CppUnit_addTest(pSuite, BundleRepositoryTest, testReplacementDoesNotReportReplacedFileAsKept);
 	CppUnit_addTest(pSuite, BundleRepositoryTest, testReplacementStartsRequiringBundleAgain);
 	CppUnit_addTest(pSuite, BundleRepositoryTest, testActivatorInstallsBundlesDuringReplacement);
+	CppUnit_addTest(pSuite, BundleRepositoryTest, testReplacementOfUnresolvedBundleWithLibrary);
+	CppUnit_addTest(pSuite, BundleRepositoryTest, testFailedUninstallOfReplacedBundleReportsItsError);
+	CppUnit_addTest(pSuite, BundleRepositoryTest, testFailedInstallReportsBundleAsUnloaded);
 	CppUnit_addTest(pSuite, BundleRepositoryTest, testInstallOfCorruptArchiveLeavesNoFile);
 	CppUnit_addTest(pSuite, BundleRepositoryTest, testMissingRepositoryPathIsSkipped);
 	CppUnit_addTest(pSuite, BundleRepositoryTest, testRepositoryPathWithGlobPattern);

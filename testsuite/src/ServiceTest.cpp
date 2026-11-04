@@ -9,20 +9,17 @@
 
 
 #include "ServiceTest.h"
+#include "TestLoader.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
 #include "Poco/OSP/ServiceImpl.h"
 #include "Poco/OSP/Bundle.h"
-#include "Poco/OSP/BundleFactory.h"
-#include "Poco/OSP/BundleContextFactory.h"
 #include "Poco/OSP/BundleLoader.h"
-#include "Poco/OSP/CodeCache.h"
 #include "Poco/OSP/ServiceRegistry.h"
-#include "Poco/OSP/LanguageTag.h"
-#include "Poco/OSP/SystemEvents.h"
 #include "Poco/OSP/PreferencesService.h"
 #include "Poco/OSP/ServiceFinder.h"
 #include "Poco/OSP/Properties.h"
+#include "Poco/OSP/Auth/AuthService.h"
 #include "Poco/Util/MapConfiguration.h"
 #include "Poco/TemporaryFile.h"
 #include "Poco/Exception.h"
@@ -32,13 +29,9 @@
 using Poco::OSP::Service;
 using Poco::OSP::ServiceImpl;
 using Poco::OSP::Bundle;
-using Poco::OSP::BundleFactory;
 using Poco::OSP::BundleContext;
-using Poco::OSP::BundleContextFactory;
 using Poco::OSP::BundleLoader;
-using Poco::OSP::CodeCache;
 using Poco::OSP::ServiceRegistry;
-using Poco::OSP::LanguageTag;
 using Poco::OSP::PreferencesService;
 using Poco::OSP::ServiceFinder;
 using Poco::AutoPtr;
@@ -80,6 +73,31 @@ namespace
 		UniqueNameService(const std::string& name = SERVICE_NAME):
 			ServiceImpl(name)
 		{
+		}
+	};
+
+	class NoUserAuthService: public Poco::OSP::Auth::AuthService
+		/// Knows no user and grants no permission.
+	{
+	public:
+		[[nodiscard]] bool authenticate(const std::string&, const std::string&) const override
+		{
+			return false;
+		}
+
+		[[nodiscard]] bool authorize(const std::string&, const std::string&) const override
+		{
+			return false;
+		}
+
+		[[nodiscard]] bool authorize(const std::string&, const std::string&, const std::string&) const override
+		{
+			return false;
+		}
+
+		[[nodiscard]] bool userExists(const std::string&) const override
+		{
+			return false;
 		}
 	};
 }
@@ -227,14 +245,8 @@ void ServiceTest::testServiceBundleConfig()
 {
 	// Set up bundle infrastructure
 	Poco::TemporaryFile codeCacheDir;
-	CodeCache cc(codeCacheDir.path());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCacheDir.path());
+	BundleLoader& loader = testLoader.loader();
 
 	// Load a test bundle (bundle1 has properties in bundle.properties)
 	Bundle::Ptr pBundle = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle1_1.0.0"));
@@ -312,14 +324,9 @@ void ServiceTest::testLoggerIsNamedAfterService()
 void ServiceTest::testServiceConfigIncludesConfigurationOfPreferencesService()
 {
 	Poco::TemporaryFile codeCacheDir;
-	CodeCache cc(codeCacheDir.path());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCacheDir.path());
+	BundleLoader& loader = testLoader.loader();
+	ServiceRegistry& reg = testLoader.registry();
 
 	AutoPtr<MapConfiguration> pGlobalConf = new MapConfiguration;
 	pGlobalConf->setString("global.key", "globalValue");
@@ -344,14 +351,9 @@ void ServiceTest::testServiceConfigIncludesConfigurationOfPreferencesService()
 void ServiceTest::testServiceFinderFindsServiceOfType()
 {
 	Poco::TemporaryFile codeCacheDir;
-	CodeCache cc(codeCacheDir.path());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCacheDir.path());
+	BundleLoader& loader = testLoader.loader();
+	ServiceRegistry& reg = testLoader.registry();
 
 	Bundle::Ptr pBundle = loader.loadBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle1_1.0.0"));
 	pBundle->resolve();
@@ -384,6 +386,15 @@ void ServiceTest::testServiceFinderFindsServiceOfType()
 }
 
 
+void ServiceTest::testAuthServiceEnablesEveryUserByDefault()
+{
+	AutoPtr<NoUserAuthService> pAuthService = new NoUserAuthService;
+
+	assertTrue (pAuthService->userEnabled("alice"));
+	assertTrue (pAuthService->userEnabled(""));
+}
+
+
 void ServiceTest::setUp()
 {
 }
@@ -408,6 +419,7 @@ CppUnit::Test* ServiceTest::suite()
 	CppUnit_addTest(pSuite, ServiceTest, testLoggerIsNamedAfterService);
 	CppUnit_addTest(pSuite, ServiceTest, testServiceConfigIncludesConfigurationOfPreferencesService);
 	CppUnit_addTest(pSuite, ServiceTest, testServiceFinderFindsServiceOfType);
+	CppUnit_addTest(pSuite, ServiceTest, testAuthServiceEnablesEveryUserByDefault);
 
 	return pSuite;
 }

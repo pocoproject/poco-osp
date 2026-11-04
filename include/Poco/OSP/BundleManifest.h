@@ -61,6 +61,10 @@ public:
 		/// Bundle-SymbolicName or Bundle-Version is missing, or if a
 		/// header has a value that is not valid.
 
+	BundleManifest() = delete;
+	BundleManifest(const BundleManifest&) = delete;
+	BundleManifest& operator = (const BundleManifest&) = delete;
+
 	[[nodiscard]] const std::string& name() const;
 		/// Returns the name of the bundle.
 
@@ -191,10 +195,6 @@ protected:
 		/// Destroys the BundleManifest.
 
 private:
-	BundleManifest();
-	BundleManifest(const BundleManifest&);
-	BundleManifest& operator = (const BundleManifest&);
-
 	std::string  _name;
 	std::string  _symbolicName;
 	Version      _version;

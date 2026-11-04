@@ -164,7 +164,7 @@ public:
 
 	Bundle::Ptr installBundle(const std::string& repositoryPath, std::istream& istr, const std::string& replaceBundle);
 		/// Reads a bundle archive file from the given stream
-		/// and installs it in the primary repositoryPath.
+		/// and installs it in the given repositoryPath.
 		///
 		/// The repositoryPath must be one of the bundle repository paths specified
 		/// in the constructor, otherwise the bundle won't be found

@@ -231,7 +231,7 @@ bool Properties::has(const std::string& key) const
 {
 	Poco::FastMutex::ScopedLock _lock(_mutex);
 
-	return _props.find(key) != _props.end();
+	return _props.contains(key);
 }
 
 

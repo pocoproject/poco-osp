@@ -31,6 +31,7 @@ public:
 	void testUnregisterOfUnknownServiceThrowsNotFound();
 	void testUnregisterOfStaleRefKeepsServiceOfSameName();
 	void testFindWithSyntaxErrorKeepsResults();
+	void testLookupDoesNotWaitForQueryEvaluation();
 
 	void setUp() override;
 	void tearDown() override;

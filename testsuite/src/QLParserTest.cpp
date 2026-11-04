@@ -347,8 +347,8 @@ void QLParserTest::testMissingOperandIsSyntaxError()
 
 void QLParserTest::testDeepNestingIsRejected()
 {
-	const std::string::size_type depth = 1000;
-	const std::string query(std::string(depth, '(') + "s" + std::string(depth, ')'));
+	const std::string::size_type maxDepth = QLParser::MAX_NESTING_DEPTH;
+	const std::string query(std::string(maxDepth + 1, '(') + "s" + std::string(maxDepth + 1, ')'));
 	try
 	{
 		parse(query);
@@ -358,7 +358,6 @@ void QLParserTest::testDeepNestingIsRejected()
 	{
 	}
 
-	const std::string::size_type maxDepth = QLParser::MAX_NESTING_DEPTH;
 	Properties props;
 	props.set("s", "foo");
 	assertTrue (parse(std::string(maxDepth, '(') + "s" + std::string(maxDepth, ')'))->evaluate(props));
@@ -389,7 +388,7 @@ void QLParserTest::testLongOperatorChainIsRejected()
 }
 
 
-void QLParserTest::testGlobMatch()
+void QLParserTest::testGlobClassesAndUtf8Characters()
 {
 	Properties props;
 	props.set("s", "b-\xC3\xA4");
@@ -466,7 +465,7 @@ CppUnit::Test* QLParserTest::suite()
 	CppUnit_addTest(pSuite, QLParserTest, testMissingOperandIsSyntaxError);
 	CppUnit_addTest(pSuite, QLParserTest, testDeepNestingIsRejected);
 	CppUnit_addTest(pSuite, QLParserTest, testLongOperatorChainIsRejected);
-	CppUnit_addTest(pSuite, QLParserTest, testGlobMatch);
+	CppUnit_addTest(pSuite, QLParserTest, testGlobClassesAndUtf8Characters);
 	CppUnit_addTest(pSuite, QLParserTest, testGlobPatternWithTooManyWildcardsIsSyntaxError);
 	CppUnit_addTest(pSuite, QLParserTest, testIncompleteTokenAtEndIsReportedAsEndOfExpression);
 

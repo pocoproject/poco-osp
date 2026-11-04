@@ -371,7 +371,7 @@ void NumberLiteralToken::finish(std::istream& istr)
 	else
 	{
 		_isFloat = true;
-		_value += istr.get();
+		_value += static_cast<char>(istr.get());
 		next = istr.peek();
 	}
 	while (next >= '0' && next <= '9')

@@ -5,7 +5,7 @@
 // Package: Core
 // Module:  OSP
 //
-// Basic definitions for the Poco OSP library.
+// Basic definitions for the POCO OSP library.
 // This file must be the first file included by every other OSP
 // header file.
 //

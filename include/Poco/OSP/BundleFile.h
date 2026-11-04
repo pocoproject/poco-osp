@@ -55,7 +55,7 @@ protected:
 		/// Returns true iff dir is a subdirectory of parent.
 
 	~BundleFile() override;
-		/// Destroys the BundleDirectory.
+		/// Destroys the BundleFile.
 
 private:
 	

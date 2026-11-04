@@ -76,6 +76,27 @@ namespace
 	}
 
 
+	void logUnloadError(Logger& logger, const BundleLoader& loader, const Bundle::Ptr& pBundle,
+		const std::string& failedOperation)
+		/// Logs the exception that is being handled, which unloading pBundle
+		/// after its failed loading or installation has thrown.
+	{
+		// BundleLoader::unloadBundle() removes the bundle before it unloads
+		// the activator library and fires bundleUnloaded.
+		if (loader.findBundle(pBundle->symbolicName()).get() == pBundle.get())
+		{
+			logger.error("Failed to unload bundle %s, whose %s has failed; it stays loaded: %s"s,
+				pBundle->symbolicName(), failedOperation, currentExceptionText());
+		}
+		else
+		{
+			logger.error("Bundle %s, whose %s has failed, is unloaded, but unloading its activator library "
+				"or a handler of the unload event failed: %s"s,
+				pBundle->symbolicName(), failedOperation, currentExceptionText());
+		}
+	}
+
+
 	class InstallClaim
 		/// Holds the symbolic names that an install works on in the set
 		/// of names of the installs in progress, and removes them from
@@ -114,7 +135,7 @@ namespace
 			/// Adds the name to the set. Throws a BundleInstallException
 			/// if another install works on it. Requires the mutex to be held.
 		{
-			if (_names.find(name) != _names.end())
+			if (_names.contains(name))
 				throw BundleInstallException("Another install or replacement of the bundle is in progress", name);
 			_names.insert(name);
 			_claimed.push_back(name);
@@ -184,16 +205,37 @@ void BundleRepository::loadBundles()
 	}
 	for (BundleMap::iterator it = bundles.begin(); it != bundles.end(); ++it)
 	{
-		_loader.loadBundle(it->second);
-		if (isInRepository(it->second->path(), _paths[0]))
+		try
 		{
-			_loader.setDeleteOnUninstall(it->second, true);
+			_loader.loadBundle(it->second);
+			if (isInRepository(it->second->path(), _paths[0]))
+			{
+				_loader.setDeleteOnUninstall(it->second, true);
+			}
+			if (_logger.information())
+			{
+				_logger.information("Loaded bundle %s/%s."s,
+					it->second->symbolicName(),
+					it->second->version().toString());
+			}
 		}
-		if (_logger.information())
+		catch (...)
 		{
-			_logger.information("Loaded bundle %s/%s."s,
-				it->second->symbolicName(),
-				it->second->version().toString());
+			_logger.error("Failed to load bundle %s/%s from '%s'; loading continues with the other bundles: %s"s,
+				it->second->symbolicName(), it->second->version().toString(), it->second->path(),
+				currentExceptionText());
+			try
+			{
+				// loadBundle() fails after loading the bundle if a bundleLoaded delegate throws.
+				if (_loader.findBundle(it->second->symbolicName()).get() == it->second.get())
+				{
+					_loader.unloadBundle(it->second);
+				}
+			}
+			catch (...)
+			{
+				logUnloadError(_logger, _loader, it->second, "loading"s);
+			}
 		}
 	}
 }
@@ -247,8 +289,8 @@ void BundleRepository::loadBundles(const std::string& path, BundleMap& bundles)
 				// version, the same one is loaded on every file system
 				std::set<File> entries;
 				DirectoryIterator it(*git);
-				DirectoryIterator end;
-				for (; it != end; ++it)
+				DirectoryIterator endIt;
+				for (; it != endIt; ++it)
 				{
 					entries.insert(*it);
 				}
@@ -482,18 +524,18 @@ Bundle::Ptr BundleRepository::installBundleImpl(std::istream& istr, const std::s
 		}
 		catch (...)
 		{
-			try
+			// loadBundle() fails after loading the bundle if a bundleLoaded delegate throws.
+			Bundle::Ptr pLoadedBundle = _loader.findBundle(symbolicName);
+			if (!pLoadedBundle.isNull() && pLoadedBundle->path() == f.path())
 			{
-				// loadBundle() fails after loading the bundle if a bundleLoaded delegate throws.
-				Bundle::Ptr pLoadedBundle = _loader.findBundle(symbolicName);
-				if (!pLoadedBundle.isNull() && pLoadedBundle->path() == f.path())
+				try
 				{
 					_loader.unloadBundle(pLoadedBundle);
 				}
-			}
-			catch (...)
-			{
-				_logger.error("Failed to unload bundle %s, whose installation has failed: %s"s, symbolicName, currentExceptionText());
+				catch (...)
+				{
+					logUnloadError(_logger, _loader, pLoadedBundle, "installation"s);
+				}
 			}
 			try
 			{
@@ -589,7 +631,11 @@ void BundleRepository::removeBundle(const std::string& symbolicName, const std::
 			}
 			catch (...)
 			{
-				if (deleteOnUninstall) _loader.setDeleteOnUninstall(pBundle, true);
+				// A bundle that the loader has removed before the failure is gone.
+				if (deleteOnUninstall && _loader.findBundle(symbolicName).get() == pBundle.get())
+				{
+					_loader.setDeleteOnUninstall(pBundle, true);
+				}
 				throw;
 			}
 			removed.path = pBundle->path();

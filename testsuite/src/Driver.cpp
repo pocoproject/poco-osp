@@ -1,7 +1,7 @@
 //
 // Driver.cpp
 //
-// Console-based test driver for Poco OSPCore.
+// Console-based test driver for POCO OSP Core.
 //
 // Copyright (c) 2007-2014, Applied Informatics Software Engineering GmbH.
 // All rights reserved.
@@ -24,7 +24,7 @@ int main(int ac, char** av)
 {
 	CppUnitInstallTerminateHandler();
 
-	const std::string bundlesPath(OSPBundleTestSuite::findBundlesPath());
+	const std::string bundlesPath(OSPBundleTestSuite::testBundlesPath());
 	const Poco::File bundlesDir(bundlesPath);
 	if (bundlesPath.empty() || !bundlesDir.exists() || !bundlesDir.isDirectory())
 	{

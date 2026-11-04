@@ -12,7 +12,9 @@
 #include "OSPBundleTestSuite.h"
 #include "BundleArchive.h"
 #include "CallbackDelegate.h"
+#include "TestLoader.h"
 #include "CppUnit/TestCaller.h"
+#include "CppUnit/TestCase.h"
 #include "CppUnit/TestSuite.h"
 #include "Poco/OSP/Bundle.h"
 #include "Poco/OSP/BundleFactory.h"
@@ -32,6 +34,7 @@
 #include "Poco/OSP/BundleInstallerService.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/Util/Application.h"
+#include "Poco/URIStreamOpener.h"
 #include "Poco/DOM/Element.h"
 #include "Poco/Path.h"
 #include "Poco/File.h"
@@ -42,16 +45,26 @@
 #include "Poco/Delegate.h"
 #include "Poco/Logger.h"
 #include "Poco/StreamChannel.h"
-#include "Poco/AbstractDelegate.h"
+#include "Poco/Channel.h"
+#include "Poco/Message.h"
 #include "Poco/Event.h"
 #include "Poco/AutoPtr.h"
 #include "Poco/Exception.h"
+#include <algorithm>
 #include <atomic>
+#include <cerrno>
+#include <cstdio>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
+#if POCO_OS == POCO_OS_MAC_OS_X
+#include <fcntl.h>
+#include <semaphore.h>
+#include <sys/stat.h>
+#endif
 
 
 using Poco::OSP::Bundle;
@@ -75,6 +88,18 @@ namespace
 		/// Thrown by a test delegate as an exception that derives
 		/// neither from Poco::Exception nor from std::exception.
 	{
+	};
+
+
+	struct Resolution
+		/// What a thread that resolves a bundle shares with the test.
+	{
+		Poco::Event resolving;
+		Poco::Event done;
+		bool circular = false;
+			/// True iff the resolution has failed with a BundleResolveException.
+		std::string error;
+			/// The message of another exception that the resolution has thrown.
 	};
 
 
@@ -172,6 +197,127 @@ namespace
 	};
 
 
+	class SharedCodeCache: public CodeCache
+		/// A shared code cache that removes the name of its named mutex when
+		/// it is destroyed: Poco::NamedMutex keeps the name on UNIX platforms,
+		/// which would leave one name behind per test run.
+	{
+	public:
+		SharedCodeCache() = delete;
+		explicit SharedCodeCache(const std::string& path):
+			CodeCache(path, true),
+			_mutexFile(mutexFile(path))
+		{
+		}
+
+		SharedCodeCache(const SharedCodeCache&) = delete;
+		SharedCodeCache(SharedCodeCache&&) = delete;
+
+		~SharedCodeCache()
+		{
+#if POCO_OS == POCO_OS_MAC_OS_X
+			sem_unlink(_mutexFile.c_str());
+#elif defined(POCO_OS_FAMILY_UNIX)
+			std::remove(_mutexFile.c_str());
+#endif
+		}
+
+		SharedCodeCache& operator = (const SharedCodeCache&) = delete;
+		SharedCodeCache& operator = (SharedCodeCache&&) = delete;
+
+		[[nodiscard]] static bool hasMutexName([[maybe_unused]] const std::string& path)
+			/// Returns true iff the name of the named mutex of a shared
+			/// code cache with the given path exists.
+		{
+#if POCO_OS == POCO_OS_MAC_OS_X
+			const std::string file(mutexFile(path));
+			sem_t* pSemaphore = sem_open(file.c_str(), O_CREAT | O_EXCL, S_IRUSR | S_IWUSR, 1);
+			if (pSemaphore == SEM_FAILED) return errno == EEXIST;
+			sem_close(pSemaphore);
+			sem_unlink(file.c_str());
+			return false;
+#elif defined(POCO_OS_FAMILY_UNIX)
+			return File(mutexFile(path)).exists();
+#else
+			return false;
+#endif
+		}
+
+	private:
+		[[nodiscard]] static std::string mutexFile(const std::string& path)
+			/// Returns the file that Poco::NamedMutex creates on UNIX platforms
+			/// for the named mutex of a shared code cache with the given path.
+		{
+#if POCO_OS == POCO_OS_MAC_OS_X
+			return "/" + mutexName(path) + ".mutex";
+#else
+			return "/tmp/" + mutexName(path) + ".mutex";
+#endif
+		}
+
+		std::string _mutexFile;
+	};
+
+
+	class LoaderProbe
+		/// For each event, calls into the loader from another thread, which
+		/// blocks if the event is fired with the loader's mutex held. The
+		/// destructor joins the threads.
+	{
+	public:
+		LoaderProbe() = delete;
+		explicit LoaderProbe(BundleLoader& loader):
+			_loader(loader)
+		{
+		}
+
+		LoaderProbe(const LoaderProbe&) = delete;
+		LoaderProbe(LoaderProbe&&) = delete;
+
+		~LoaderProbe()
+		{
+			for (auto& thread: _threads)
+			{
+				thread.join();
+			}
+		}
+
+		LoaderProbe& operator = (const LoaderProbe&) = delete;
+		LoaderProbe& operator = (LoaderProbe&&) = delete;
+
+		void probe()
+		{
+			auto pProbeDone = std::make_shared<Poco::Event>();
+			_threads.emplace_back([this, pProbeDone]()
+			{
+				std::vector<Bundle::Ptr> bundles;
+				_loader.listBundles(bundles);
+				pProbeDone->set();
+			});
+			++_probes;
+			if (!pProbeDone->tryWait(PROBE_WAIT_MS)) ++_blocked;
+		}
+
+		[[nodiscard]] int probes() const
+		{
+			return _probes;
+		}
+
+		[[nodiscard]] int blocked() const
+		{
+			return _blocked;
+		}
+
+	private:
+		static constexpr long PROBE_WAIT_MS = 10000;
+
+		BundleLoader& _loader;
+		std::vector<std::thread> _threads;
+		int _probes = 0;
+		int _blocked = 0;
+	};
+
+
 	class NullExtensionPoint: public Poco::OSP::ExtensionPoint
 	{
 	public:
@@ -181,57 +327,30 @@ namespace
 	};
 
 
-	struct StartGate
-		/// Holds the start of one bundle in its bundleStarting event
-		/// until it is opened, and reports the start of the others.
-	{
-		std::string heldBundle;
-		Poco::Event held;
-		Poco::Event opened;
-		Poco::Event otherStarting;
-	};
-
-
-	class StartGateDelegate: public Poco::AbstractDelegate<BundleEvent>
-		/// Applies the StartGate without the lock that Poco::Delegate holds
-		/// during the call, so that a held start does not block the
-		/// events of other bundles.
+	class LibraryDecisionGate: public Poco::Channel
+		/// Sets decided when the BundleLoader logs whether it keeps or
+		/// removes the library libshared, and holds a removal until
+		/// removalAllowed is set.
 	{
 	public:
-		explicit StartGateDelegate(StartGate& gate):
-			_gate(gate)
+		void log(const Poco::Message& msg) override
 		{
-		}
-
-		bool notify(const void* /*sender*/, BundleEvent& event) override
-		{
-			if (event.bundle()->symbolicName() == _gate.heldBundle)
+			if (msg.getText() == "Library libshared is kept for another bundle.")
 			{
-				_gate.held.set();
-				_gate.opened.wait();
+				decided.set();
 			}
-			else _gate.otherStarting.set();
-			return true;
+			else if (msg.getText() == "Uninstalling library libshared.")
+			{
+				decided.set();
+				removalAllowed.tryWait(REMOVAL_WAIT_MS);
+			}
 		}
 
-		[[nodiscard]] Poco::AbstractDelegate<BundleEvent>* clone() const override
-		{
-			return new StartGateDelegate(*this);
-		}
-
-		void disable() override
-		{
-			// removed only when no bundle is starting
-		}
-
-		[[nodiscard]] bool equals(const Poco::AbstractDelegate<BundleEvent>& other) const override
-		{
-			const StartGateDelegate* pOther = dynamic_cast<const StartGateDelegate*>(other.unwrap());
-			return pOther != nullptr && &pOther->_gate == &_gate;
-		}
+		Poco::Event decided;
+		Poco::Event removalAllowed{Poco::Event::EVENT_MANUALRESET};
 
 	private:
-		StartGate& _gate;
+		static constexpr long REMOVAL_WAIT_MS = 10000;
 	};
 }
 
@@ -246,16 +365,10 @@ BundleTest::~BundleTest() = default;
 
 void BundleTest::testLoadOne()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle = loader.createBundle(findBundle("com.appinf.osp.bundle1_1.0.0"));
+	Bundle::Ptr pBundle = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle1_1.0.0"));
 
 	assert (pBundle->name() == "OSP Sample Bundle 1");
 	assert (pBundle->symbolicName() == "com.appinf.osp.bundle1");
@@ -366,17 +479,11 @@ void BundleTest::testLoadOne()
 
 void BundleTest::testVersionConflict()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle100 = loader.createBundle(findBundle("com.appinf.osp.bundle1_1.0.0"));
-	Bundle::Ptr pBundle091 = loader.createBundle(findBundle("com.appinf.osp.bundle1_0.9.1"));
+	Bundle::Ptr pBundle100 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle1_1.0.0"));
+	Bundle::Ptr pBundle091 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle1_0.9.1"));
 
 	loader.loadBundle(pBundle100);
 	try
@@ -392,16 +499,11 @@ void BundleTest::testVersionConflict()
 
 void BundleTest::testManifestPlaceholdersAreReplacedByProperties()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
+	const LanguageTag lang("en", "US");
+	TestLoader testLoader(codeCachePath(), lang);
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle = loader.createBundle(findBundle("com.appinf.osp.bundle2_1.0.0"));
+	Bundle::Ptr pBundle = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle2_1.0.0"));
 
 	assert (pBundle->name() == "OSP Sample Bundle 2");
 	assert (pBundle->symbolicName() == "com.appinf.osp.bundle2");
@@ -421,16 +523,11 @@ void BundleTest::testManifestPlaceholdersAreReplacedByProperties()
 
 void BundleTest::testLocalizedPropertiesExactLanguage()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("de", "AT");
+	const LanguageTag lang("de", "AT");
+	TestLoader testLoader(codeCachePath(), lang);
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle = loader.createBundle(findBundle("com.appinf.osp.bundle2_1.0.0"));
+	Bundle::Ptr pBundle = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle2_1.0.0"));
 
 	assert (pBundle->name() == "OSP Sample Bundle 2");
 	assert (pBundle->symbolicName() == "com.appinf.osp.bundle2");
@@ -450,16 +547,11 @@ void BundleTest::testLocalizedPropertiesExactLanguage()
 
 void BundleTest::testLocalizedPropertiesFallBackToLanguage()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("de", "DE");
+	const LanguageTag lang("de", "DE");
+	TestLoader testLoader(codeCachePath(), lang);
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle = loader.createBundle(findBundle("com.appinf.osp.bundle2_1.0.0"));
+	Bundle::Ptr pBundle = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle2_1.0.0"));
 
 	assert (pBundle->name() == "OSP Sample Bundle 2");
 	assert (pBundle->symbolicName() == "com.appinf.osp.bundle2");
@@ -479,16 +571,12 @@ void BundleTest::testLocalizedPropertiesFallBackToLanguage()
 
 void BundleTest::testBundleFile()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("de", "DE");
+	const LanguageTag lang("de", "DE");
+	TestLoader testLoader(codeCachePath(), lang);
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle = loader.createBundle(findBundle("com.appinf.osp.bundle2_1.0.0.bndl"));
+	Bundle::Ptr pBundle = loader.createBundle(createTestBundleArchive("com.appinf.osp.bundle2_1.0.0.bndl",
+		BundleArchive::createFromDirectory(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle2_1.0.0"))));
 
 	assert (pBundle->name() == "OSP Sample Bundle 2");
 	assert (pBundle->symbolicName() == "com.appinf.osp.bundle2");
@@ -508,19 +596,13 @@ void BundleTest::testBundleFile()
 
 void BundleTest::testResolve()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("de", "DE");
+	TestLoader testLoader(codeCachePath(), LanguageTag("de", "DE"));
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle1 = loader.createBundle(findBundle("com.appinf.osp.bundle1_1.0.0"));
-	Bundle::Ptr pBundle2 = loader.createBundle(findBundle("com.appinf.osp.bundle2_1.0.0"));
-	Bundle::Ptr pBundle3 = loader.createBundle(findBundle("com.appinf.osp.bundle3_1.0.0"));
-	Bundle::Ptr pBundle4 = loader.createBundle(findBundle("com.appinf.osp.bundle4_1.0.0"));
+	Bundle::Ptr pBundle1 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle1_1.0.0"));
+	Bundle::Ptr pBundle2 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle2_1.0.0"));
+	Bundle::Ptr pBundle3 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle3_1.0.0"));
+	Bundle::Ptr pBundle4 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle4_1.0.0"));
 
 	loader.loadBundle(pBundle1);
 	loader.loadBundle(pBundle3);
@@ -559,7 +641,7 @@ void BundleTest::testResolve()
 	assert (!pBundle4->isResolved());
 
 	// bundle8 requires bundle3
-	Bundle::Ptr pBundle8 = loader.createBundle(findBundle("com.appinf.osp.bundle8_1.0.0"));
+	Bundle::Ptr pBundle8 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle8_1.0.0"));
 	loader.loadBundle(pBundle8);
 
 	pBundle8->resolve();
@@ -569,22 +651,16 @@ void BundleTest::testResolve()
 
 void BundleTest::testResolveCircularDependencyThrows()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("de", "DE");
+	TestLoader testLoader(codeCachePath(), LanguageTag("de", "DE"));
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	loader.loadBundle(findBundle("com.appinf.osp.bundle1_1.0.0"));
-	loader.loadBundle(findBundle("com.appinf.osp.bundle2_1.0.0"));
+	loader.loadBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle1_1.0.0"));
+	loader.loadBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle2_1.0.0"));
 
 	// bundle5 requires bundle6, which requires bundle7, which requires bundle5
-	Bundle::Ptr pBundle5 = loader.loadBundle(findBundle("com.appinf.osp.bundle5_1.0.0"));
-	Bundle::Ptr pBundle6 = loader.loadBundle(findBundle("com.appinf.osp.bundle6_1.0.0"));
-	Bundle::Ptr pBundle7 = loader.loadBundle(findBundle("com.appinf.osp.bundle7_1.0.0"));
+	Bundle::Ptr pBundle5 = loader.loadBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle5_1.0.0"));
+	Bundle::Ptr pBundle6 = loader.loadBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle6_1.0.0"));
+	Bundle::Ptr pBundle7 = loader.loadBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle7_1.0.0"));
 
 	try
 	{
@@ -603,21 +679,15 @@ void BundleTest::testResolveCircularDependencyThrows()
 
 void BundleTest::testResolveModules()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("de", "DE");
+	TestLoader testLoader(codeCachePath(), LanguageTag("de", "DE"));
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle1 = loader.createBundle(findBundle("com.appinf.osp.bundleA_1.0.0"));
-	Bundle::Ptr pBundle2 = loader.createBundle(findBundle("com.appinf.osp.bundleB_1.0.0"));
-	Bundle::Ptr pBundle3 = loader.createBundle(findBundle("com.appinf.osp.bundleC_1.0.0"));
-	Bundle::Ptr pBundle4 = loader.createBundle(findBundle("com.appinf.osp.bundleD_1.0.0"));
-	Bundle::Ptr pBundle5 = loader.createBundle(findBundle("com.appinf.osp.bundleE_1.0.0"));
-	Bundle::Ptr pBundle6 = loader.createBundle(findBundle("com.appinf.osp.bundleF_1.0.0"));
+	Bundle::Ptr pBundle1 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundleA_1.0.0"));
+	Bundle::Ptr pBundle2 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundleB_1.0.0"));
+	Bundle::Ptr pBundle3 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundleC_1.0.0"));
+	Bundle::Ptr pBundle4 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundleD_1.0.0"));
+	Bundle::Ptr pBundle5 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundleE_1.0.0"));
+	Bundle::Ptr pBundle6 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundleF_1.0.0"));
 
 	loader.loadBundle(pBundle2);
 
@@ -707,19 +777,13 @@ void BundleTest::testResolveModules()
 
 void BundleTest::testStart()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle1 = loader.createBundle(findBundle("com.appinf.osp.bundle1_1.0.0"));
-	Bundle::Ptr pBundle2 = loader.createBundle(findBundle("com.appinf.osp.bundle2_1.0.0"));
-	Bundle::Ptr pBundle3 = loader.createBundle(findBundle("com.appinf.osp.bundle3_1.0.0"));
-	Bundle::Ptr pBundle8 = loader.createBundle(findBundle("com.appinf.osp.bundle8_1.0.0"));
+	Bundle::Ptr pBundle1 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle1_1.0.0"));
+	Bundle::Ptr pBundle2 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle2_1.0.0"));
+	Bundle::Ptr pBundle3 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle3_1.0.0"));
+	Bundle::Ptr pBundle8 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle8_1.0.0"));
 
 	loader.loadBundle(pBundle1);
 	loader.loadBundle(pBundle2);
@@ -744,16 +808,11 @@ void BundleTest::testStart()
 
 void BundleTest::testActivatorStartAndStopAreCalled()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+	ServiceRegistry& reg = testLoader.registry();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle9 = loader.createBundle(findBundle("com.appinf.osp.bundle9_1.0.0"));
+	Bundle::Ptr pBundle9 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle9_1.0.0"));
 	loader.loadBundle(pBundle9);
 
 	pBundle9->resolve();
@@ -772,19 +831,13 @@ void BundleTest::testActivatorStartAndStopAreCalled()
 
 void BundleTest::testStopAll()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle1 = loader.createBundle(findBundle("com.appinf.osp.bundle1_1.0.0"));
-	Bundle::Ptr pBundle2 = loader.createBundle(findBundle("com.appinf.osp.bundle2_1.0.0"));
-	Bundle::Ptr pBundle3 = loader.createBundle(findBundle("com.appinf.osp.bundle3_1.0.0"));
-	Bundle::Ptr pBundle8 = loader.createBundle(findBundle("com.appinf.osp.bundle8_1.0.0"));
+	Bundle::Ptr pBundle1 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle1_1.0.0"));
+	Bundle::Ptr pBundle2 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle2_1.0.0"));
+	Bundle::Ptr pBundle3 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle3_1.0.0"));
+	Bundle::Ptr pBundle8 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle8_1.0.0"));
 
 	loader.loadBundle(pBundle1);
 	loader.loadBundle(pBundle2);
@@ -810,21 +863,15 @@ void BundleTest::testStopAll()
 
 void BundleTest::testResolveStartStopUnloadAll()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle1 = loader.createBundle(findBundle("com.appinf.osp.bundle1_1.0.0"));
-	Bundle::Ptr pBundle2 = loader.createBundle(findBundle("com.appinf.osp.bundle2_1.0.0"));
-	Bundle::Ptr pBundle3 = loader.createBundle(findBundle("com.appinf.osp.bundle3_1.0.0"));
-	Bundle::Ptr pBundle4 = loader.createBundle(findBundle("com.appinf.osp.bundle4_1.0.0"));
-	Bundle::Ptr pBundle8 = loader.createBundle(findBundle("com.appinf.osp.bundle8_1.0.0"));
-	Bundle::Ptr pBundle9 = loader.createBundle(findBundle("com.appinf.osp.bundle9_1.0.0"));
+	Bundle::Ptr pBundle1 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle1_1.0.0"));
+	Bundle::Ptr pBundle2 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle2_1.0.0"));
+	Bundle::Ptr pBundle3 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle3_1.0.0"));
+	Bundle::Ptr pBundle4 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle4_1.0.0"));
+	Bundle::Ptr pBundle8 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle8_1.0.0"));
+	Bundle::Ptr pBundle9 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle9_1.0.0"));
 
 	loader.loadBundle(pBundle1);
 	loader.loadBundle(pBundle2);
@@ -866,17 +913,12 @@ void BundleTest::testResolveStartStopUnloadAll()
 
 void BundleTest::testExtensionBundle()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("fr", "FR");
+	const LanguageTag lang("fr", "FR");
+	TestLoader testLoader(codeCachePath(), lang);
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle2 = loader.createBundle(findBundle("com.appinf.osp.bundle2_1.0.0"));
-	Bundle::Ptr pBundleX = loader.createBundle(findBundle("com.appinf.osp.bundleX_1.0.0"));
+	Bundle::Ptr pBundle2 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle2_1.0.0"));
+	Bundle::Ptr pBundleX = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundleX_1.0.0"));
 
 	loader.loadBundle(pBundle2);
 	loader.loadBundle(pBundleX);
@@ -914,17 +956,11 @@ void BundleTest::testExtensionBundle()
 
 void BundleTest::testExtensionBundleReplacesResource()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("fr", "FR");
+	TestLoader testLoader(codeCachePath(), LanguageTag("fr", "FR"));
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle2 = loader.createBundle(findBundle("com.appinf.osp.bundle2_1.0.0"));
-	Bundle::Ptr pBundleX = loader.createBundle(findBundle("com.appinf.osp.bundleX_1.0.0"));
+	Bundle::Ptr pBundle2 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle2_1.0.0"));
+	Bundle::Ptr pBundleX = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundleX_1.0.0"));
 
 	loader.loadBundle(pBundle2);
 	loader.loadBundle(pBundleX);
@@ -950,22 +986,16 @@ void BundleTest::testExtensionBundleReplacesResource()
 
 void BundleTest::testExtensionBundleAfterUnloadingUnresolvedExtension()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("fr", "FR");
+	TestLoader testLoader(codeCachePath(), LanguageTag("fr", "FR"));
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle2 = loader.loadBundle(findBundle("com.appinf.osp.bundle2_1.0.0"));
-	Bundle::Ptr pBundleX = loader.loadBundle(findBundle("com.appinf.osp.bundleX_1.0.0"));
+	Bundle::Ptr pBundle2 = loader.loadBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle2_1.0.0"));
+	Bundle::Ptr pBundleX = loader.loadBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundleX_1.0.0"));
 
 	pBundle2->resolve();
 	loader.unloadBundle(pBundleX);
 
-	Bundle::Ptr pBundleXAgain = loader.loadBundle(findBundle("com.appinf.osp.bundleX_1.0.0"));
+	Bundle::Ptr pBundleXAgain = loader.loadBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundleX_1.0.0"));
 	pBundleXAgain->resolve();
 
 	std::unique_ptr<std::istream> pStream(pBundle2->getResource("bundle.properties"));
@@ -978,17 +1008,11 @@ void BundleTest::testExtensionBundleAfterUnloadingUnresolvedExtension()
 
 void BundleTest::testSealedBundle()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundleG = loader.createBundle(findBundle("com.appinf.osp.bundleG_1.0.0"));
-	Bundle::Ptr pBundleY = loader.createBundle(findBundle("com.appinf.osp.bundleY_1.0.0"));
+	Bundle::Ptr pBundleG = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundleG_1.0.0"));
+	Bundle::Ptr pBundleY = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundleY_1.0.0"));
 
 	loader.loadBundle(pBundleG);
 	loader.loadBundle(pBundleY);
@@ -1010,14 +1034,8 @@ void BundleTest::testSealedBundle()
 
 void BundleTest::testStartAfterDependencyReplaced()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	// top requires user, user requires dep [1.0,2.0)
 	Bundle::Ptr pDep100 = loader.loadBundle(createTestBundle("com.appinf.osp.test.dep", "1.0.0"));
@@ -1057,14 +1075,8 @@ void BundleTest::testStartAfterDependencyReplaced()
 
 void BundleTest::testStartAfterDependencyReplacedSameVersion()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pDep = loader.loadBundle(createTestBundle("com.appinf.osp.test.dep", "1.0.0"));
 	Bundle::Ptr pUser = loader.loadBundle(createTestBundle("com.appinf.osp.test.user", "1.0.0", "com.appinf.osp.test.dep;bundle-version=[1.0,2.0)"));
@@ -1096,14 +1108,8 @@ void BundleTest::testStartAfterDependencyReplacedSameVersion()
 
 void BundleTest::testStartAfterDependencyReplacedOutOfRange()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pDep100 = loader.loadBundle(createTestBundle("com.appinf.osp.test.dep", "1.0.0"));
 	Bundle::Ptr pUser = loader.loadBundle(createTestBundle("com.appinf.osp.test.user", "1.0.0", "com.appinf.osp.test.dep;bundle-version=[1.0,2.0)"));
@@ -1144,14 +1150,8 @@ void BundleTest::testStartAfterDependencyReplacedOutOfRange()
 
 void BundleTest::testStartAfterDependencyReplacedResolved()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	const std::string provideModule("Provide-Module: com.appinf.osp.test.module;module-version=1.0.0");
 	const std::string requireModule("Require-Module: com.appinf.osp.test.module;module-version=1.0.0");
@@ -1211,14 +1211,8 @@ void BundleTest::testStartAfterDependencyReplacedResolved()
 
 void BundleTest::testStartAfterDependencyReplacedUnresolvable()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pDep100 = loader.loadBundle(createTestBundle("com.appinf.osp.test.dep", "1.0.0"));
 	Bundle::Ptr pUser = loader.loadBundle(createTestBundle("com.appinf.osp.test.user", "1.0.0", "com.appinf.osp.test.dep;bundle-version=[1.0,2.0)"));
@@ -1256,14 +1250,9 @@ void BundleTest::testStartAfterDependencyReplacedUnresolvable()
 
 void BundleTest::testLibraryNameThatIsNoFileNameIsNotInstalled()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+	CodeCache& cc = testLoader.codeCache();
 
 	const std::string binDir("bin/" + loader.osName() + "/" + loader.osArchitecture() + "/");
 	std::string archive = BundleArchive::create({
@@ -1272,15 +1261,9 @@ void BundleTest::testLibraryNameThatIsNoFileNameIsNotInstalled()
 		{binDir + "___evil", "evil"}
 	});
 	// Poco::Zip refuses to write an entry name with a backslash, which
-	// another ZIP tool writes as is; patch the placeholder of the same length.
-	const std::string placeholder(binDir + "___evil");
+	// another ZIP tool writes as is.
 	const std::string evilName("..\\evil");
-	std::string::size_type pos = archive.find(placeholder);
-	while (pos != std::string::npos)
-	{
-		archive.replace(pos + binDir.size(), evilName.size(), evilName);
-		pos = archive.find(placeholder, pos);
-	}
+	BundleArchive::renameEntry(archive, binDir + "___evil", binDir + evilName);
 
 	Bundle::Ptr pBundle = loader.loadBundle(createTestBundleArchive("com.appinf.osp.test.libs_1.0.0.bndl", archive));
 	pBundle->resolve();
@@ -1342,14 +1325,8 @@ void BundleTest::testCopiedFailedEventHasItsOwnException()
 
 void BundleTest::testStopAllAfterRequiredBundleUninstalled()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pDep = loader.loadBundle(createTestBundle("com.appinf.osp.test.dep", "1.0.0"));
 	Bundle::Ptr pUser = loader.loadBundle(createTestBundle("com.appinf.osp.test.user", "1.0.0", "com.appinf.osp.test.dep"));
@@ -1371,14 +1348,8 @@ void BundleTest::testStopAllAfterRequiredBundleUninstalled()
 
 void BundleTest::testResolveModuleWithoutVersion()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pDep = loader.loadBundle(createTestBundle("com.appinf.osp.test.dep", "1.0.0", "", "Provide-Module: com.appinf.osp.test.module;module-version=1.2.0"));
 	Bundle::Ptr pUser = loader.loadBundle(createTestBundle("com.appinf.osp.test.user", "1.0.0", "", "Require-Module: com.appinf.osp.test.module"));
@@ -1393,14 +1364,9 @@ void BundleTest::testResolveModuleWithoutVersion()
 
 void BundleTest::testDamagedLibraryIsNotInstalled()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+	CodeCache& cc = testLoader.codeCache();
 
 	const std::string content("library content");
 	std::string archive = BundleArchive::create({
@@ -1431,14 +1397,8 @@ void BundleTest::testDamagedLibraryIsNotInstalled()
 
 void BundleTest::testStoppedBundleRemovesOnlyItsOwnExtensionPoints()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	Poco::OSP::ExtensionPointService::Ptr pXPS(new Poco::OSP::ExtensionPointService(loader.events()));
 
 	Bundle::Ptr pBundleA = loader.loadBundle(createTestBundle("com.appinf.osp.test.a", "1.0.0"));
@@ -1475,22 +1435,27 @@ void BundleTest::testStoppedBundleRemovesOnlyItsOwnExtensionPoints()
 
 void BundleTest::testStartWhileRequiredBundleIsStarting()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pDep = loader.loadBundle(createTestBundle("com.appinf.osp.test.dep", "1.0.0"));
 	Bundle::Ptr pUser = loader.loadBundle(createTestBundle("com.appinf.osp.test.user", "1.0.0", "com.appinf.osp.test.dep"));
 	pUser->resolve();
 
-	StartGate gate;
-	gate.heldBundle = "com.appinf.osp.test.dep";
-	StartGateDelegate gateDelegate(gate);
+	// Holds the start of the required bundle in its bundleStarting event
+	// until the gate is opened, and reports the start of the user.
+	Poco::Event depHeld;
+	Poco::Event gateOpened;
+	Poco::Event userStarting;
+	CallbackDelegate gateDelegate([&](BundleEvent& event)
+	{
+		if (event.bundle() == pDep)
+		{
+			depHeld.set();
+			if (!gateOpened.tryWait(WAIT_MS)) throw Poco::TimeoutException("the gate is not opened");
+		}
+		else userStarting.set();
+	});
 	loader.events().bundleStarting += gateDelegate;
 
 	std::string depError;
@@ -1505,7 +1470,7 @@ void BundleTest::testStartWhileRequiredBundleIsStarting()
 			depError = exc.displayText();
 		}
 	});
-	gate.held.wait();
+	const bool depWasHeld = depHeld.tryWait(WAIT_MS);
 
 	std::string userError;
 	Poco::Event userDone;
@@ -1521,16 +1486,18 @@ void BundleTest::testStartWhileRequiredBundleIsStarting()
 		}
 		userDone.set();
 	});
-	gate.otherStarting.wait();
+	const bool userWasStarting = userStarting.tryWait(WAIT_MS);
 
 	// The user's start must wait for the required bundle; give it the time
 	// to fail if it does not, then let the required bundle finish starting.
 	const bool userDoneEarly = userDone.tryWait(USER_START_WAIT_MS);
-	gate.opened.set();
+	gateOpened.set();
 	depThread.join();
 	userThread.join();
 	loader.events().bundleStarting -= gateDelegate;
 
+	assertTrue (depWasHeld);
+	assertTrue (userWasStarting);
 	assertFalse (userDoneEarly);
 	assertTrue (depError.empty());
 	assertTrue (userError.empty());
@@ -1539,16 +1506,203 @@ void BundleTest::testStartWhileRequiredBundleIsStarting()
 }
 
 
+void BundleTest::testBundlesRequiringOneBundleAreResolvedConcurrently()
+{
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+
+	Bundle::Ptr pDep = loader.loadBundle(createTestBundle("com.appinf.osp.test.dep", "1.0.0"));
+	Bundle::Ptr pFirst = loader.loadBundle(
+		createTestBundle("com.appinf.osp.test.first", "1.0.0", "com.appinf.osp.test.dep"));
+	Bundle::Ptr pSecond = loader.loadBundle(
+		createTestBundle("com.appinf.osp.test.second", "1.0.0", "com.appinf.osp.test.dep"));
+
+	// Holds the resolution of the required bundle in its bundleResolving
+	// event until the gate is opened, and reports the resolution of the
+	// second bundle.
+	Poco::Event depHeld;
+	Poco::Event gateOpened;
+	Poco::Event secondResolving;
+	CallbackDelegate gateDelegate([&](BundleEvent& event)
+	{
+		if (event.bundle() == pDep)
+		{
+			depHeld.set();
+			if (!gateOpened.tryWait(WAIT_MS)) throw Poco::TimeoutException("the gate is not opened");
+		}
+		else if (event.bundle() == pSecond) secondResolving.set();
+	});
+	loader.events().bundleResolving += gateDelegate;
+
+	std::string firstError;
+	std::thread firstThread([&]()
+	{
+		try
+		{
+			pFirst->resolve();
+		}
+		catch (Poco::Exception& exc)
+		{
+			firstError = exc.displayText();
+		}
+	});
+	const bool depWasHeld = depHeld.tryWait(WAIT_MS);
+
+	std::string secondError;
+	Poco::Event secondDone;
+	std::thread secondThread([&]()
+	{
+		try
+		{
+			pSecond->resolve();
+		}
+		catch (Poco::Exception& exc)
+		{
+			secondError = exc.displayText();
+		}
+		secondDone.set();
+	});
+	const bool secondWasResolving = secondResolving.tryWait(WAIT_MS);
+
+	// If it does not wait for the required bundle, the second resolution completes within this time.
+	const bool secondDoneEarly = secondDone.tryWait(USER_START_WAIT_MS);
+	gateOpened.set();
+	firstThread.join();
+	secondThread.join();
+	loader.events().bundleResolving -= gateDelegate;
+
+	assertTrue (depWasHeld);
+	assertTrue (secondWasResolving);
+	assertFalse (secondDoneEarly);
+	assertEqual ("", firstError);
+	assertEqual ("", secondError);
+	assertTrue (pDep->isResolved());
+	assertTrue (pFirst->isResolved());
+	assertTrue (pSecond->isResolved());
+}
+
+
+void BundleTest::testCircularDependencyResolvedInTwoThreadsThrows()
+{
+	// Shared with the threads, which are left running if they block, so that
+	// the test fails instead of blocking the runner.
+	auto pTestLoader = std::make_shared<TestLoader>(codeCachePath());
+	BundleLoader& loader = pTestLoader->loader();
+
+	Bundle::Ptr pFirst = loader.loadBundle(
+		createTestBundle("com.appinf.osp.test.first", "1.0.0", "com.appinf.osp.test.second"));
+	Bundle::Ptr pSecond = loader.loadBundle(
+		createTestBundle("com.appinf.osp.test.second", "1.0.0", "com.appinf.osp.test.first"));
+	auto pFirstResolution = std::make_shared<Resolution>();
+	auto pSecondResolution = std::make_shared<Resolution>();
+
+	// Each resolution waits in its bundleResolving event, which is fired with
+	// the lifecycle mutex of its bundle held, until the other one has started.
+	CallbackDelegate barrier([pFirst, pFirstResolution, pSecondResolution](BundleEvent& event)
+	{
+		const bool first = event.bundle() == pFirst;
+		Resolution& own = first ? *pFirstResolution : *pSecondResolution;
+		Resolution& other = first ? *pSecondResolution : *pFirstResolution;
+		own.resolving.set();
+		if (!other.resolving.tryWait(WAIT_MS)) throw Poco::TimeoutException("the other resolution has not started");
+	});
+	loader.events().bundleResolving += barrier;
+
+	const auto resolveInThread = [pTestLoader](Bundle::Ptr pBundle, std::shared_ptr<Resolution> pResolution)
+	{
+		return std::thread([pTestLoader, pBundle = std::move(pBundle), pResolution = std::move(pResolution)]() mutable
+		{
+			try
+			{
+				pBundle->resolve();
+			}
+			catch (Poco::OSP::BundleResolveException&)
+			{
+				pResolution->circular = true;
+			}
+			catch (Poco::Exception& exc)
+			{
+				pResolution->error = exc.displayText();
+			}
+			pResolution->done.set();
+		});
+	};
+	std::thread firstThread = resolveInThread(pFirst, pFirstResolution);
+	std::thread secondThread = resolveInThread(pSecond, pSecondResolution);
+	const bool firstDone = pFirstResolution->done.tryWait(WAIT_MS);
+	const bool secondDone = pSecondResolution->done.tryWait(WAIT_MS);
+	if (!firstDone || !secondDone)
+	{
+		firstThread.detach();
+		secondThread.detach();
+		fail("the resolutions of two bundles that require each other wait for each other");
+	}
+	firstThread.join();
+	secondThread.join();
+	loader.events().bundleResolving -= barrier;
+
+	assertEqual ("", pFirstResolution->error);
+	assertEqual ("", pSecondResolution->error);
+	assertTrue (pFirstResolution->circular);
+	assertTrue (pSecondResolution->circular);
+	assertTrue (pFirst->state() == Bundle::BUNDLE_INSTALLED);
+	assertTrue (pSecond->state() == Bundle::BUNDLE_INSTALLED);
+}
+
+
+void BundleTest::testUninstallWaitsForResolution()
+{
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+
+	Bundle::Ptr pBundle = loader.loadBundle(createTestBundle("com.appinf.osp.test.resolving", "1.0.0"));
+
+	// Another thread uninstalls the bundle while it is being resolved.
+	std::string uninstallError;
+	Poco::Event uninstallDone;
+	std::thread uninstallThread;
+	bool uninstallDoneEarly = false;
+	CallbackDelegate uninstallWhileResolving([&](BundleEvent& event)
+	{
+		if (event.bundle() != pBundle) return;
+		uninstallThread = std::thread([&]()
+		{
+			try
+			{
+				pBundle->uninstall();
+			}
+			catch (Poco::Exception& exc)
+			{
+				uninstallError = exc.displayText();
+			}
+			uninstallDone.set();
+		});
+		uninstallDoneEarly = uninstallDone.tryWait(USER_START_WAIT_MS);
+	});
+	loader.events().bundleResolving += uninstallWhileResolving;
+	try
+	{
+		pBundle->resolve();
+	}
+	catch (...)
+	{
+		if (uninstallThread.joinable()) uninstallThread.join();
+		throw;
+	}
+	if (uninstallThread.joinable()) uninstallThread.join();
+	loader.events().bundleResolving -= uninstallWhileResolving;
+
+	assertFalse (uninstallDoneEarly);
+	assertEqual ("", uninstallError);
+	assertTrue (pBundle->state() == Bundle::BUNDLE_UNINSTALLED);
+	assertTrue (loader.findBundle("com.appinf.osp.test.resolving") == nullptr);
+}
+
+
 void BundleTest::testStopAllContinuesAfterFailingBundle()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pFailing = loader.loadBundle(createTestBundle("com.appinf.osp.test.failing", "1.0.0"));
 	Bundle::Ptr pOther = loader.loadBundle(createTestBundle("com.appinf.osp.test.other", "1.0.0"));
@@ -1575,16 +1729,44 @@ void BundleTest::testStopAllContinuesAfterFailingBundle()
 }
 
 
+void BundleTest::testStopAllContinuesAfterUnknownException()
+{
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+
+	Bundle::Ptr pFailing = loader.loadBundle(createTestBundle("com.appinf.osp.test.failing", "1.0.0"));
+	Bundle::Ptr pOther = loader.loadBundle(createTestBundle("com.appinf.osp.test.other", "1.0.0"));
+	pFailing->resolve();
+	pFailing->start();
+	pOther->resolve();
+	pOther->start();
+
+	CallbackDelegate stoppingFails([&](BundleEvent& event)
+	{
+		if (event.bundle() == pFailing) throw NotAnException();
+	});
+	loader.events().bundleStopping += stoppingFails;
+	loader.bundleError += Delegate<BundleTest, const BundleLoader::BundleError>(this, &BundleTest::handleBundleError);
+	_bundleErrors.clear();
+
+	loader.stopAllBundles();
+
+	loader.events().bundleStopping -= stoppingFails;
+	loader.bundleError -= Delegate<BundleTest, const BundleLoader::BundleError>(this, &BundleTest::handleBundleError);
+
+	assertTrue (pFailing->isActive());
+	assertTrue (pOther->state() == Bundle::BUNDLE_RESOLVED);
+	assertTrue (_bundleErrors == std::vector<std::string>({"com.appinf.osp.test.failing"}));
+
+	pFailing->stop();
+	loader.unloadAllBundles();
+}
+
+
 void BundleTest::testUnloadAllKeepsBundleThatFailsToStop()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pFailing = loader.loadBundle(createTestBundle("com.appinf.osp.test.failing", "1.0.0"));
 	Bundle::Ptr pOther = loader.loadBundle(createTestBundle("com.appinf.osp.test.other", "1.0.0"));
@@ -1609,19 +1791,14 @@ void BundleTest::testUnloadAllKeepsBundleThatFailsToStop()
 
 void BundleTest::testEventsAreFiredWithoutLoaderLock()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	_pProbedLoader = &loader;
-	_probesBlocked = 0;
-	_probes = 0;
-	const Delegate<BundleTest, BundleEvent> probe(this, &BundleTest::handleEventProbesLoader);
+	LoaderProbe loaderProbe(loader);
+	CallbackDelegate probe([&loaderProbe](BundleEvent& /*event*/)
+	{
+		loaderProbe.probe();
+	});
 	loader.events().bundleLoaded += probe;
 	loader.events().bundleResolving += probe;
 	loader.events().bundleResolved += probe;
@@ -1641,29 +1818,17 @@ void BundleTest::testEventsAreFiredWithoutLoaderLock()
 	loader.events().bundleResolving -= probe;
 	loader.events().bundleResolved -= probe;
 	loader.events().bundleUnloaded -= probe;
-	for (auto& probeThread: _probeThreads)
-	{
-		probeThread.join();
-	}
-	_probeThreads.clear();
-	_pProbedLoader = nullptr;
 
 	// loaded, resolving, resolved and unloaded for each of the three bundles
-	assertEqual (12, _probes);
-	assertEqual (0, _probesBlocked);
+	assertEqual (12, loaderProbe.probes());
+	assertEqual (0, loaderProbe.blocked());
 }
 
 
 void BundleTest::testResolveEventsOfRequiredBundlesKeepTheirOrder()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pDep = loader.loadBundle(createTestBundle("com.appinf.osp.test.dep", "1.0.0"));
 	Bundle::Ptr pUser = loader.loadBundle(createTestBundle("com.appinf.osp.test.user", "1.0.0", "com.appinf.osp.test.dep"));
@@ -1685,24 +1850,19 @@ void BundleTest::testResolveEventsOfRequiredBundlesKeepTheirOrder()
 
 void BundleTest::testResolveEventsAreFiredWhenResolutionFails()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pDep = loader.loadBundle(createTestBundle("com.appinf.osp.test.dep", "1.0.0", "com.appinf.osp.test.missing"));
 	Bundle::Ptr pUser = loader.loadBundle(createTestBundle("com.appinf.osp.test.user", "1.0.0", "com.appinf.osp.test.dep"));
 
 	_events.clear();
-	_pProbedLoader = &loader;
-	_probesBlocked = 0;
-	_probes = 0;
+	LoaderProbe loaderProbe(loader);
 	const Delegate<BundleTest, BundleEvent> record(this, &BundleTest::handleEvent);
-	const Delegate<BundleTest, BundleEvent> probe(this, &BundleTest::handleEventProbesLoader);
+	CallbackDelegate probe([&loaderProbe](BundleEvent& /*event*/)
+	{
+		loaderProbe.probe();
+	});
 	loader.events().bundleResolving += record;
 	loader.events().bundleResolving += probe;
 	try
@@ -1715,33 +1875,55 @@ void BundleTest::testResolveEventsAreFiredWhenResolutionFails()
 	}
 	loader.events().bundleResolving -= record;
 	loader.events().bundleResolving -= probe;
-	for (auto& probeThread: _probeThreads)
-	{
-		probeThread.join();
-	}
-	_probeThreads.clear();
-	_pProbedLoader = nullptr;
 
 	assertEqual (2, static_cast<int>(_events.size()));
 	assertTrue (_events[0].bundle() == pUser && _events[0].what() == BundleEvent::EV_BUNDLE_RESOLVING);
 	assertTrue (_events[1].bundle() == pDep && _events[1].what() == BundleEvent::EV_BUNDLE_RESOLVING);
-	assertEqual (2, _probes);
-	assertEqual (0, _probesBlocked);
+	assertEqual (2, loaderProbe.probes());
+	assertEqual (0, loaderProbe.blocked());
+}
+
+
+void BundleTest::testBundleResolvingDelegateRefusesRequiredAndExtendedBundle()
+{
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+
+	// app and ext come first by symbolic name and resolve the refused bundle on the way.
+	Bundle::Ptr pRefused = loader.loadBundle(createTestBundle("com.appinf.osp.test.refused", "1.0.0"));
+	Bundle::Ptr pApp = loader.loadBundle(createTestBundle("com.appinf.osp.test.app", "1.0.0",
+		"com.appinf.osp.test.refused"));
+	Bundle::Ptr pExt = loader.loadBundle(createTestBundle("com.appinf.osp.test.ext", "1.0.0",
+		"", "Extends-Bundle: com.appinf.osp.test.refused"));
+
+	std::vector<Bundle::State> refusedStates;
+	CallbackDelegate refuse([&](BundleEvent& event)
+	{
+		if (event.bundle() == pRefused)
+		{
+			refusedStates.push_back(pRefused->state());
+			throw Poco::OSP::BundleResolveException("refused", pRefused->symbolicName());
+		}
+	});
+	loader.events().bundleResolving += refuse;
+	loader.resolveAllBundles();
+	loader.startAllBundles();
+	loader.events().bundleResolving -= refuse;
+
+	// app, ext, and the refused bundle itself
+	assertTrue (refusedStates == std::vector<Bundle::State>(3, Bundle::BUNDLE_INSTALLED));
+	assertTrue (pRefused->state() == Bundle::BUNDLE_INSTALLED);
+	assertTrue (pApp->state() == Bundle::BUNDLE_INSTALLED);
+	assertTrue (pExt->state() == Bundle::BUNDLE_INSTALLED);
 }
 
 
 void BundleTest::testActivatorIsResetWhenBundleIsUnloaded()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle9 = loader.createBundle(findBundle("com.appinf.osp.bundle9_1.0.0"));
+	Bundle::Ptr pBundle9 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle9_1.0.0"));
 	loader.loadBundle(pBundle9);
 
 	pBundle9->resolve();
@@ -1756,16 +1938,10 @@ void BundleTest::testActivatorIsResetWhenBundleIsUnloaded()
 
 void BundleTest::testActivatorIsResetWhenBundlesAreUnloadedWithoutLibraries()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pBundle9 = loader.createBundle(findBundle("com.appinf.osp.bundle9_1.0.0"));
+	Bundle::Ptr pBundle9 = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle9_1.0.0"));
 	loader.loadBundle(pBundle9);
 
 	pBundle9->resolve();
@@ -1779,14 +1955,8 @@ void BundleTest::testActivatorIsResetWhenBundlesAreUnloadedWithoutLibraries()
 
 void BundleTest::testStartAllContinuesAfterUnknownException()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pFailing = loader.loadBundle(createTestBundle("com.appinf.osp.test.failing", "1.0.0"));
 	Bundle::Ptr pOther = loader.loadBundle(createTestBundle("com.appinf.osp.test.other", "1.0.0"));
@@ -1811,14 +1981,8 @@ void BundleTest::testStartAllContinuesAfterUnknownException()
 
 void BundleTest::testStartErrorNamesBundleThatFailsInStartingEvent()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pFailing = loader.loadBundle(createTestBundle("com.appinf.osp.test.failing", "1.0.0"));
 	Bundle::Ptr pOther = loader.loadBundle(createTestBundle("com.appinf.osp.test.other", "1.0.0"));
@@ -1846,14 +2010,8 @@ void BundleTest::testStartErrorNamesBundleThatFailsInStartingEvent()
 
 void BundleTest::testStartErrorNamesBundleThatFailsWhileAnotherThreadStartsBundle()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pFailing = loader.loadBundle(createTestBundle("com.appinf.osp.test.failing", "1.0.0"));
 	// not started by startAllBundles(), but by the other thread
@@ -1895,7 +2053,16 @@ void BundleTest::testStartErrorNamesBundleThatFailsWhileAnotherThreadStartsBundl
 			pOther->start();
 		}
 	});
-	loader.startAllBundles();
+	try
+	{
+		loader.startAllBundles();
+	}
+	catch (...)
+	{
+		startAllDone.set();
+		otherThread.join();
+		throw;
+	}
 	startAllDone.set();
 	otherThread.join();
 
@@ -1915,14 +2082,8 @@ void BundleTest::testStartErrorNamesBundleThatFailsWhileAnotherThreadStartsBundl
 
 void BundleTest::testUninstallRemovesBundleUnlessPrevented()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pRemovable = loader.loadBundle(createTestBundle("com.appinf.osp.test.removable", "1.0.0"));
 	Bundle::Ptr pKept = loader.loadBundle(createTestBundle("com.appinf.osp.test.kept", "1.0.0", "", "Bundle-PreventUninstall: true"));
@@ -1947,16 +2108,196 @@ void BundleTest::testUninstallRemovesBundleUnlessPrevented()
 }
 
 
-void BundleTest::testStartAllStartsByRunLevelAndSkipsLazyStart()
+void BundleTest::testUninstallOfUnresolvedBundleWithLibrary()
 {
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+
+	// The required bundle is missing: the bundle is never resolved, and its
+	// library never reaches the code cache.
+	const std::string bundlePath(createTestBundle("com.appinf.osp.test.unresolved", "1.0.0",
+		"com.appinf.osp.test.missing"));
+	Path libraryPath(Path::forDirectory(bundlePath));
+	libraryPath.pushDirectory("bin");
+	libraryPath.pushDirectory(loader.osName());
+	libraryPath.pushDirectory(loader.osArchitecture());
+	File(libraryPath).createDirectories();
+	libraryPath.setFileName("libunresolved");
+	Poco::FileOutputStream(libraryPath.toString()) << "library";
+	Bundle::Ptr pBundle = loader.loadBundle(bundlePath);
+	loader.resolveAllBundles();
+	assertTrue (pBundle->state() == Bundle::BUNDLE_INSTALLED);
+
+	_events.clear();
+	loader.events().bundleUninstalled += Delegate<BundleTest, BundleEvent>(this, &BundleTest::handleEvent);
+	pBundle->uninstall();
+	loader.events().bundleUninstalled -= Delegate<BundleTest, BundleEvent>(this, &BundleTest::handleEvent);
+
+	assertTrue (pBundle->state() == Bundle::BUNDLE_UNINSTALLED);
+	assertTrue (loader.findBundle("com.appinf.osp.test.unresolved") == nullptr);
+	assertEqual (1, static_cast<int>(_events.size()));
+	assertTrue (_events[0].bundle() == pBundle && _events[0].what() == BundleEvent::EV_BUNDLE_UNINSTALLED);
+}
+
+
+void BundleTest::testTemporaryDirectoryThatCannotBeRemovedIsLogged()
+{
+#if defined(POCO_OS_FAMILY_UNIX)
+	// declared before the loader, which logs to it until tearDown() restores the channel
+	std::ostringstream log;
 	CodeCache cc(codeCachePath());
 	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
 	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	BundleLoader loader(cc,
+		BundleFactory::Ptr(new BundleFactory(LanguageTag("en", "US"))),
+		BundleContextFactory::Ptr(new BundleContextFactory(reg, systemEvents, Path(_scratchPath, "data"))));
+
+	Bundle::Ptr pBundle = loader.loadBundle(createTestBundle("com.appinf.osp.test.temporary", "1.0.0"));
+	Path lockedDir(loader.contextForBundle(pBundle)->temporaryDirectory());
+	lockedDir.pushDirectory("locked");
+	File(lockedDir).createDirectories();
+	Poco::FileOutputStream(Path(lockedDir, "file").toString()) << "data";
+	// Without write permission, the file in the directory cannot be removed.
+	File(lockedDir).setWriteable(false);
+
+	Logger::get("osp.bundle.com.appinf.osp.test.temporary").setChannel(new Poco::StreamChannel(log));
+	loader.unloadBundle(pBundle);
+	File(lockedDir).setWriteable(true);
+
+	assertTrue (log.str().find("The temporary directory " + Path(lockedDir).parent().toString()) == 0);
+#endif
+}
+
+
+void BundleTest::testUninstallCompletesIfBundleDirectoryCannotBeDeleted()
+{
+#if defined(POCO_OS_FAMILY_UNIX)
+	// declared before the loader, which logs to it until tearDown() restores the channel
+	std::ostringstream log;
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+
+	const std::string bundlePath(createTestBundle("com.appinf.osp.test.undeletable", "1.0.0"));
+	Bundle::Ptr pBundle = loader.loadBundle(bundlePath);
+	loader.setDeleteOnUninstall(pBundle, true);
+	loader.events().bundleUninstalled += Poco::delegate(this, &BundleTest::handleEvent);
+	// Without write permission, the manifest in the directory cannot be deleted.
+	Path metaPath(Path::forDirectory(bundlePath));
+	metaPath.pushDirectory("META-INF");
+	File(metaPath).setWriteable(false);
+
+	Logger::get("osp.core.BundleLoader").setChannel(Poco::makeAuto<Poco::StreamChannel>(log));
+	try
+	{
+		pBundle->uninstall();
+	}
+	catch (...)
+	{
+		File(metaPath).setWriteable(true);
+		throw;
+	}
+	File(metaPath).setWriteable(true);
+	loader.events().bundleUninstalled -= Poco::delegate(this, &BundleTest::handleEvent);
+
+	assertTrue (pBundle->state() == Bundle::BUNDLE_UNINSTALLED);
+	assertTrue (loader.findBundle("com.appinf.osp.test.undeletable") == nullptr);
+	assertEqual (1, static_cast<int>(_events.size()));
+	assertTrue (_events.front().bundle() == pBundle && _events.front().what() == BundleEvent::EV_BUNDLE_UNINSTALLED);
+	assertTrue (log.str().find("Bundle com.appinf.osp.test.undeletable is uninstalled, but its file or directory '"
+		+ bundlePath + "' cannot be deleted") != std::string::npos);
+	assertTrue (File(bundlePath).exists());
+#endif
+}
+
+
+void BundleTest::testUninstallKeepsLibraryThatAnotherBundleShips()
+{
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+	CodeCache& cc = testLoader.codeCache();
+
+	std::vector<Bundle::Ptr> bundles;
+	for (const char* symbolicName: {"com.appinf.osp.test.first", "com.appinf.osp.test.second"})
+	{
+		const std::string bundlePath(createTestBundle(symbolicName, "1.0.0"));
+		Path libraryPath(Path::forDirectory(bundlePath));
+		libraryPath.pushDirectory("bin");
+		libraryPath.pushDirectory(loader.osName());
+		libraryPath.pushDirectory(loader.osArchitecture());
+		File(libraryPath).createDirectories();
+		libraryPath.setFileName("libshared");
+		Poco::FileOutputStream(libraryPath.toString()) << "library";
+		bundles.push_back(loader.loadBundle(bundlePath));
+	}
+	Bundle::Ptr pFirst = bundles.front();
+	Bundle::Ptr pSecond = bundles.back();
+	pFirst->resolve();
+	assertTrue (cc.hasLibrary("libshared"));
+
+	// The second bundle is resolved, relying on the library in the code cache,
+	// between the decision of the first bundle's uninstall and the removal.
+	Poco::AutoPtr<LibraryDecisionGate> pGate(new LibraryDecisionGate);
+	Logger& loaderLogger = Logger::get("osp.core.BundleLoader");
+	loaderLogger.setChannel(pGate);
+	loaderLogger.setLevel(Poco::Message::PRIO_DEBUG);
+	std::thread uninstaller([&pFirst]() { pFirst->uninstall(); });
+	const bool decided = pGate->decided.tryWait(WAIT_MS);
+	try
+	{
+		if (decided) pSecond->resolve();
+	}
+	catch (...)
+	{
+		pGate->removalAllowed.set();
+		uninstaller.join();
+		throw;
+	}
+	pGate->removalAllowed.set();
+	uninstaller.join();
+	loaderLogger.setChannel(Logger::root().getChannel());
+
+	assertTrue (decided);
+	assertTrue (pSecond->isResolved());
+	assertTrue (cc.hasLibrary("libshared"));
+
+	pSecond->uninstall();
+	assertFalse (cc.hasLibrary("libshared"));
+}
+
+
+void BundleTest::testListRequiringBundlesInStopOrder()
+{
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+
+	Bundle::Ptr pDep = loader.loadBundle(createTestBundle("com.appinf.osp.test.dep", "1.0.0",
+		"", "Provide-Module: com.appinf.osp.test.module;module-version=1.0.0"));
+	Bundle::Ptr pUser = loader.loadBundle(createTestBundle("com.appinf.osp.test.user", "1.0.0",
+		"com.appinf.osp.test.dep"));
+	Bundle::Ptr pApp = loader.loadBundle(createTestBundle("com.appinf.osp.test.app", "1.0.0",
+		"com.appinf.osp.test.user"));
+	Bundle::Ptr pModuleUser = loader.loadBundle(createTestBundle("com.appinf.osp.test.moduleuser", "1.0.0",
+		"", "Require-Module: com.appinf.osp.test.module"));
+	Bundle::Ptr pOther = loader.loadBundle(createTestBundle("com.appinf.osp.test.other", "1.0.0"));
+	loader.resolveAllBundles();
+
+	std::vector<Bundle::Ptr> requiring;
+	loader.contextForBundle(pOther)->listRequiringBundles(pDep, requiring);
+
+	assertEqual (3, static_cast<int>(requiring.size()));
+	const auto itApp = std::find(requiring.begin(), requiring.end(), pApp);
+	const auto itUser = std::find(requiring.begin(), requiring.end(), pUser);
+	assertTrue (itApp != requiring.end());
+	assertTrue (itUser != requiring.end());
+	assertTrue (itApp < itUser);
+	assertTrue (std::find(requiring.begin(), requiring.end(), pModuleUser) != requiring.end());
+}
+
+
+void BundleTest::testStartAllStartsByRunLevelAndSkipsLazyStart()
+{
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	loader.loadBundle(createTestBundle("com.appinf.osp.test.late", "1.0.0", "", "Bundle-RunLevel: 300"));
 	loader.loadBundle(createTestBundle("com.appinf.osp.test.early", "1.0.0", "", "Bundle-RunLevel: 100"));
@@ -1985,14 +2326,8 @@ void BundleTest::testStartAllStartsByRunLevelAndSkipsLazyStart()
 
 void BundleTest::testFindListUnloadAndContextOfBundles()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pA = loader.loadBundle(createTestBundle("com.appinf.osp.test.a", "1.0.0"));
 	Bundle::Ptr pB = loader.loadBundle(createTestBundle("com.appinf.osp.test.b", "1.0.0"));
@@ -2033,14 +2368,8 @@ void BundleTest::testFindListUnloadAndContextOfBundles()
 
 void BundleTest::testActivatorStartThatThrowsLeavesBundleResolved()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 
 	Bundle::Ptr pBundle = loader.loadBundle(createActivatorBundle("com.appinf.osp.test.failing", "FailingBundleActivator;library=TestBundle"));
 	pBundle->resolve();
@@ -2069,14 +2398,9 @@ void BundleTest::testActivatorStartThatThrowsLeavesBundleResolved()
 
 void BundleTest::testActivatorThatCannotBeLoadedFailsEveryStart()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+	CodeCache& cc = testLoader.codeCache();
 
 	Bundle::Ptr pMissingClass = loader.loadBundle(createActivatorBundle("com.appinf.osp.test.missingclass", "MissingBundleActivator;library=TestBundle"));
 	Bundle::Ptr pMissingLibrary = loader.loadBundle(createActivatorBundle("com.appinf.osp.test.missinglibrary", "MyBundleActivator;library=MissingLibrary"));
@@ -2140,26 +2464,22 @@ void BundleTest::testCodeCacheInstallsAndUninstallsLibrary()
 	cc.uninstallLibrary("libtest");
 	assertFalse (cc.hasLibrary("libtest"));
 
-	CodeCache shared(codeCachePath(), true);
 	{
+		SharedCodeCache shared(codeCachePath());
 		CodeCache::Lock lock(shared);
 		std::istringstream sharedStream("shared library content");
 		shared.installLibrary("libshared", sharedStream);
 	}
 	assertTrue (cc.hasLibrary("libshared"));
+	assertFalse (SharedCodeCache::hasMutexName(codeCachePath()));
 }
 
 
 void BundleTest::testLibraryEntryOutsideCodeDirectoryIsNotInstalled()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
+	CodeCache& cc = testLoader.codeCache();
 
 	const std::string binDir("bin/" + loader.osName() + "/" + loader.osArchitecture() + "/");
 	std::string archive = BundleArchive::create({
@@ -2167,16 +2487,8 @@ void BundleTest::testLibraryEntryOutsideCodeDirectoryIsNotInstalled()
 		{binDir + "___x", "outside"}
 	});
 	// Poco::Zip refuses to write an entry name with a parent reference, which
-	// another ZIP tool writes as is; patch the placeholder of the same length.
-	const std::string placeholder(binDir + "___x");
-	const std::string outsideName("../x");
-	std::string::size_type pos = archive.find(placeholder);
-	while (pos != std::string::npos)
-	{
-		archive.replace(pos + binDir.size(), outsideName.size(), outsideName);
-		pos = archive.find(placeholder, pos);
-	}
-	assertTrue (archive.find(binDir + outsideName) != std::string::npos);
+	// another ZIP tool writes as is.
+	BundleArchive::renameEntry(archive, binDir + "___x", binDir + "../x");
 
 	Bundle::Ptr pBundle = loader.loadBundle(createTestBundleArchive("com.appinf.osp.test.outside_1.0.0.bndl", archive));
 	pBundle->resolve();
@@ -2190,14 +2502,8 @@ void BundleTest::testLibraryEntryOutsideCodeDirectoryIsNotInstalled()
 
 void BundleTest::testExtensionsAreHandledOnStartAndRemovedOnStop()
 {
-	CodeCache cc(codeCachePath());
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+	TestLoader testLoader(codeCachePath());
+	BundleLoader& loader = testLoader.loader();
 	Poco::OSP::ExtensionPointService::Ptr pXPS(new Poco::OSP::ExtensionPointService(loader.events()));
 
 	Bundle::Ptr pProvider = loader.loadBundle(createTestBundle("com.appinf.osp.test.provider", "1.0.0"));
@@ -2281,30 +2587,56 @@ void BundleTest::testSubsystemStartsBundlesOfConfiguredRepository()
 }
 
 
+void BundleTest::testFailedSubsystemInitializationUnregistersStreamsAndServices()
+{
+	const std::string repositoryPath(Path(_scratchPath, "repository").toString());
+	File(repositoryPath).createDirectories();
+
+	// the application replaces the channel of every logger, which tearDown() restores
+	Poco::AutoPtr<Poco::Util::Application> pApp(new Poco::Util::Application);
+	Poco::Util::Application& app = *pApp;
+	app.config().setString("osp.codeCache", codeCachePath());
+	app.config().setString("osp.bundleRepository", repositoryPath);
+	app.config().setString("osp.data", Path(_scratchPath, "data").toString());
+
+	// starts the bundles only if the repository holds this bundle
+	Poco::AutoPtr<RecordingSubsystem> pSubsystem(new RecordingSubsystem("com.appinf.osp.test.missing"));
+	try
+	{
+		pSubsystem->initialize(app);
+		fail("the bundle is missing - must throw");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+	assertFalse (Poco::URIStreamOpener::defaultOpener().supportsScheme("bndl"));
+	ServiceRegistry& reg = pSubsystem->serviceRegistry();
+	assertTrue (reg.findByName(Poco::OSP::ExtensionPointService::SERVICE_NAME) == nullptr);
+	assertTrue (reg.findByName(Poco::OSP::PreferencesService::SERVICE_NAME) == nullptr);
+	assertTrue (reg.findByName(Poco::OSP::BundleInstallerService::SERVICE_NAME) == nullptr);
+}
+
+
 void BundleTest::testConcurrentStartsAndStopsOfDependencyChain()
 {
 	// Released only when both threads have finished: threads that block each
 	// other are left running.
-	auto pCodeCache = std::make_unique<CodeCache>(codeCachePath());
-	auto pRegistry = std::make_unique<ServiceRegistry>();
-	auto pSystemEvents = std::make_unique<Poco::OSP::SystemEvents>();
-	LanguageTag lang("en", "US");
+	auto pTestLoader = std::make_unique<TestLoader>(codeCachePath());
+	BundleLoader& loader = pTestLoader->loader();
 
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(*pRegistry, *pSystemEvents));
-	auto pLoader = std::make_unique<BundleLoader>(*pCodeCache, pBundleFactory, pBundleContextFactory);
-
-	Bundle::Ptr pDep = pLoader->loadBundle(createTestBundle("com.appinf.osp.test.dep", "1.0.0"));
-	Bundle::Ptr pUser = pLoader->loadBundle(createTestBundle("com.appinf.osp.test.user", "1.0.0", "com.appinf.osp.test.dep"));
-	Bundle::Ptr pApp = pLoader->loadBundle(createTestBundle("com.appinf.osp.test.app", "1.0.0", "com.appinf.osp.test.user"));
+	Bundle::Ptr pDep = loader.loadBundle(createTestBundle("com.appinf.osp.test.dep", "1.0.0"));
+	Bundle::Ptr pUser = loader.loadBundle(createTestBundle("com.appinf.osp.test.user", "1.0.0",
+		"com.appinf.osp.test.dep"));
+	Bundle::Ptr pApp = loader.loadBundle(createTestBundle("com.appinf.osp.test.app", "1.0.0",
+		"com.appinf.osp.test.user"));
 	pApp->resolve();
 
 	auto pContextsMissing = std::make_unique<std::atomic<int>>(0);
-	CallbackDelegate probe([&loader = *pLoader, &contextsMissing = *pContextsMissing](BundleEvent& event)
+	CallbackDelegate probe([&loader, &contextsMissing = *pContextsMissing](BundleEvent& event)
 	{
 		if (loader.contextForBundle(event.bundle()) == nullptr) ++contextsMissing;
 	});
-	pLoader->events().bundleStarting += probe;
+	loader.events().bundleStarting += probe;
 
 	auto pUnexpected = std::make_unique<std::atomic<int>>(0);
 	auto pFinished = std::make_unique<std::atomic<int>>(0);
@@ -2341,20 +2673,17 @@ void BundleTest::testConcurrentStartsAndStopsOfDependencyChain()
 		blockedObjects.push_back(pFinished.release());
 		blockedObjects.push_back(pUnexpected.release());
 		blockedObjects.push_back(pContextsMissing.release());
-		blockedObjects.push_back(pLoader.release());
-		blockedObjects.push_back(pSystemEvents.release());
-		blockedObjects.push_back(pRegistry.release());
-		blockedObjects.push_back(pCodeCache.release());
+		blockedObjects.push_back(pTestLoader.release());
 		fail("concurrent starts and stops did not complete");
 	}
 	appThread.join();
 	userThread.join();
-	pLoader->events().bundleStarting -= probe;
+	loader.events().bundleStarting -= probe;
 
 	assertEqual (0, pUnexpected->load());
 	assertEqual (0, pContextsMissing->load());
 
-	pLoader->unloadAllBundles();
+	loader.unloadAllBundles();
 }
 
 
@@ -2378,14 +2707,6 @@ void BundleTest::tearDown()
 	catch (Poco::Exception&)
 	{
 	}
-}
-
-
-std::string BundleTest::findBundle(const std::string& name)
-{
-	std::string path = OSPBundleTestSuite::findBundle(name);
-	assert(!path.empty());
-	return path;
 }
 
 
@@ -2427,7 +2748,7 @@ std::string BundleTest::createTestBundle(const std::string& symbolicName, const 
 std::string BundleTest::createActivatorBundle(const std::string& symbolicName, const std::string& activator)
 {
 	const std::string bundlePath(createTestBundle(symbolicName, "1.0.0", "", "Bundle-Activator: " + activator));
-	File(Path(findBundle("com.appinf.osp.bundle9_1.0.0"), "bin").toString()).copyTo(bundlePath);
+	File(Path(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle9_1.0.0"), "bin").toString()).copyTo(bundlePath);
 	return bundlePath;
 }
 
@@ -2496,23 +2817,6 @@ void BundleTest::handleBundleError(const void* /*sender*/, const Poco::OSP::Bund
 }
 
 
-void BundleTest::handleEventProbesLoader(const void* /*sender*/, Poco::OSP::BundleEvent& /*event*/)
-{
-	// Another thread calls into the loader: it blocks until the event
-	// returns if the event is fired with the loader's mutex held. It is
-	// joined when the test is done, as joining it here would not return then.
-	auto pProbeDone = std::make_shared<Poco::Event>();
-	_probeThreads.emplace_back([this, pProbeDone]()
-	{
-		std::vector<Bundle::Ptr> bundles;
-		_pProbedLoader->listBundles(bundles);
-		pProbeDone->set();
-	});
-	++_probes;
-	if (!pProbeDone->tryWait(PROBE_WAIT_MS)) ++_probesBlocked;
-}
-
-
 CppUnit::Test* BundleTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("BundleTest");
@@ -2547,17 +2851,27 @@ CppUnit::Test* BundleTest::suite()
 	CppUnit_addTest(pSuite, BundleTest, testDamagedLibraryIsNotInstalled);
 	CppUnit_addTest(pSuite, BundleTest, testStoppedBundleRemovesOnlyItsOwnExtensionPoints);
 	CppUnit_addTest(pSuite, BundleTest, testStartWhileRequiredBundleIsStarting);
+	CppUnit_addTest(pSuite, BundleTest, testBundlesRequiringOneBundleAreResolvedConcurrently);
+	CppUnit_addTest(pSuite, BundleTest, testCircularDependencyResolvedInTwoThreadsThrows);
+	CppUnit_addTest(pSuite, BundleTest, testUninstallWaitsForResolution);
 	CppUnit_addTest(pSuite, BundleTest, testStopAllContinuesAfterFailingBundle);
+	CppUnit_addTest(pSuite, BundleTest, testStopAllContinuesAfterUnknownException);
 	CppUnit_addTest(pSuite, BundleTest, testUnloadAllKeepsBundleThatFailsToStop);
 	CppUnit_addTest(pSuite, BundleTest, testEventsAreFiredWithoutLoaderLock);
 	CppUnit_addTest(pSuite, BundleTest, testResolveEventsOfRequiredBundlesKeepTheirOrder);
 	CppUnit_addTest(pSuite, BundleTest, testResolveEventsAreFiredWhenResolutionFails);
+	CppUnit_addTest(pSuite, BundleTest, testBundleResolvingDelegateRefusesRequiredAndExtendedBundle);
 	CppUnit_addTest(pSuite, BundleTest, testActivatorIsResetWhenBundleIsUnloaded);
 	CppUnit_addTest(pSuite, BundleTest, testActivatorIsResetWhenBundlesAreUnloadedWithoutLibraries);
 	CppUnit_addTest(pSuite, BundleTest, testStartAllContinuesAfterUnknownException);
 	CppUnit_addTest(pSuite, BundleTest, testStartErrorNamesBundleThatFailsInStartingEvent);
 	CppUnit_addTest(pSuite, BundleTest, testStartErrorNamesBundleThatFailsWhileAnotherThreadStartsBundle);
 	CppUnit_addTest(pSuite, BundleTest, testUninstallRemovesBundleUnlessPrevented);
+	CppUnit_addTest(pSuite, BundleTest, testUninstallOfUnresolvedBundleWithLibrary);
+	CppUnit_addTest(pSuite, BundleTest, testTemporaryDirectoryThatCannotBeRemovedIsLogged);
+	CppUnit_addTest(pSuite, BundleTest, testUninstallCompletesIfBundleDirectoryCannotBeDeleted);
+	CppUnit_addTest(pSuite, BundleTest, testUninstallKeepsLibraryThatAnotherBundleShips);
+	CppUnit_addTest(pSuite, BundleTest, testListRequiringBundlesInStopOrder);
 	CppUnit_addTest(pSuite, BundleTest, testStartAllStartsByRunLevelAndSkipsLazyStart);
 	CppUnit_addTest(pSuite, BundleTest, testFindListUnloadAndContextOfBundles);
 	CppUnit_addTest(pSuite, BundleTest, testActivatorStartThatThrowsLeavesBundleResolved);
@@ -2566,6 +2880,7 @@ CppUnit::Test* BundleTest::suite()
 	CppUnit_addTest(pSuite, BundleTest, testLibraryEntryOutsideCodeDirectoryIsNotInstalled);
 	CppUnit_addTest(pSuite, BundleTest, testExtensionsAreHandledOnStartAndRemovedOnStop);
 	CppUnit_addTest(pSuite, BundleTest, testSubsystemStartsBundlesOfConfiguredRepository);
+	CppUnit_addTest(pSuite, BundleTest, testFailedSubsystemInitializationUnregistersStreamsAndServices);
 	CppUnit_addTest(pSuite, BundleTest, testConcurrentStartsAndStopsOfDependencyChain);
 
 	return pSuite;

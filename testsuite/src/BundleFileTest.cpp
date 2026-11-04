@@ -9,6 +9,7 @@
 
 
 #include "BundleFileTest.h"
+#include "BundleArchive.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
 #include "Poco/OSP/BundleFile.h"
@@ -18,9 +19,11 @@
 #include "Poco/DateTime.h"
 #include "Poco/TemporaryFile.h"
 #include "Poco/Exception.h"
+#include <algorithm>
 #include <fstream>
 #include <ios>
 #include <memory>
+#include <string>
 #include <vector>
 
 
@@ -52,7 +55,7 @@ void BundleFileTest::testGetResourceOpensEntry()
 	std::getline(*istr2, s);
 	assert (s == "foo: bar");
 
-	std::istream* istr3(pBF->getResource("nonexistent"));
+	std::unique_ptr<std::istream> istr3(pBF->getResource("nonexistent"));
 	assert (istr3 == nullptr);
 }
 
@@ -188,6 +191,72 @@ void BundleFileTest::testStorageOpenRejectsPathThatIsNoBundle()
 }
 
 
+void BundleFileTest::testRenamedArchiveEntryIsRead()
+{
+	// The name to replace is also part of another name and of a content,
+	// which stay unchanged.
+	std::string archive(BundleArchive::create({{"res/a.txt", "a"}, {"res/a.txt.bak", "b"},
+		{"res/list", "res/a.txt"}}));
+	BundleArchive::renameEntry(archive, "res/a.txt", "res/b.txt");
+	const std::string archivePath(Poco::Path(_scratchPath, "renamed.zip").toString());
+	{
+		std::ofstream ostr(archivePath, std::ios::binary);
+		ostr << archive;
+	}
+	BundleStorage::Ptr pBF(new BundleFile(archivePath));
+	std::vector<std::string> files;
+	pBF->list("res", files);
+	std::sort(files.begin(), files.end());
+	assertTrue (files == std::vector<std::string>({"a.txt.bak", "b.txt", "list"}));
+	std::unique_ptr<std::istream> pList(pBF->getResource("res/list"));
+	assertTrue (pList != nullptr);
+	std::string list;
+	std::getline(*pList, list);
+	assertEqual ("res/a.txt", list);
+
+	try
+	{
+		BundleArchive::renameEntry(archive, "res/b.txt", "res/bb.txt");
+		fail("a name of another length - must throw");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+	try
+	{
+		BundleArchive::renameEntry(archive, "res/a.txt", "res/c.txt");
+		fail("no entry of that name - must throw");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+
+	// The last copy of the name is in the central directory entry, which
+	// holds the offset of the local file header in the 4 bytes before it.
+	archive.replace(archive.rfind("res/b.txt") - 4, 4, 4, '\xff');
+	try
+	{
+		BundleArchive::renameEntry(archive, "res/b.txt", "res/d.txt");
+		fail("local file header past the end of the archive - must throw");
+	}
+	catch (Poco::DataFormatException&)
+	{
+	}
+
+	// The end of central directory record ends with the offset of the
+	// central directory (4 bytes) and the comment length (2 bytes).
+	archive.replace(archive.size() - 2 - 4, 4, 4, '\xff');
+	try
+	{
+		BundleArchive::renameEntry(archive, "res/b.txt", "res/d.txt");
+		fail("central directory past the end of the archive - must throw");
+	}
+	catch (Poco::DataFormatException&)
+	{
+	}
+}
+
+
 void BundleFileTest::setUp()
 {
 	// The following is a ZIP file containing the same
@@ -252,6 +321,7 @@ CppUnit::Test* BundleFileTest::suite()
 	CppUnit_addTest(pSuite, BundleFileTest, testListWithTrailingSlash);
 	CppUnit_addTest(pSuite, BundleFileTest, testStorageOpenReturnsBundleFile);
 	CppUnit_addTest(pSuite, BundleFileTest, testStorageOpenRejectsPathThatIsNoBundle);
+	CppUnit_addTest(pSuite, BundleFileTest, testRenamedArchiveEntryIsRead);
 
 	return pSuite;
 }

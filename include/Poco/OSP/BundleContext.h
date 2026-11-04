@@ -76,6 +76,13 @@ public:
 		/// known to the OSP framework, filtered by the
 		/// given BundleFilter.
 
+	void listRequiringBundles(Bundle::ConstPtr pBundle, std::vector<Bundle::Ptr>& bundles) const;
+		/// Fills the given vector with the resolved bundles that
+		/// require the given bundle or a module it provides,
+		/// directly or through other bundles, in the order in
+		/// which they can be stopped: a bundle comes before the
+		/// bundles it requires.
+
 	[[nodiscard]] ServiceRegistry& registry() const;
 		/// Returns a reference to the ServiceRegistry object, which
 		/// can be used to find or register services.

@@ -55,6 +55,10 @@ class OSP_API ServiceListener: public Poco::RefCountedObject
 	/// Each service is reported once. A service that is unregistered while
 	/// the ServiceListener is being created is reported as unregistered
 	/// after it has been reported as registered.
+	///
+	/// A service registered later for which the query cannot be evaluated,
+	/// such as a glob pattern with an unterminated set, is not reported, and
+	/// a warning is logged to the logger osp.core.ServiceRegistry.
 {
 public:
 	using Ptr = Poco::AutoPtr<ServiceListener>;

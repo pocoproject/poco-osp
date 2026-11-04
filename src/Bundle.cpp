@@ -195,15 +195,17 @@ inline BundleEvents& Bundle::events()
 
 void Bundle::resolve()
 {
+	Poco::Mutex::ScopedLock lock(_lifecycleMutex);
+
 	if (_state != BUNDLE_INSTALLED) throw BundleStateException("resolve() requires INSTALLED state");
 
 	BundleEvent resolvingEvent(this, BundleEvent::EV_BUNDLE_RESOLVING);
-	_loader.fireResolveEvent(resolvingEvent);
+	events().bundleResolving(this, resolvingEvent);
 	clearResolvedDependencies();
 	_loader.resolveBundle(this);
 	_state = BUNDLE_RESOLVED;
 	BundleEvent resolvedEvent(this, BundleEvent::EV_BUNDLE_RESOLVED);
-	_loader.fireResolveEvent(resolvedEvent);
+	events().bundleResolved(this, resolvedEvent);
 }
 
 

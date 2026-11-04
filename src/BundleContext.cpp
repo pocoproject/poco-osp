@@ -17,6 +17,11 @@
 #include "Poco/OSP/Bundle.h"
 #include "Poco/File.h"
 #include "Poco/Exception.h"
+#include "Poco/Bugcheck.h"
+#include <string>
+
+
+using namespace std::string_literals;
 
 
 using Poco::File;
@@ -47,8 +52,14 @@ BundleContext::~BundleContext()
 		if (f.exists())
 			f.remove(true);
 	}
+	catch (Poco::Exception& exc)
+	{
+		_logger.warning("The temporary directory %s of bundle %s cannot be removed in full; what remains is kept: %s"s,
+			_temporaryDir.toString(), _pBundle->symbolicName(), exc.displayText());
+	}
 	catch (...)
 	{
+		poco_unexpected();
 	}
 }
 
@@ -74,6 +85,12 @@ void BundleContext::listBundles(std::vector<Bundle::Ptr>& bundles) const
 void BundleContext::listBundles(std::vector<Bundle::Ptr>& bundles, BundleFilter::Ptr pFilter) const
 {
 	_loader.listBundles(bundles, pFilter);
+}
+
+
+void BundleContext::listRequiringBundles(Bundle::ConstPtr pBundle, std::vector<Bundle::Ptr>& bundles) const
+{
+	_loader.listRequiringBundles(pBundle, bundles);
 }
 
 

@@ -32,6 +32,7 @@ public:
 	void testListWithTrailingSlash();
 	void testStorageOpenReturnsBundleFile();
 	void testStorageOpenRejectsPathThatIsNoBundle();
+	void testRenamedArchiveEntryIsRead();
 
 	void setUp() override;
 	void tearDown() override;

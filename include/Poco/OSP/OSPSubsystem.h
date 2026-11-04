@@ -113,6 +113,10 @@ protected:
 		/// Resolves and starts all loaded bundles.
 	
 private:
+	void unregisterServices();
+		/// Unregisters the services that initialize() registers,
+		/// as far as they are registered.
+
 	std::unique_ptr<CodeCache>        _pCodeCache;
 	std::unique_ptr<ServiceRegistry>  _pServiceRegistry;
 	std::unique_ptr<BundleLoader>     _pBundleLoader;

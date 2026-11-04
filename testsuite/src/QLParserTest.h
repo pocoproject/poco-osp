@@ -38,7 +38,7 @@ public:
 	void testMissingOperandIsSyntaxError();
 	void testDeepNestingIsRejected();
 	void testLongOperatorChainIsRejected();
-	void testGlobMatch();
+	void testGlobClassesAndUtf8Characters();
 	void testGlobPatternWithTooManyWildcardsIsSyntaxError();
 	void testIncompleteTokenAtEndIsReportedAsEndOfExpression();
 

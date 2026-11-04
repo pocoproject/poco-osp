@@ -41,7 +41,7 @@ std::istream* BundleDirectory::getResource(const std::string& path) const
 {
 	Path p(buildPath(path));
 	File f(p);
-	if (f.exists() && f.isFile())
+	if (f.exists() && f.isFile() && isExactPath(_path, p))
 		return new Poco::FileInputStream(f.path());
 	else
 		return nullptr;
@@ -76,6 +76,33 @@ Poco::Timestamp BundleDirectory::lastModified(const std::string& path) const
 std::string BundleDirectory::path() const
 {
 	return _path.toString();
+}
+
+
+bool BundleDirectory::isExactPath(const Poco::Path& root, const Poco::Path& path)
+{
+	Path dir(root);
+	dir.makeDirectory();
+	const int end = path.isFile() ? path.depth() + 1 : path.depth();
+	if (end < dir.depth() || path.isAbsolute() != root.isAbsolute() || path.getNode() != root.getNode()
+		|| path.getDevice() != root.getDevice())
+	{
+		return false;
+	}
+	for (int i = 0; i < dir.depth(); ++i)
+	{
+		if (path[i] != root[i]) return false;
+	}
+	for (int i = dir.depth(); i < end; ++i)
+	{
+		const std::string& name = path[i];
+		DirectoryIterator it(dir);
+		const DirectoryIterator endIt;
+		while (it != endIt && it.name() != name) ++it;
+		if (it == endIt) return false;
+		dir.pushDirectory(name);
+	}
+	return true;
 }
 
 

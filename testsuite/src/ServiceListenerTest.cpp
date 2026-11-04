@@ -9,6 +9,7 @@
 
 
 #include "ServiceListenerTest.h"
+#include "TestService.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
 #include "Poco/OSP/ServiceRegistry.h"
@@ -27,27 +28,6 @@ using Poco::OSP::ServiceRef;
 using Poco::OSP::Service;
 using Poco::OSP::Properties;
 using Poco::delegate;
-
-
-namespace
-{
-	class TestService: public Service
-	{
-	public:
-		using Ptr = Poco::AutoPtr<TestService>;
-
-		[[nodiscard]] const std::type_info& type() const override
-		{
-			return typeid(TestService);
-		}
-
-		[[nodiscard]] bool isA(const std::type_info& otherType) const override
-		{
-			std::string name(typeid(TestService).name());
-			return name == otherType.name() || Service::isA(otherType);
-		}
-	};
-}
 
 
 ServiceListenerTest::ServiceListenerTest(const std::string& name): CppUnit::TestCase(name)
@@ -69,7 +49,7 @@ void ServiceListenerTest::testListenerReportsMatchingServices()
 	ServiceRef::Ptr pServiceRef1 = reg.registerService("Service1", pService1, Properties());
 
 	assert (_refs.size() == 1);
-	assert (_refs.find(pServiceRef1) != _refs.end());
+	assert (_refs.contains(pServiceRef1));
 
 	Service::Ptr pService2 = new TestService;
 	ServiceRef::Ptr pServiceRef2 = reg.registerService("Service2", pService2, Properties());
@@ -85,7 +65,7 @@ void ServiceListenerTest::testListenerReportsMatchingServices()
 		delegate(this, &ServiceListenerTest::handleUnregistered));
 
 	assert (_refs.size() == 1);
-	assert (_refs.find(pServiceRef2) != _refs.end());
+	assert (_refs.contains(pServiceRef2));
 
 	reg.unregisterService(pServiceRef2);
 
@@ -172,6 +152,22 @@ void ServiceListenerTest::testListenerWithInvalidQueryThrows()
 }
 
 
+void ServiceListenerTest::testQueryErrorDoesNotFailRegistration()
+{
+	ServiceRegistry reg;
+	// The unterminated set is found only when a name starting with "x" is matched.
+	ServiceListener::Ptr pListener = reg.createListener("name =~ \"x[abc\"",
+		delegate(this, &ServiceListenerTest::handleRegistered),
+		delegate(this, &ServiceListenerTest::handleUnregistered));
+
+	ServiceRef::Ptr pServiceRef = reg.registerService("xa", new TestService, Properties());
+
+	assertTrue (pServiceRef != nullptr);
+	assertTrue (reg.findByName("xa") == pServiceRef);
+	assertTrue (_refs.empty());
+}
+
+
 void ServiceListenerTest::testPropertyChangeIsNotReported()
 {
 	ServiceRegistry reg;
@@ -234,6 +230,7 @@ CppUnit::Test* ServiceListenerTest::suite()
 	CppUnit_addTest(pSuite, ServiceListenerTest, testServiceUnregisteredDuringCreationIsReportedAsUnregistered);
 	CppUnit_addTest(pSuite, ServiceListenerTest, testDestroyedListenerReportsNothing);
 	CppUnit_addTest(pSuite, ServiceListenerTest, testListenerWithInvalidQueryThrows);
+	CppUnit_addTest(pSuite, ServiceListenerTest, testQueryErrorDoesNotFailRegistration);
 	CppUnit_addTest(pSuite, ServiceListenerTest, testPropertyChangeIsNotReported);
 
 	return pSuite;

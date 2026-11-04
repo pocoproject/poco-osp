@@ -91,12 +91,12 @@ public:
 	}
 
 	[[nodiscard]] static std::string demangle(const char* typeName);
-		/// Demangles the given mangled type name, if
-		/// demangling support is available in the compiler.
+		/// Returns Poco::demangle(typeName): the given mangled
+		/// type name, demangled where the compiler supports it.
 		///
 		/// Note: On Windows/MSVC, the result of typeid().name
-		/// already is a demangled type name so this method
-		/// does nothing.
+		/// already is a demangled type name; the "class ",
+		/// "struct ", "enum " or "union " prefix is removed.
 
 protected:
 	~ServiceRef() override;

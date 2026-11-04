@@ -46,8 +46,7 @@ ServiceRef::Ptr ServiceRegistry::registerService(const std::string& name, Servic
 {
 	Poco::ScopedLockWithUnlock<FastMutex> lock(_mutex);
 
-	ServiceMap::iterator it = _services.find(name);
-	if (it == _services.end())
+	if (!_services.contains(name))
 	{
 		const char* type = pService->type().name();
 		const std::string dtype = ServiceRef::demangle(type);
@@ -130,10 +129,10 @@ std::size_t ServiceRegistry::find(const QLExpr& expr, std::vector<ServiceRef::Pt
 {
 	results.clear();
 
-	FastMutex::ScopedLock lock(_mutex);
+	const ServiceMap services(this->services());
 
 	std::size_t count(0);
-	for (ServiceMap::const_iterator it = _services.begin(); it != _services.end(); ++it)
+	for (ServiceMap::const_iterator it = services.begin(); it != services.end(); ++it)
 	{
 		ServiceRef::Ptr pService(it->second);
 		if (expr.evaluate(pService->properties()))

@@ -32,6 +32,7 @@ public:
 	void testServiceUnregisteredDuringCreationIsReportedAsUnregistered();
 	void testDestroyedListenerReportsNothing();
 	void testListenerWithInvalidQueryThrows();
+	void testQueryErrorDoesNotFailRegistration();
 	void testPropertyChangeIsNotReported();
 
 	void setUp() override;

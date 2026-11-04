@@ -20,7 +20,6 @@
 #include "Poco/OSP/BundleLoader.h"
 #include "Poco/AutoPtr.h"
 #include "Poco/Channel.h"
-#include <thread>
 #include <vector>
 
 
@@ -60,17 +59,27 @@ public:
 	void testDamagedLibraryIsNotInstalled();
 	void testStoppedBundleRemovesOnlyItsOwnExtensionPoints();
 	void testStartWhileRequiredBundleIsStarting();
+	void testBundlesRequiringOneBundleAreResolvedConcurrently();
+	void testCircularDependencyResolvedInTwoThreadsThrows();
+	void testUninstallWaitsForResolution();
 	void testStopAllContinuesAfterFailingBundle();
+	void testStopAllContinuesAfterUnknownException();
 	void testUnloadAllKeepsBundleThatFailsToStop();
 	void testEventsAreFiredWithoutLoaderLock();
 	void testResolveEventsOfRequiredBundlesKeepTheirOrder();
 	void testResolveEventsAreFiredWhenResolutionFails();
+	void testBundleResolvingDelegateRefusesRequiredAndExtendedBundle();
 	void testActivatorIsResetWhenBundleIsUnloaded();
 	void testActivatorIsResetWhenBundlesAreUnloadedWithoutLibraries();
 	void testStartAllContinuesAfterUnknownException();
 	void testStartErrorNamesBundleThatFailsInStartingEvent();
 	void testStartErrorNamesBundleThatFailsWhileAnotherThreadStartsBundle();
 	void testUninstallRemovesBundleUnlessPrevented();
+	void testUninstallOfUnresolvedBundleWithLibrary();
+	void testTemporaryDirectoryThatCannotBeRemovedIsLogged();
+	void testUninstallCompletesIfBundleDirectoryCannotBeDeleted();
+	void testUninstallKeepsLibraryThatAnotherBundleShips();
+	void testListRequiringBundlesInStopOrder();
 	void testStartAllStartsByRunLevelAndSkipsLazyStart();
 	void testFindListUnloadAndContextOfBundles();
 	void testActivatorStartThatThrowsLeavesBundleResolved();
@@ -79,6 +88,7 @@ public:
 	void testLibraryEntryOutsideCodeDirectoryIsNotInstalled();
 	void testExtensionsAreHandledOnStartAndRemovedOnStop();
 	void testSubsystemStartsBundlesOfConfiguredRepository();
+	void testFailedSubsystemInitializationUnregistersStreamsAndServices();
 	void testConcurrentStartsAndStopsOfDependencyChain();
 
 	void setUp() override;
@@ -87,8 +97,6 @@ public:
 	static CppUnit::Test* suite();
 
 protected:
-	[[nodiscard]] std::string findBundle(const std::string& name);
-
 	[[nodiscard]] std::string codeCachePath() const;
 		/// Returns the path of the code cache in the directory
 		/// that holds the files of the test.
@@ -113,11 +121,9 @@ protected:
 	void handleStoppingEventFails(const void* sender, Poco::OSP::BundleEvent& event);
 	void handleStartingEventThrowsUnknown(const void* sender, Poco::OSP::BundleEvent& event);
 	void handleBundleError(const void* sender, const Poco::OSP::BundleLoader::BundleError& error);
-	void handleEventProbesLoader(const void* sender, Poco::OSP::BundleEvent& event);
 
 private:
 	static constexpr long USER_START_WAIT_MS = 200;
-	static constexpr long PROBE_WAIT_MS = 10000;
 	static constexpr long WAIT_MS = 10000;
 	static constexpr int START_STOP_CYCLES = 200;
 
@@ -129,10 +135,6 @@ private:
 		/// which tearDown() gives back to every logger.
 	std::vector<Poco::OSP::BundleEvent> _events;
 	std::vector<std::string> _bundleErrors;
-	Poco::OSP::BundleLoader* _pProbedLoader = nullptr;
-	int _probes = 0;
-	int _probesBlocked = 0;
-	std::vector<std::thread> _probeThreads;
 };
 
 

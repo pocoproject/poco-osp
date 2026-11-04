@@ -282,16 +282,19 @@ public:
 		/// BUNDLE_INSTALLED state. A sucessful resolve()
 		/// puts the bundle in BUNDLE_RESOLVED state.
 		///
+		/// Calls of resolve(), start(), stop() and uninstall() of
+		/// the same bundle are serialized.
+		///
 		/// Throws an exception if the bundle cannot be resolved.
 
 	void start();
 		/// Starts the bundle. The bundle's state must be
 		/// BUNDLE_RESOLVED.
 		///
-		/// Calls of start(), stop() and uninstall() for the same
-		/// bundle from several threads are serialized. A required
-		/// bundle that another thread is starting is waited for,
-		/// not started a second time.
+		/// Calls of resolve(), start(), stop() and uninstall() of
+		/// the same bundle are serialized. A required bundle that
+		/// another thread is starting is waited for, not started
+		/// a second time.
 		///
 		/// Puts the bundle in BUNDLE_STARTING state, loads
 		/// the bundle's activator and invokes it, and
@@ -430,7 +433,7 @@ private:
 	std::string             _vendor;
 	std::string             _copyright;
 	BundleProperties::Ptr   _pProperties;
-	BundleActivator*        _pActivator;
+	std::atomic<BundleActivator*> _pActivator;
 	std::set<Bundle::Ptr>   _extensionBundles;
 	mutable Poco::FastMutex _extensionBundlesMutex;
 	std::atomic<int>        _extensionCount;
@@ -438,9 +441,10 @@ private:
 	ModuleProviders         _moduleProviders;
 	mutable Poco::FastMutex _resolutionMutex;
 	Poco::Mutex             _lifecycleMutex;
-		/// Serializes start(), stop() and uninstall(), which take the
-		/// BundleLoader's mutex while holding it. Not taken by resolve(),
-		/// which runs for required bundles with the BundleLoader's mutex held.
+		/// Serializes resolve(), start(), stop() and uninstall() of the
+		/// bundle and BundleLoader::unloadBundle(). Taken before the
+		/// BundleLoader's mutex and before the mutexes of the bundles
+		/// it requires or extends.
 
 	friend class BundleLoader;
 	friend class BundleFactory;
