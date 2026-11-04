@@ -59,10 +59,11 @@ private:
 	struct ServerMetric
 	{
 		std::unique_ptr<Poco::Prometheus::Metric> pMetric;
-		std::function<int(const Poco::OSP::Web::WebServerService&)> value;
+		std::function<Poco::Int64(const Poco::OSP::Web::WebServerService&)> value;
 	};
 
-	void addMetric(Poco::Prometheus::Metric::Type type, const std::string& name, const std::string& help, std::function<int(const Poco::OSP::Web::WebServerService&)> value);
+	void addMetric(Poco::Prometheus::Metric::Type type, const std::string& name, const std::string& help,
+		std::function<Poco::Int64(const Poco::OSP::Web::WebServerService&)> value);
 
 	std::vector<ServerMetric> _metrics;
 	std::vector<WebServerPtr> _servers;

@@ -28,6 +28,7 @@
 #include "Poco/Mutex.h"
 #include "Poco/NumberFormatter.h"
 #include "Poco/NumberParser.h"
+#include "Poco/Timespan.h"
 #include "Poco/ClassLibrary.h"
 #include <algorithm>
 #include <exception>
@@ -63,6 +64,12 @@ public:
 		std::string endpoint = _pPrefs->configuration()->getString("remoting.tcp.listener", "");
 		if (!endpoint.empty())
 		{
+			// Read before anything is registered: the framework does not call stop() when start() fails.
+			const Poco::Timespan idleTimeout(
+				_pPrefs->configuration()->getInt("remoting.tcp.connection.idleTimeout", 60), 0);
+			const Poco::Timespan handshakeTimeout(
+				_pPrefs->configuration()->getInt("remoting.tcp.connection.handshakeTimeout", 8), 0);
+
 			Poco::RemotingNG::TCP::Listener::Ptr pListener;
 #if defined(POCO_OS_FAMILY_UNIX)
 			if (endpoint[0] == '/')
@@ -74,6 +81,9 @@ public:
 			{
 				pListener = createTCPListener(endpoint);
 			}
+			pListener->setHandshakeTimeout(handshakeTimeout);
+			Poco::RemotingNG::TCP::ConnectionManager::defaultManager().setIdleTimeout(idleTimeout);
+			Poco::RemotingNG::TCP::ConnectionManager::defaultManager().setHandshakeTimeout(handshakeTimeout);
 			_listener = Poco::RemotingNG::ORB::instance().registerListener(pListener);
 
 			_pContext->logger().information("Remoting TCP Listener ready: %s", _listener);
@@ -88,13 +98,6 @@ public:
 			{
 				registerServiceWithORB(*it);
 			}
-
-			int connectionIdleTimeout = _pPrefs->configuration()->getInt("remoting.tcp.connection.idleTimeout", 60);
-			Poco::RemotingNG::TCP::ConnectionManager::defaultManager().setIdleTimeout(Poco::Timespan(connectionIdleTimeout, 0));
-
-			int handshakeTimeout = _pPrefs->configuration()->getInt("remoting.tcp.connection.handshakeTimeout", 8);
-			Poco::RemotingNG::TCP::ConnectionManager::defaultManager().setHandshakeTimeout(Poco::Timespan(handshakeTimeout, 0));
-			pListener->setHandshakeTimeout(Poco::Timespan(handshakeTimeout, 0));
 		}
 
 		// Registered last: the framework does not call stop() when start() fails.
@@ -179,7 +182,7 @@ public:
 			// unregistered under the same name is still recorded or its object is
 			// being removed, that object can have the URI of this service: the
 			// removal exports this service afterwards.
-			if (_exportedServices.count(name) > 0 || _removedNames.count(name) > 0) return;
+			if (_exportedServices.contains(name) || _removedNames.contains(name)) return;
 			_exportedServices[name] = ExportedService{pServiceRef, std::string()};
 			pContext = _pContext;
 			listener = _listener;

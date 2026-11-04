@@ -28,6 +28,7 @@ public:
 
 	void testListPageEscapesBundleName();
 	void testInfoPageEscapesBundleName();
+	void testInfoPageWithoutSymbolicNameShowsUnknownBundle();
 	void testInstallCompletePageEscapesBundleName();
 	void testListPageEncodesSymbolicName();
 	void testActionFormEscapesSymbolicName();
@@ -43,6 +44,7 @@ public:
 	void testUploadWithPutIsRefused();
 	void testUploadInSessionRequiresCSRFToken();
 	void testStopOfNeededBundleIsRefused();
+	void testStopOfBundleWithModuleDependentAsksForConfirmation();
 	void testNeededBundleHasNoStopButton();
 	void testUpgradeOfNeededBundleIsRefused();
 	void testUpgradeOfUnknownBundle();

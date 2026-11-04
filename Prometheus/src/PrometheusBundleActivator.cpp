@@ -23,7 +23,6 @@
 #include "Poco/Net/SocketAddress.h"
 #include "Poco/Net/ServerSocket.h"
 #include "Poco/Prometheus/Registry.h"
-#include "Poco/Prometheus/ThreadPoolCollector.h"
 #include "Poco/Prometheus/ProcessCollector.h"
 #include "Poco/Prometheus/IntCounter.h"
 #include "Poco/Prometheus/Counter.h"
@@ -31,14 +30,21 @@
 #include "Poco/Util/Timer.h"
 #include "Poco/Util/TimerTask.h"
 #include "Poco/NumberFormatter.h"
+#include "Poco/Exception.h"
+#include "Poco/Format.h"
+#include "Poco/Timespan.h"
+#include "Poco/Types.h"
 #include "Poco/SharedPtr.h"
 #include "Poco/ClassLibrary.h"
 #include "Poco/Delegate.h"
 #include "Poco/String.h"
+#include "Poco/ThreadPool.h"
 #include "MetricsRequestHandlerFactory.h"
+#include "ThreadPoolCollector.h"
 #include "WebServerCollector.h"
 #include "WebSessionCollector.h"
 #include "StringExporter.h"
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -102,14 +108,21 @@ public:
 		const std::string permission = pPrefs->configuration()->getString("prometheus.permission"s, ""s);
 		const std::string authServiceName = pPrefs->configuration()->getString("osp.web.authServiceName"s, "osp.auth"s);
 		const bool logMetricsEnable = pPrefs->configuration()->getBool("prometheus.log.enable"s, false);
-		const long logMetricsInterval = 1000*pPrefs->configuration()->getInt("prometheus.log.interval"s, 30);
+		const int logMetricsInterval = pPrefs->configuration()->getInt("prometheus.log.interval"s, 30);
 
 		if (!enable) return;
+		if (logMetricsEnable && (logMetricsInterval < 1 || logMetricsInterval > MAX_LOG_INTERVAL))
+		{
+			throw Poco::InvalidArgumentException(
+				Poco::format("prometheus.log.interval must be between 1 and %d"s, MAX_LOG_INTERVAL),
+				Poco::NumberFormatter::format(logMetricsInterval));
+		}
 
 		// The framework does not call stop() when start() fails.
 		try
 		{
-			_generalCollectors.push_back(CollectorPtr<Poco::Prometheus::Collector>(new Poco::Prometheus::ThreadPoolCollector));
+			_pThreadPoolCollector.reset(new ThreadPoolCollector);
+			_pThreadPoolCollector->addThreadPool(Poco::ThreadPool::defaultPool());
 			_generalCollectors.push_back(CollectorPtr<Poco::Prometheus::Collector>(new Poco::Prometheus::ProcessCollector));
 			_pWebServerCollector.reset(new WebServerCollector);
 			createWebCollectors(pContext);
@@ -131,7 +144,8 @@ public:
 			if (logMetricsEnable)
 			{
 				_pTimer = std::make_unique<Poco::Util::Timer>();
-				_pTimer->scheduleAtFixedRate(new LogMetricsTask, logMetricsInterval, logMetricsInterval);
+				const long interval = static_cast<long>(Poco::Timespan(logMetricsInterval, 0).totalMilliseconds());
+				_pTimer->scheduleAtFixedRate(new LogMetricsTask, interval, interval);
 			}
 		}
 		catch (...)
@@ -171,9 +185,9 @@ protected:
 		_pTimer.reset();
 		resetRequestMetrics();
 		_generalCollectors.clear();
-		_webServerDispatcherCollector.reset();
 		_webSessionManagerCollector.reset();
 		_pWebServerCollector.reset();
+		_pThreadPoolCollector.reset();
 		_pWebServerDispatcher.reset();
 		_pContext.reset();
 	}
@@ -211,8 +225,9 @@ protected:
 		_pWebServerDispatcher = pServiceRef->castedInstance<Poco::OSP::Web::WebServerDispatcher>();
 		if (_pWebServerDispatcher != nullptr)
 		{
-			_pContext->logger().information("Creating ThreadPoolCollector for WebServerDispatcher thread pool."s);
-			_webServerDispatcherCollector.reset(new Poco::Prometheus::ThreadPoolCollector(_pWebServerDispatcher->threadPool()));
+			_pContext->logger().information("Collecting the metrics of the thread pool %s of the web server."s,
+				_pWebServerDispatcher->threadPool().name());
+			_pThreadPoolCollector->addThreadPool(_pWebServerDispatcher->threadPool());
 
 			_pWebServerDispatcherRequestCounter.reset(new Poco::Prometheus::IntCounter("osp_web_requests_total"s));
 			_pWebServerDispatcherRequestCounter->help("Total number of requests handled"s);
@@ -240,9 +255,9 @@ protected:
 		if (_pWebServerDispatcher != nullptr)
 		{
 			_pWebServerDispatcher->requestHandled -= Poco::delegate(this, &BundleActivator::onWebServerDispatcherRequestHandled);
+			_pThreadPoolCollector->removeThreadPool(_pWebServerDispatcher->threadPool());
 		}
 		resetRequestMetrics();
-		_webServerDispatcherCollector.reset();
 		_pWebServerDispatcher.reset();
 	}
 
@@ -284,6 +299,10 @@ protected:
 	}
 
 private:
+	static constexpr int MAX_LOG_INTERVAL = std::numeric_limits<Poco::Int32>::max()/1000;
+		/// The longest log interval in seconds. The timer takes the interval in
+		/// milliseconds as a long, which has 32 bits on Windows.
+
 	Poco::OSP::BundleContext::Ptr _pContext;
 	Poco::OSP::Web::WebServerDispatcher::Ptr _pWebServerDispatcher;
 	Poco::OSP::ServiceListener::Ptr _pWebServerDispatcherListener;
@@ -294,9 +313,9 @@ private:
 	CollectorPtr<Poco::Prometheus::Histogram> _pWebServerDispatcherRequestDurationHistogram;
 	std::unique_ptr<Poco::Net::HTTPServer> _pMetricsServer;
 	std::vector<CollectorPtr<Poco::Prometheus::Collector>> _generalCollectors;
-	CollectorPtr<Poco::Prometheus::Collector> _webServerDispatcherCollector;
 	CollectorPtr<Poco::Prometheus::Collector> _webSessionManagerCollector;
 	CollectorPtr<WebServerCollector> _pWebServerCollector;
+	CollectorPtr<ThreadPoolCollector> _pThreadPoolCollector;
 	std::unique_ptr<Poco::Util::Timer> _pTimer;
 };
 

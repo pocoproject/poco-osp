@@ -20,6 +20,7 @@
 #include "Poco/OSP/Web/WebServerDispatcher.h"
 #include "Poco/OSP/Web/WebSessionManager.h"
 #include "Poco/Prometheus/Registry.h"
+#include "Poco/Prometheus/TextExporter.h"
 #include "Poco/Net/HTTPBasicCredentials.h"
 #include "Poco/Net/HTTPClientSession.h"
 #include "Poco/Net/HTTPMessage.h"
@@ -48,6 +49,7 @@
 #include <array>
 #include <cstddef>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -59,6 +61,8 @@ using namespace std::string_literals;
 namespace
 {
 	const Poco::Timespan TIMEOUT(10, 0);
+	constexpr int LONGEST_LOG_INTERVAL = 2147483;
+		/// The longest prometheus.log.interval, in seconds, that the bundle accepts.
 
 	Poco::UInt16 unusedPort()
 		/// Returns a port on 127.0.0.1 that no socket uses at the moment.
@@ -72,7 +76,8 @@ namespace
 
 	class TestAuthService: public Poco::OSP::Auth::AuthService
 		/// Knows the users "alice", with the permission "metrics", and "bob",
-		/// both with the password "secret".
+		/// both with the password "secret". Alice can also log in as "alice@example.com",
+		/// through authenticateAccount() only.
 	{
 	public:
 		TestAuthService() = default;
@@ -87,6 +92,15 @@ namespace
 		[[nodiscard]] bool authenticate(const std::string& userName, const std::string& credentials) const override
 		{
 			return userExists(userName) && credentials == "secret";
+		}
+
+		[[nodiscard]] bool authenticateAccount(const std::string& userName, const std::string& credentials,
+			std::string& accountName) const override
+		{
+			const std::string name = userName == "alice@example.com" ? "alice"s : userName;
+			if (!authenticate(name, credentials)) return false;
+			accountName = name;
+			return true;
 		}
 
 		[[nodiscard]] bool authorize(const std::string& userName, const std::string& permission) const override
@@ -119,6 +133,28 @@ namespace
 		Poco::NullOutputStream discard;
 		Poco::StreamCopier::copyStream(session.receiveResponse(response), discard);
 		return response.getStatus();
+	}
+
+	[[nodiscard]] int countLines(const std::string& text, const std::string& start)
+		/// Returns the number of lines in text that begin with start.
+	{
+		std::istringstream istr(text);
+		int result = 0;
+		std::string line;
+		while (std::getline(istr, line))
+		{
+			if (Poco::startsWith(line, start)) ++result;
+		}
+		return result;
+	}
+
+	[[nodiscard]] std::string exportMetrics()
+		/// Returns the metrics of the default registry in the text format.
+	{
+		std::ostringstream ostr;
+		Poco::Prometheus::TextExporter exporter(ostr);
+		Poco::Prometheus::Registry::defaultRegistry().exportTo(exporter);
+		return ostr.str();
 	}
 
 	std::string receiveResponse(Poco::Net::StreamSocket& socket)
@@ -171,6 +207,15 @@ struct PrometheusBundleActivatorTest::Fixture
 	{
 		started = false;
 		pActivator->stop(bundles.context());
+	}
+
+	[[nodiscard]] Poco::OSP::Web::WebServerDispatcher::Ptr createDispatcher() const
+		/// Returns a web server dispatcher of the bundle context.
+	{
+		Poco::OSP::Web::WebServerDispatcher::Config config;
+		config.pContext = bundles.context();
+		config.pMediaTypeMapper = new Poco::OSP::Web::MediaTypeMapper;
+		return new Poco::OSP::Web::WebServerDispatcher(config);
 	}
 
 	TemporaryBundle bundles;
@@ -240,10 +285,7 @@ void PrometheusBundleActivatorTest::testFailedStartCanBeRepeated()
 void PrometheusBundleActivatorTest::testDispatcherCanRegisterAgain()
 {
 	_pFixture->start();
-	Poco::OSP::Web::WebServerDispatcher::Config config;
-	config.pContext = _pFixture->bundles.context();
-	config.pMediaTypeMapper = new Poco::OSP::Web::MediaTypeMapper;
-	Poco::OSP::Web::WebServerDispatcher::Ptr pDispatcher = new Poco::OSP::Web::WebServerDispatcher(config);
+	Poco::OSP::Web::WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
 	Poco::OSP::ServiceRef::Ptr pRef = _pFixture->bundles.registry().registerService("osp.web.dispatcher"s, pDispatcher, Poco::OSP::Properties());
 	_pFixture->bundles.registry().unregisterService(pRef);
 
@@ -289,6 +331,22 @@ void PrometheusBundleActivatorTest::testMetricsNeedConfiguredPermission()
 }
 
 
+void PrometheusBundleActivatorTest::testMetricsAcceptOtherNameOfAccount()
+{
+	const Poco::UInt16 port = unusedPort();
+	_pFixture->pSettings->setInt("prometheus.port"s, port);
+	_pFixture->pSettings->setString("prometheus.permission"s, "metrics"s);
+	Poco::OSP::ServiceRef::Ptr pRef =
+		_pFixture->bundles.registry().registerService("osp.auth"s, new TestAuthService, Poco::OSP::Properties());
+	_pFixture->start();
+
+	assertTrue (getMetrics(port, "alice@example.com"s, "secret"s) == Poco::Net::HTTPResponse::HTTP_OK);
+	assertTrue (getMetrics(port, "alice@example.com"s, "wrong"s) == Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED);
+	_pFixture->stop();
+	_pFixture->bundles.registry().unregisterService(pRef);
+}
+
+
 void PrometheusBundleActivatorTest::testMetricsWithoutPermission()
 {
 	const Poco::UInt16 port = unusedPort();
@@ -324,6 +382,96 @@ void PrometheusBundleActivatorTest::testMissingAuthServiceIsLoggedOnce()
 }
 
 
+void PrometheusBundleActivatorTest::testThreadPoolMetricsHaveOneHeader()
+{
+	_pFixture->start();
+	Poco::OSP::Web::WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
+	Poco::OSP::ServiceRef::Ptr pRef =
+		_pFixture->bundles.registry().registerService("osp.web.dispatcher"s, pDispatcher, Poco::OSP::Properties());
+
+	const std::string metrics = exportMetrics();
+
+	for (const auto& name:
+		{"poco_threadpool_max_threads"s, "poco_threadpool_used_threads"s, "poco_threadpool_allocated_threads"s})
+	{
+		assertEqual (1, countLines(metrics, "# TYPE " + name + " "));
+		assertEqual (1, countLines(metrics, name + "{name=\"default\"}"));
+		assertEqual (1, countLines(metrics, name + "{name=\"" + pDispatcher->threadPool().name() + "\"}"));
+	}
+	_pFixture->stop();
+	_pFixture->bundles.registry().unregisterService(pRef);
+}
+
+
+void PrometheusBundleActivatorTest::testThreadPoolOfUnregisteredDispatcherIsNotExported()
+{
+	_pFixture->start();
+	Poco::OSP::Web::WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
+	Poco::OSP::ServiceRef::Ptr pRef =
+		_pFixture->bundles.registry().registerService("osp.web.dispatcher"s, pDispatcher, Poco::OSP::Properties());
+	const std::string dispatcherPool = "{name=\"" + pDispatcher->threadPool().name() + "\"}";
+
+	_pFixture->bundles.registry().unregisterService(pRef);
+	const std::string unregistered = exportMetrics();
+	pRef = _pFixture->bundles.registry().registerService("osp.web.dispatcher"s, pDispatcher, Poco::OSP::Properties());
+	const std::string registeredAgain = exportMetrics();
+
+	for (const auto& name:
+		{"poco_threadpool_max_threads"s, "poco_threadpool_used_threads"s, "poco_threadpool_allocated_threads"s})
+	{
+		assertEqual (1, countLines(unregistered, name + "{name=\"default\"}"));
+		assertEqual (0, countLines(unregistered, name + dispatcherPool));
+		assertEqual (1, countLines(registeredAgain, name + dispatcherPool));
+	}
+	_pFixture->stop();
+	_pFixture->bundles.registry().unregisterService(pRef);
+}
+
+
+void PrometheusBundleActivatorTest::testLogIntervalOutsideRangeIsRejected()
+{
+	_pFixture->pSettings->setBool("prometheus.log.enable"s, true);
+	for (const int interval: {0, -1, LONGEST_LOG_INTERVAL + 1})
+	{
+		_pFixture->pSettings->setInt("prometheus.log.interval"s, interval);
+		try
+		{
+			_pFixture->start();
+			fail("the log interval is outside the accepted range");
+		}
+		catch (Poco::InvalidArgumentException&)
+		{
+		}
+	}
+}
+
+
+void PrometheusBundleActivatorTest::testLogIntervalOfOneSecondLogsMetrics()
+{
+	LogCapture capture("Metrics"s);
+	_pFixture->pSettings->setBool("prometheus.log.enable"s, true);
+	_pFixture->pSettings->setInt("prometheus.log.interval"s, 1);
+
+	_pFixture->start();
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
+	assertTrue (!messages.empty());
+	assertTrue (messages.front().getText().find("poco_threadpool_max_threads"s) != std::string::npos);
+	_pFixture->stop();
+}
+
+
+void PrometheusBundleActivatorTest::testLongestLogIntervalIsAccepted()
+{
+	_pFixture->pSettings->setBool("prometheus.log.enable"s, true);
+	_pFixture->pSettings->setInt("prometheus.log.interval"s, LONGEST_LOG_INTERVAL);
+
+	_pFixture->start();
+
+	_pFixture->stop();
+}
+
+
 void PrometheusBundleActivatorTest::setUp()
 {
 	_pFixture = std::make_unique<Fixture>();
@@ -346,8 +494,14 @@ CppUnit::Test* PrometheusBundleActivatorTest::suite()
 	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testDispatcherCanRegisterAgain);
 	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testStopUnregistersCollectors);
 	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testMetricsNeedConfiguredPermission);
+	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testMetricsAcceptOtherNameOfAccount);
 	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testMetricsWithoutPermission);
 	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testMissingAuthServiceIsLoggedOnce);
+	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testThreadPoolMetricsHaveOneHeader);
+	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testThreadPoolOfUnregisteredDispatcherIsNotExported);
+	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testLogIntervalOutsideRangeIsRejected);
+	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testLogIntervalOfOneSecondLogsMetrics);
+	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testLongestLogIntervalIsAccepted);
 
 	return pSuite;
 }

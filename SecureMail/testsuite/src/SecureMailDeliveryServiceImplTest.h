@@ -29,6 +29,7 @@ public:
 	void testRefusedStartTLSFailsDelivery();
 	void testStartTLSWithTrustedCertificate();
 	void testStartTLSRejectsUntrustedCertificate();
+	void testApplicationCertificateHandlerDoesNotAcceptUntrustedCertificate();
 	void testContextVerifiesHostNameByDefault();
 	void testCertificateForConfiguredHostNameIsAccepted();
 	void testCertificateForOtherHostNameIsRejected();

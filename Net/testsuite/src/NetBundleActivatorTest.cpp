@@ -17,6 +17,7 @@
 #include "Poco/Util/MapConfiguration.h"
 #include "Poco/AutoPtr.h"
 #include "Poco/ClassLoader.h"
+#include "Poco/Exception.h"
 #include "Poco/Path.h"
 #include "Poco/TemporaryFile.h"
 #include "CppUnit/TestCaller.h"
@@ -32,6 +33,32 @@ using Poco::Net::HTTPClientSession;
 using namespace std::string_literals;
 
 
+namespace
+{
+	struct Fixture
+		/// The bundle activator of the bundle library, with a bundle context in
+		/// whose registry the preferences service is registered.
+	{
+		Fixture():
+			bundles(""s),
+			pSettings(new Poco::Util::MapConfiguration)
+		{
+			bundles.registry().registerService(PreferencesService::SERVICE_NAME,
+				new PreferencesService(Poco::Path(persistency.path()), pSettings), Poco::OSP::Properties());
+			loader.loadLibrary(NET_BUNDLE_LIBRARY);
+			pActivator.reset(loader.create("NetBundleActivator"s));
+		}
+
+		TemporaryBundle bundles;
+		Poco::TemporaryFile persistency;
+		Poco::AutoPtr<Poco::Util::MapConfiguration> pSettings;
+		Poco::ClassLoader<Poco::OSP::BundleActivator> loader;
+		// Declared after the loader, so that it is destroyed before the library is unloaded.
+		std::unique_ptr<Poco::OSP::BundleActivator> pActivator;
+	};
+}
+
+
 NetBundleActivatorTest::NetBundleActivatorTest(const std::string& name): CppUnit::TestCase(name)
 {
 }
@@ -42,24 +69,82 @@ NetBundleActivatorTest::~NetBundleActivatorTest() = default;
 
 void NetBundleActivatorTest::testStopClearsProxyConfiguration()
 {
-	TemporaryBundle bundles(""s);
-	Poco::TemporaryFile persistency;
-	Poco::AutoPtr<Poco::Util::MapConfiguration> pSettings = new Poco::Util::MapConfiguration;
-	pSettings->setString("http.proxy.host"s, "proxy.example.com"s);
-	pSettings->setString("http.proxy.username"s, "user"s);
-	pSettings->setString("http.proxy.password"s, "secret"s);
-	bundles.registry().registerService(PreferencesService::SERVICE_NAME, new PreferencesService(Poco::Path(persistency.path()), pSettings), Poco::OSP::Properties());
-	Poco::ClassLoader<Poco::OSP::BundleActivator> loader;
-	loader.loadLibrary(NET_BUNDLE_LIBRARY);
-	std::unique_ptr<Poco::OSP::BundleActivator> pActivator(loader.create("NetBundleActivator"s));
+	Fixture fixture;
+	fixture.pSettings->setString("http.proxy.host"s, "proxy.example.com"s);
+	fixture.pSettings->setString("http.proxy.username"s, "user"s);
+	fixture.pSettings->setString("http.proxy.password"s, "secret"s);
 
-	pActivator->start(bundles.context());
+	fixture.pActivator->start(fixture.bundles.context());
 	assertEqual ("proxy.example.com"s, HTTPClientSession::getGlobalProxyConfig().host);
 	assertEqual ("secret"s, HTTPClientSession::getGlobalProxyConfig().password);
-	pActivator->stop(bundles.context());
+	fixture.pActivator->stop(fixture.bundles.context());
 
 	assertTrue (HTTPClientSession::getGlobalProxyConfig().host.empty());
 	assertTrue (HTTPClientSession::getGlobalProxyConfig().password.empty());
+}
+
+
+void NetBundleActivatorTest::testFailedStartCanBeRepeated()
+{
+	Fixture fixture;
+	fixture.pSettings->setString("http.proxy.host"s, "proxy.example.com"s);
+	fixture.pSettings->setString("http.proxy.port"s, "8080/tcp"s);
+	try
+	{
+		fixture.pActivator->start(fixture.bundles.context());
+		fail("the proxy port is not a number");
+	}
+	catch (Poco::SyntaxException&)
+	{
+	}
+
+	fixture.pSettings->setString("http.proxy.port"s, "8080"s);
+	fixture.pActivator->start(fixture.bundles.context());
+
+	assertEqual (8080, static_cast<int>(HTTPClientSession::getGlobalProxyConfig().port));
+	fixture.pActivator->stop(fixture.bundles.context());
+}
+
+
+void NetBundleActivatorTest::testFailedPasswordReadCanBeRepeated()
+{
+	Fixture fixture;
+	fixture.pSettings->setString("http.proxy.host"s, "proxy.example.com"s);
+	fixture.pSettings->setString("http.proxy.password"s, "${http.proxy.password}"s);
+	try
+	{
+		fixture.pActivator->start(fixture.bundles.context());
+		fail("the proxy password refers to itself");
+	}
+	catch (Poco::CircularReferenceException&)
+	{
+	}
+
+	fixture.pSettings->setString("http.proxy.password"s, "secret"s);
+	fixture.pActivator->start(fixture.bundles.context());
+
+	assertEqual ("secret"s, HTTPClientSession::getGlobalProxyConfig().password);
+	fixture.pActivator->stop(fixture.bundles.context());
+}
+
+
+void NetBundleActivatorTest::testProxyPortOutsideRangeIsRejected()
+{
+	Fixture fixture;
+	fixture.pSettings->setString("http.proxy.host"s, "proxy.example.com"s);
+	for (const int port: {0, 70000})
+	{
+		fixture.pSettings->setInt("http.proxy.port"s, port);
+		try
+		{
+			fixture.pActivator->start(fixture.bundles.context());
+			fail("the proxy port is outside 1 to 65535");
+		}
+		catch (Poco::InvalidArgumentException&)
+		{
+		}
+		assertTrue (HTTPClientSession::getGlobalProxyConfig().host.empty());
+	}
 }
 
 
@@ -79,6 +164,9 @@ CppUnit::Test* NetBundleActivatorTest::suite()
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("NetBundleActivatorTest");
 
 	CppUnit_addTest(pSuite, NetBundleActivatorTest, testStopClearsProxyConfiguration);
+	CppUnit_addTest(pSuite, NetBundleActivatorTest, testFailedStartCanBeRepeated);
+	CppUnit_addTest(pSuite, NetBundleActivatorTest, testFailedPasswordReadCanBeRepeated);
+	CppUnit_addTest(pSuite, NetBundleActivatorTest, testProxyPortOutsideRangeIsRejected);
 
 	return pSuite;
 }

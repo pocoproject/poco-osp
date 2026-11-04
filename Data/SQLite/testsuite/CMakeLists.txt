@@ -6,11 +6,7 @@ POCO_SOURCES_AUTO(TEST_SRCS ${SRCS_G})
 file(GLOB_RECURSE HDRS_G "src/*.h")
 POCO_HEADERS_AUTO(TEST_SRCS ${HDRS_G})
 
-# The bundles for the activator are the ones of the Web test suite.
-list(APPEND TEST_SRCS ${PROJECT_SOURCE_DIR}/Web/testsuite/src/TemporaryBundle.cpp)
-
-add_executable(OSPDataSQLite-testrunner ${TEST_SRCS})
-target_include_directories(OSPDataSQLite-testrunner PRIVATE ${PROJECT_SOURCE_DIR}/Web/testsuite/src)
+poco_add_executable(OSPDataSQLite-testrunner ${TEST_SRCS})
 # The test of the bundle activator loads the bundle library.
 add_dependencies(OSPDataSQLite-testrunner poco.data.sqlite)
 target_compile_definitions(OSPDataSQLite-testrunner PRIVATE "SQLITE_BUNDLE_LIBRARY=\"$<TARGET_FILE:poco.data.sqlite>\"")
@@ -20,4 +16,7 @@ add_test(
 	COMMAND OSPDataSQLite-testrunner -ignore ${POCO_OSP_CPPIGNORE_FILE} -all
 )
 
-target_link_libraries(OSPDataSQLite-testrunner PRIVATE Poco::OSP Poco::DataSQLite Poco::Data Poco::Zip Poco::Util Poco::XML Poco::Foundation Poco::CppUnit)
+target_link_libraries(OSPDataSQLite-testrunner
+	PRIVATE OSPTestSupport Poco::OSP Poco::DataSQLite Poco::Data Poco::Zip Poco::Util Poco::XML Poco::Foundation
+		Poco::CppUnit
+)

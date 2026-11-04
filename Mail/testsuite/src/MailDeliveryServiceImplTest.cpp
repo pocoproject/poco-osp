@@ -47,6 +47,10 @@ namespace
 {
 	const std::string LOGGER_NAME("MailDeliveryServiceImplTest");
 	constexpr long WAIT_MILLISECONDS = 10000;
+	constexpr int LONGEST_SESSION_TIMEOUT = 2147483;
+		/// The longest osp.mail.sessionTimeout, in seconds, that the service accepts.
+	constexpr Poco::Timespan::TimeDiff LONGEST_SESSION_TIMEOUT_MICROSECONDS = 2147483647000;
+		/// The longest session timeout, in microseconds, that the service accepts.
 
 	Poco::AutoPtr<MapConfiguration> bundleProperties()
 		/// Returns the settings of the bundle.properties file of the Mail bundle.
@@ -199,7 +203,158 @@ void MailDeliveryServiceImplTest::testLoadConfigurationNamesInvalidLoginMethod()
 }
 
 
-void MailDeliveryServiceImplTest::testNewSessionAfterFailedDelivery()
+void MailDeliveryServiceImplTest::testLoadConfigurationRejectsPortOutsideRange()
+{
+	for (const int port: {0, 65536, 70000})
+	{
+		MapConfiguration settings;
+		settings.setInt("osp.mail.port"s, port);
+		try
+		{
+			static_cast<void>(MailDeliveryServiceImpl::loadConfiguration(settings, *bundleProperties(),
+				Poco::Logger::get(LOGGER_NAME)));
+			fail("the port is outside 1 to 65535");
+		}
+		catch (Poco::InvalidArgumentException&)
+		{
+		}
+	}
+}
+
+
+void MailDeliveryServiceImplTest::testLoadConfigurationAcceptsPortsOneTo65535()
+{
+	for (const int port: {1, 65535})
+	{
+		MapConfiguration settings;
+		settings.setInt("osp.mail.port"s, port);
+
+		const MailDeliveryServiceImpl::Configuration config =
+			MailDeliveryServiceImpl::loadConfiguration(settings, *bundleProperties(), Poco::Logger::get(LOGGER_NAME));
+
+		assertEqual (port, static_cast<int>(config.port));
+	}
+}
+
+
+void MailDeliveryServiceImplTest::testSessionTimeoutOfOneSecondIsAccepted()
+{
+	MapConfiguration settings;
+	settings.setInt("osp.mail.sessionTimeout"s, 1);
+	const MailDeliveryServiceImpl::Configuration config =
+		MailDeliveryServiceImpl::loadConfiguration(settings, *bundleProperties(), Poco::Logger::get(LOGGER_NAME));
+
+	const MailDeliveryServiceImpl::Ptr pService = new MailDeliveryServiceImpl(config, serviceLogger());
+
+	assertTrue (config.sessionTimeout == Poco::Timespan(1, 0));
+}
+
+
+void MailDeliveryServiceImplTest::testSessionTimeoutBelowOneSecondIsRejected()
+{
+	MapConfiguration settings;
+	settings.setInt("osp.mail.sessionTimeout"s, 0);
+	const MailDeliveryServiceImpl::Configuration config =
+		MailDeliveryServiceImpl::loadConfiguration(settings, *bundleProperties(), Poco::Logger::get(LOGGER_NAME));
+
+	try
+	{
+		const MailDeliveryServiceImpl::Ptr pService = new MailDeliveryServiceImpl(config, serviceLogger());
+		fail("the session timeout is 0");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+	MailDeliveryServiceImpl::Configuration defaults;
+	defaults.port = 25;
+	try
+	{
+		const MailDeliveryServiceImpl::Ptr pService = new MailDeliveryServiceImpl(defaults, serviceLogger());
+		fail("the default session timeout is 0");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+}
+
+
+void MailDeliveryServiceImplTest::testSessionTimeoutAbove2147483SecondsIsRejected()
+{
+	MapConfiguration settings;
+	settings.setInt("osp.mail.sessionTimeout"s, LONGEST_SESSION_TIMEOUT);
+	MailDeliveryServiceImpl::Configuration config =
+		MailDeliveryServiceImpl::loadConfiguration(settings, *bundleProperties(), Poco::Logger::get(LOGGER_NAME));
+	{
+		const MailDeliveryServiceImpl::Ptr pService = new MailDeliveryServiceImpl(config, serviceLogger());
+	}
+
+	settings.setInt("osp.mail.sessionTimeout"s, LONGEST_SESSION_TIMEOUT + 1);
+	config = MailDeliveryServiceImpl::loadConfiguration(settings, *bundleProperties(), Poco::Logger::get(LOGGER_NAME));
+	try
+	{
+		const MailDeliveryServiceImpl::Ptr pService = new MailDeliveryServiceImpl(config, serviceLogger());
+		fail("the session timeout in milliseconds does not fit into 32 bits");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+}
+
+
+void MailDeliveryServiceImplTest::testSessionTimeoutAbove2147483647MillisecondsIsRejected()
+{
+	const MapConfiguration settings;
+	MailDeliveryServiceImpl::Configuration config =
+		MailDeliveryServiceImpl::loadConfiguration(settings, *bundleProperties(), Poco::Logger::get(LOGGER_NAME));
+	config.sessionTimeout = Poco::Timespan(LONGEST_SESSION_TIMEOUT_MICROSECONDS);
+	{
+		const MailDeliveryServiceImpl::Ptr pService = new MailDeliveryServiceImpl(config, serviceLogger());
+	}
+
+	config.sessionTimeout = Poco::Timespan(LONGEST_SESSION_TIMEOUT_MICROSECONDS + 1);
+	try
+	{
+		const MailDeliveryServiceImpl::Ptr pService = new MailDeliveryServiceImpl(config, serviceLogger());
+		fail("the session timeout is 1 microsecond longer than 2147483647 milliseconds");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+}
+
+
+void MailDeliveryServiceImplTest::testSocketTimeoutBelowOneSecondIsRejected()
+{
+	MapConfiguration settings;
+	settings.setInt("osp.mail.socketTimeout"s, 0);
+	const MailDeliveryServiceImpl::Configuration config =
+		MailDeliveryServiceImpl::loadConfiguration(settings, *bundleProperties(), Poco::Logger::get(LOGGER_NAME));
+
+	try
+	{
+		const MailDeliveryServiceImpl::Ptr pService = new MailDeliveryServiceImpl(config, serviceLogger());
+		fail("the socket timeout is 0");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+}
+
+
+void MailDeliveryServiceImplTest::testPortZeroIsRejected()
+{
+	try
+	{
+		const MailDeliveryServiceImpl::Ptr pService = new MailDeliveryServiceImpl(configuration(0), serviceLogger());
+		fail("the port is 0");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+}
+
+
+void MailDeliveryServiceImplTest::testSessionClosedByServerIsReplaced()
 {
 	FakeSMTPServer server;
 	server.setDropAfterMessages(1);
@@ -212,9 +367,29 @@ void MailDeliveryServiceImplTest::testNewSessionAfterFailedDelivery()
 
 	assertTrue (pThird->tryWait(WAIT_MILLISECONDS));
 	assertTrue (pFirst->status() == MailDeliveryHandle::MAIL_DELIVERED);
-	assertTrue (pSecond->status() == MailDeliveryHandle::MAIL_FAILED);
+	assertTrue (pSecond->status() == MailDeliveryHandle::MAIL_DELIVERED);
 	assertTrue (pThird->status() == MailDeliveryHandle::MAIL_DELIVERED);
-	assertEqual (2, server.connections());
+	assertEqual (3, server.connections());
+	assertEqual (3, server.messages());
+	pService->stop();
+}
+
+
+void MailDeliveryServiceImplTest::testSessionIsKeptWhileServerAcceptsReset()
+{
+	FakeSMTPServer server;
+	MailDeliveryServiceImpl::Ptr pService = new MailDeliveryServiceImpl(configuration(server.port()), serviceLogger());
+	pService->start();
+
+	MailDeliveryHandle::Ptr pFirst = pService->sendMessage(message());
+	MailDeliveryHandle::Ptr pSecond = pService->sendMessage(message());
+
+	assertTrue (pSecond->tryWait(WAIT_MILLISECONDS));
+	assertTrue (pFirst->status() == MailDeliveryHandle::MAIL_DELIVERED);
+	assertTrue (pSecond->status() == MailDeliveryHandle::MAIL_DELIVERED);
+	assertTrue (server.hasReceived("RSET"s));
+	assertEqual (1, server.connections());
+	assertEqual (2, server.messages());
 	pService->stop();
 }
 
@@ -456,7 +631,16 @@ CppUnit::Test* MailDeliveryServiceImplTest::suite()
 	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testLoadConfigurationPrefersSettingsOverDefaults);
 	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testLoadConfigurationIgnoresCaseOfLoginMethod);
 	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testLoadConfigurationNamesInvalidLoginMethod);
-	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testNewSessionAfterFailedDelivery);
+	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testLoadConfigurationRejectsPortOutsideRange);
+	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testLoadConfigurationAcceptsPortsOneTo65535);
+	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testSessionTimeoutOfOneSecondIsAccepted);
+	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testSessionTimeoutBelowOneSecondIsRejected);
+	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testSessionTimeoutAbove2147483SecondsIsRejected);
+	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testSessionTimeoutAbove2147483647MillisecondsIsRejected);
+	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testSocketTimeoutBelowOneSecondIsRejected);
+	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testPortZeroIsRejected);
+	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testSessionClosedByServerIsReplaced);
+	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testSessionIsKeptWhileServerAcceptsReset);
 	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testStopFailsQueuedMessages);
 	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testSendMessageAfterStopThrows);
 	CppUnit_addTest(pSuite, MailDeliveryServiceImplTest, testStatusWhileDelivering);

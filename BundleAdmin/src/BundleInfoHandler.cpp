@@ -12,6 +12,7 @@
 #include "Poco/Net/HTMLForm.h"
 #include "Poco/Net/HTTPResponse.h"
 #include "Poco/NumberFormatter.h"
+#include <algorithm>
 #include <string>
 
 
@@ -32,7 +33,7 @@ BundleInfoHandler::~BundleInfoHandler() = default;
 	
 void BundleInfoHandler::handle()
 {
-	std::string symbolicName = form().get("symbolicName");
+	std::string symbolicName = form().get("symbolicName", "");
 	
 	Bundle::Ptr pBundle = context()->findBundle(symbolicName);
 	if (pBundle != nullptr)
@@ -223,7 +224,12 @@ bool BundleInfoHandler::performAction(Poco::OSP::Bundle::Ptr pBundle, const std:
 	else if (action == "stop")
 	{
 		BundleVec deps;
-		dependingBundles(pBundle, deps);
+		context()->listRequiringBundles(pBundle, deps);
+		const auto itNotStarted = std::remove_if(deps.begin(), deps.end(), [](const Poco::OSP::Bundle::Ptr& pDep)
+		{
+			return !pDep->isStarted();
+		});
+		deps.erase(itNotStarted, deps.end());
 		if (deps.empty())
 		{
 			pBundle->stop();
@@ -291,26 +297,4 @@ void BundleInfoHandler::confirmStop(Poco::OSP::Bundle::Ptr pBundle, const Bundle
 	action(pBundle, "cancel", text("cancel"));
 	endActionBar();
 	endPage();
-}
-
-
-void BundleInfoHandler::dependingBundles(Poco::OSP::Bundle::Ptr pBundle, BundleVec& dependingBundles)
-{
-	BundleVec bundles;
-	context()->listBundles(bundles);
-	for (BundleVec::const_iterator it = bundles.begin(); it != bundles.end(); ++it)
-	{
-		if ((*it)->isStarted())
-		{
-			const BundleManifest::Dependencies& deps = (*it)->requiredBundles();
-			for (BundleManifest::Dependencies::const_iterator itDep = deps.begin(); itDep != deps.end(); ++itDep)
-			{
-				if (itDep->symbolicName == pBundle->symbolicName())
-				{
-					dependingBundles.push_back(*it);
-					break;
-				}
-			}
-		}
-	}
 }

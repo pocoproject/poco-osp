@@ -5,7 +5,7 @@
 // Package: Mail
 // Module:  Mail
 //
-// Basic definitions for the Poco OSP Mail library.
+// Basic definitions for the POCO OSP Mail library.
 // This file must be the first file included by every other OSP Mail
 // header file.
 //

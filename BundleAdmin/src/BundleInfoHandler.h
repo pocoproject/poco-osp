@@ -38,7 +38,6 @@ protected:
 	bool performAction(Poco::OSP::Bundle::Ptr pBundle, const std::string& action);
 	void confirmUninstall(Poco::OSP::Bundle::Ptr pBundle);
 	void confirmStop(Poco::OSP::Bundle::Ptr pBundle, const BundleVec& dependingBundles);
-	void dependingBundles(Poco::OSP::Bundle::Ptr pBundle, BundleVec& dependingBundles);
 };
 
 

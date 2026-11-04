@@ -17,11 +17,17 @@
 #include "Poco/OSP/PreferencesService.h"
 #include "Poco/OSP/Properties.h"
 #include "Poco/OSP/ServiceRef.h"
+#include "Poco/Crypto/CryptoException.h"
+#include "Poco/Crypto/RSADigestEngine.h"
+#include "Poco/Crypto/RSAKey.h"
+#include "Poco/Net/AcceptCertificateHandler.h"
 #include "Poco/Net/Context.h"
 #include "Poco/Net/MailMessage.h"
 #include "Poco/Net/MailRecipient.h"
 #include "Poco/Net/NetSSL.h"
+#include "Poco/Net/PrivateKeyPassphraseHandler.h"
 #include "Poco/Net/SSLException.h"
+#include "Poco/Net/SSLManager.h"
 #include "Poco/Net/SMTPClientSession.h"
 #include "Poco/Net/SecureStreamSocket.h"
 #include "Poco/Net/StreamSocket.h"
@@ -29,10 +35,12 @@
 #include "Poco/AutoPtr.h"
 #include "Poco/ClassLoader.h"
 #include "Poco/Environment.h"
+#include "Poco/Exception.h"
 #include "Poco/FileStream.h"
 #include "Poco/Logger.h"
 #include "Poco/Message.h"
 #include "Poco/Path.h"
+#include "Poco/SharedPtr.h"
 #include "Poco/StreamCopier.h"
 #include "Poco/TemporaryFile.h"
 #include "Poco/Timespan.h"
@@ -173,6 +181,28 @@ namespace
 		settings.setString("osp.mail.tls.caLocation"s, dataFile("localhost.pem"s));
 		return SecureMailDeliveryServiceImpl::createContext(settings);
 	}
+
+	[[nodiscard]] bool signsWithMD5SHA1()
+		/// Returns false if OpenSSL refuses MD5-SHA1 signatures, which a system
+		/// policy can forbid. A TLS 1.1 server signs an ephemeral key exchange
+		/// with them.
+	{
+		const Poco::Crypto::RSAKey key(""s, dataFile("localhost.key"s));
+		try
+		{
+			Poco::Crypto::RSADigestEngine engine(key, "MD5-SHA1"s);
+			engine.update("probe"s);
+			return !engine.signature().empty();
+		}
+		catch (Poco::Crypto::OpenSSLException&)
+		{
+			return false;
+		}
+		catch (Poco::NotFoundException&)
+		{
+			return false;
+		}
+	}
 }
 
 
@@ -264,6 +294,26 @@ void SecureMailDeliveryServiceImplTest::testStartTLSRejectsUntrustedCertificate(
 }
 
 
+void SecureMailDeliveryServiceImplTest::testApplicationCertificateHandlerDoesNotAcceptUntrustedCertificate()
+{
+	Poco::Net::SSLManager::instance().initializeClient(Poco::Net::SSLManager::PrivateKeyPassphraseHandlerPtr(),
+		Poco::makeShared<Poco::Net::AcceptCertificateHandler>(false), Poco::Net::Context::Ptr());
+	FakeSMTPServer server(FakeSMTPServer::TLSMode::STARTTLS, secureServer());
+	SecureMailDeliveryServiceImpl::Ptr pService = new SecureMailDeliveryServiceImpl(
+		SecureMailDeliveryServiceImpl::SMTP_STARTTLS, loginConfiguration(server.port(), "127.0.0.1"s), logger(),
+		SecureMailDeliveryServiceImpl::createContext(Poco::Util::MapConfiguration()));
+	pService->start();
+
+	MailDeliveryHandle::Ptr pHandle = pService->sendMessage(message());
+
+	assertTrue (pHandle->tryWait(WAIT_MILLISECONDS));
+	assertTrue (pHandle->status() == MailDeliveryHandle::MAIL_FAILED);
+	assertTrue (!server.hasReceived("AUTH"s));
+	assertEqual (0, server.messages());
+	pService->stop();
+}
+
+
 void SecureMailDeliveryServiceImplTest::testCertificateForConfiguredHostNameIsAccepted()
 {
 	for (const SecureMailDeliveryServiceImpl::Mode mode: {SecureMailDeliveryServiceImpl::SMTP_STARTTLS, SecureMailDeliveryServiceImpl::SMTP_OVER_TLS})
@@ -322,6 +372,11 @@ void SecureMailDeliveryServiceImplTest::testOtherHostNameIsAcceptedWithoutHostNa
 
 void SecureMailDeliveryServiceImplTest::testServerWithoutTLS12IsRefused()
 {
+	if (!signsWithMD5SHA1())
+	{
+		warnmsg("OpenSSL refuses MD5-SHA1 signatures, TLS 1.1 case skipped.");
+		return;
+	}
 	Poco::Net::Context::Params tls11Params = serverParams();
 	tls11Params.cipherList = LEGACY_CIPHERS;
 	Poco::Net::Context::Ptr pTLS11Context = new Poco::Net::Context(Poco::Net::Context::TLS_SERVER_USE, tls11Params);
@@ -422,6 +477,8 @@ void SecureMailDeliveryServiceImplTest::setUp()
 
 void SecureMailDeliveryServiceImplTest::tearDown()
 {
+	Poco::Net::SSLManager::instance().initializeClient(Poco::Net::SSLManager::PrivateKeyPassphraseHandlerPtr(),
+		Poco::Net::SSLManager::InvalidCertificateHandlerPtr(), Poco::Net::Context::Ptr());
 	Poco::Net::uninitializeSSL();
 }
 
@@ -434,6 +491,8 @@ CppUnit::Test* SecureMailDeliveryServiceImplTest::suite()
 	CppUnit_addTest(pSuite, SecureMailDeliveryServiceImplTest, testRefusedStartTLSFailsDelivery);
 	CppUnit_addTest(pSuite, SecureMailDeliveryServiceImplTest, testStartTLSWithTrustedCertificate);
 	CppUnit_addTest(pSuite, SecureMailDeliveryServiceImplTest, testStartTLSRejectsUntrustedCertificate);
+	CppUnit_addTest(pSuite, SecureMailDeliveryServiceImplTest,
+		testApplicationCertificateHandlerDoesNotAcceptUntrustedCertificate);
 	CppUnit_addTest(pSuite, SecureMailDeliveryServiceImplTest, testContextVerifiesHostNameByDefault);
 	CppUnit_addTest(pSuite, SecureMailDeliveryServiceImplTest, testCertificateForConfiguredHostNameIsAccepted);
 	CppUnit_addTest(pSuite, SecureMailDeliveryServiceImplTest, testCertificateForOtherHostNameIsRejected);

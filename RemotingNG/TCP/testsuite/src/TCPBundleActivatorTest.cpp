@@ -1014,6 +1014,31 @@ void TCPBundleActivatorTest::testServiceRegisteredDuringStartIsExported()
 }
 
 
+void TCPBundleActivatorTest::testFailedStartLeavesNothingRegistered()
+{
+	_pFixture->pSettings->setString("remoting.tcp.connection.handshakeTimeout"s, "8s"s);
+
+	try
+	{
+		_pFixture->start();
+		fail("the handshake timeout is not a number");
+	}
+	catch (Poco::SyntaxException&)
+	{
+	}
+
+	Poco::OSP::ServiceRef::Ptr pRef = registerRemoteService(_pFixture->bundles.registry(), "osp.test.remote"s);
+	assertTrue (!pRef->properties().has("remoting.tcp.uri"s));
+	_pFixture->bundles.registry().unregisterService(pRef);
+	_pFixture->pSettings->setString("remoting.tcp.connection.handshakeTimeout"s, "8"s);
+	_pFixture->start();
+	pRef = registerRemoteService(_pFixture->bundles.registry(), "osp.test.remote"s);
+	assertTrue (isExported(pRef));
+	_pFixture->bundles.registry().unregisterService(pRef);
+	_pFixture->stop();
+}
+
+
 void TCPBundleActivatorTest::setUp()
 {
 	_pFixture = std::make_unique<Fixture>();
@@ -1050,6 +1075,7 @@ CppUnit::Test* TCPBundleActivatorTest::suite()
 	CppUnit_addTest(pSuite, TCPBundleActivatorTest, testStandardExceptionOfServiceIsLogged);
 	CppUnit_addTest(pSuite, TCPBundleActivatorTest, testServiceFactoryCanRegisterService);
 	CppUnit_addTest(pSuite, TCPBundleActivatorTest, testServiceRegisteredDuringStartIsExported);
+	CppUnit_addTest(pSuite, TCPBundleActivatorTest, testFailedStartLeavesNothingRegistered);
 
 	return pSuite;
 }

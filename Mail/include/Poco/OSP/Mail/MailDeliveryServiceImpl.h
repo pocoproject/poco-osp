@@ -63,6 +63,10 @@ public:
 		/// Creates the MailDeliveryServiceImpl using the given configuration and logger.
 		///
 		/// Messages are delivered after start() has been called.
+		///
+		/// Throws a Poco::InvalidArgumentException if the session timeout is shorter
+		/// than 1 second or longer than 2147483647 milliseconds, the socket timeout
+		/// is shorter than 1 second, or the port is 0.
 
 	~MailDeliveryServiceImpl() override;
 		/// Destroys the MailDeliveryServiceImpl and calls stop().
@@ -96,6 +100,9 @@ public:
 		///
 		/// The login method is case insensitive; an invalid one is logged as a warning
 		/// and replaced by none.
+		///
+		/// Throws a Poco::InvalidArgumentException if osp.mail.port is not between
+		/// 1 and 65535.
 
 	// Service
 	[[nodiscard]] const std::type_info& type() const override;
@@ -111,6 +118,10 @@ private:
 	void deliver(const Poco::Net::MailMessage& message);
 		/// Sends the message over the SMTP session, with the sender and the
 		/// Message-ID that sendMessage() describes.
+
+	[[nodiscard]] bool resetSMTPClientSession();
+		/// Sends RSET, which ends any transaction left in the SMTP session. Returns true if the
+		/// server accepts it (250), false if it refuses it or the session fails.
 
 	[[nodiscard]] bool failUnfinished(MailDeliveryHandle::Ptr pHandle, const Poco::Exception& exc);
 		/// Fails the message of the handle with exc if its delivery has not finished.

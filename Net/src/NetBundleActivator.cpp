@@ -19,8 +19,14 @@
 #include "Poco/Net/FTPStreamFactory.h"
 #include "Poco/Net/HTTPSessionInstantiator.h"
 #include "Poco/Net/HTTPClientSession.h"
+#include "Poco/Net/Net.h"
+#include "Poco/Net/ProxyConfig.h"
+#include "Poco/Exception.h"
+#include "Poco/NumberFormatter.h"
 #include "Poco/String.h"
+#include "Poco/Types.h"
 #include "Poco/ClassLibrary.h"
+#include <limits>
 
 
 using Poco::OSP::BundleActivator;
@@ -42,36 +48,51 @@ public:
 	
 	void start(BundleContext::Ptr pContext) override
 	{
-		Poco::Net::initializeNetwork();
-		HTTPStreamFactory::registerFactory();
-		FTPStreamFactory::registerFactory();
-		HTTPSessionInstantiator::registerInstantiator();
-
+		// Read before anything is registered: the framework does not call stop() when start() fails.
+		// The local copy of the password is cleared on every path.
+		Poco::Net::ProxyConfig proxyConfig;
 		PreferencesService::Ptr pPrefs = ServiceFinder::find<PreferencesService>(pContext);
 		if (pPrefs != nullptr)
 		{
-			Poco::Net::ProxyConfig proxyConfig;
+			const int proxyPort = pPrefs->configuration()->getInt("http.proxy.port", 80);
+			if (proxyPort < 1 || proxyPort > std::numeric_limits<Poco::UInt16>::max())
+			{
+				throw Poco::InvalidArgumentException("http.proxy.port must be between 1 and 65535",
+					Poco::NumberFormatter::format(proxyPort));
+			}
 			proxyConfig.host          = pPrefs->configuration()->getString("http.proxy.host", "");
-			proxyConfig.port          = static_cast<Poco::UInt16>(pPrefs->configuration()->getInt("http.proxy.port", 80));
+			proxyConfig.port          = static_cast<Poco::UInt16>(proxyPort);
 			proxyConfig.username      = pPrefs->configuration()->getString("http.proxy.username", "");
-			proxyConfig.password      = pPrefs->configuration()->getString("http.proxy.password", "");
 			proxyConfig.nonProxyHosts = pPrefs->configuration()->getString("http.proxy.nonProxyHosts", "");
-			if (!proxyConfig.host.empty())
+			proxyConfig.password      = pPrefs->configuration()->getString("http.proxy.password", "");
+		}
+
+		try
+		{
+			Poco::Net::initializeNetwork();
+			HTTPStreamFactory::registerFactory();
+			FTPStreamFactory::registerFactory();
+			HTTPSessionInstantiator::registerInstantiator();
+			if (pPrefs != nullptr && !proxyConfig.host.empty())
 			{
 				Poco::Net::HTTPClientSession::setGlobalProxyConfig(proxyConfig);
 				_proxyConfigured = true;
 			}
-			Poco::secureClear(proxyConfig.password);
 		}
+		catch (...)
+		{
+			Poco::secureClear(proxyConfig.password);
+			throw;
+		}
+		Poco::secureClear(proxyConfig.password);
 	}
 		
 	void stop(BundleContext::Ptr /*pContext*/) override
 	{
 		if (_proxyConfigured)
 		{
-			// HTTPClientSession keeps the configuration, password included, in a
-			// static object that it returns as a const reference; replacing it
-			// alone would leave the password in freed memory.
+			// HTTPClientSession keeps the configuration in a static object that it returns as a
+			// const reference; replacing it alone leaves the password in the buffer of the string.
 			Poco::secureClear(const_cast<Poco::Net::ProxyConfig&>(Poco::Net::HTTPClientSession::getGlobalProxyConfig()).password);
 			Poco::Net::HTTPClientSession::setGlobalProxyConfig(Poco::Net::ProxyConfig());
 			_proxyConfigured = false;

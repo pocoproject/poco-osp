@@ -35,22 +35,24 @@ public:
 	
 	void start(BundleContext::Ptr pContext) override
 	{
-		Poco::Data::SQLite::Connector::registerConnector();
-
+		// Read before the connector is registered: the framework does not call stop() when start() fails.
+		bool sharedCache = false;
+		int heapLimit = 0;
 		PreferencesService::Ptr pPrefs = ServiceFinder::find<PreferencesService>(pContext);
 		if (pPrefs != nullptr)
 		{
-			bool sharedCache = pPrefs->configuration()->getBool("data.sqlite.sharedCache", false);
-			if (sharedCache)
-			{
-				Poco::Data::SQLite::Connector::enableSharedCache(sharedCache);
-			}
-		
-			int heapLimit = pPrefs->configuration()->getInt("data.sqlite.softHeapLimit", 0);
-			if (heapLimit > 0)
-			{
-				Poco::Data::SQLite::Connector::enableSoftHeapLimit(heapLimit);
-			}
+			sharedCache = pPrefs->configuration()->getBool("data.sqlite.sharedCache", false);
+			heapLimit = pPrefs->configuration()->getInt("data.sqlite.softHeapLimit", 0);
+		}
+
+		Poco::Data::SQLite::Connector::registerConnector();
+		if (sharedCache)
+		{
+			Poco::Data::SQLite::Connector::enableSharedCache(sharedCache);
+		}
+		if (heapLimit > 0)
+		{
+			Poco::Data::SQLite::Connector::enableSoftHeapLimit(heapLimit);
 		}
 	}
 		

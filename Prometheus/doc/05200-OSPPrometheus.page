@@ -8,7 +8,9 @@ Prometheus text format: the process metrics, the threads of the default thread
 pool and of the web server thread pool, the connections of the web servers,
 the requests that the web server dispatcher has handled and the number of active
 web sessions. The metrics of the web servers have the label "server", whose
-value is protocol://host:port.
+value is protocol://host:port. The metrics of the thread pools have the label
+"name", whose value is the name of the thread pool ("default" for the default
+thread pool).
 
 The bundle serves the metrics with its own HTTP server, and can also write
 them to the log at a fixed interval.
@@ -99,5 +101,7 @@ Default is false.
 
 !! prometheus.log.interval
 
-The interval in seconds at which the metrics are written to the log.
-Default is 30.
+The interval in seconds at which the metrics are written to the log, between
+1 and 2147483 (almost 25 days). Default is 30. With prometheus.enable and
+prometheus.log.enable set to true and a value outside this range, the bundle
+does not start.

@@ -18,6 +18,7 @@
 
 #include "SecureMailDeliveryServiceImpl.h"
 #include "Poco/Net/NetException.h"
+#include "Poco/Net/RejectCertificateHandler.h"
 #include "Poco/Net/SecureSMTPClientSession.h"
 #include "Poco/Net/SecureStreamSocket.h"
 #include "Poco/Net/SSLManager.h"
@@ -56,7 +57,7 @@ namespace
 		ConnectedSMTPClientSession& operator = (const ConnectedSMTPClientSession&) = delete;
 		ConnectedSMTPClientSession& operator = (ConnectedSMTPClientSession&&) = delete;
 
-		[[nodiscard]] bool startTLS(Poco::Net::Context::Ptr pContext)
+		[[nodiscard]] bool startTLSWithHostName(Poco::Net::Context::Ptr pContext)
 			/// Returns false if the server does not accept STARTTLS.
 		{
 			std::string response;
@@ -107,6 +108,9 @@ Poco::Net::Context::Ptr SecureMailDeliveryServiceImpl::createContext(const Poco:
 	Poco::Net::Context::Ptr pContext = new Poco::Net::Context(Poco::Net::Context::TLS_CLIENT_USE, params);
 	pContext->requireMinimumProtocol(Poco::Net::Context::PROTO_TLSV1_2);
 	pContext->enableExtendedCertificateVerification(settings.getBool("osp.mail.tls.extendedCertificateVerification", true));
+	// Without a handler of its own, the context uses the one of the SSL manager
+	// (openSSL.client.invalidCertificateHandler), which may accept the certificate.
+	pContext->setInvalidCertificateHandler(Poco::makeShared<Poco::Net::RejectCertificateHandler>(false));
 	return pContext;
 }
 
@@ -158,7 +162,8 @@ MailDeliveryServiceImpl::SMTPClientSessionPtr SecureMailDeliveryServiceImpl::cre
 
 	Poco::Net::Context::Ptr pContext = _pContext;
 	if (pContext == nullptr) pContext = Poco::Net::SSLManager::instance().defaultClientContext();
-	if (!pSecureSMTPClientSession->startTLS(pContext)) throw Poco::Net::SMTPException("The SMTP server does not support STARTTLS", config.host);
+	if (!pSecureSMTPClientSession->startTLSWithHostName(pContext))
+		throw Poco::Net::SMTPException("The SMTP server does not support STARTTLS", config.host);
 
 	_logger.debug("Logging in...");
 	if (config.clientHost.empty())

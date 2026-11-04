@@ -26,14 +26,16 @@ class WebSessionCollector: public Poco::Prometheus::Collector
 {
 public:
 	explicit WebSessionCollector(Poco::AutoPtr<Poco::OSP::Web::WebSessionManager> pWebSessionManager);
-		/// Creates a default WebSessionCollector.
+		/// Creates the WebSessionCollector for the sessions of the given
+		/// WebSessionManager and registers it with the default registry.
 
 	~WebSessionCollector() override = default;
 		/// Destroys the WebSessionCollector.
 
 	// Collector
 	void exportTo(Poco::Prometheus::Exporter& exporter) const override;
-		/// Writes the given Metric to the Exporter.
+		/// Writes the number of active sessions (osp_web_active_sessions)
+		/// to the Exporter.
 
 protected:
 	void buildMetrics();

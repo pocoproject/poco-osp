@@ -31,8 +31,14 @@ public:
 	void testDispatcherCanRegisterAgain();
 	void testStopUnregistersCollectors();
 	void testMetricsNeedConfiguredPermission();
+	void testMetricsAcceptOtherNameOfAccount();
 	void testMetricsWithoutPermission();
 	void testMissingAuthServiceIsLoggedOnce();
+	void testThreadPoolMetricsHaveOneHeader();
+	void testThreadPoolOfUnregisteredDispatcherIsNotExported();
+	void testLogIntervalOutsideRangeIsRejected();
+	void testLogIntervalOfOneSecondLogsMetrics();
+	void testLongestLogIntervalIsAccepted();
 
 	void setUp() override;
 	void tearDown() override;

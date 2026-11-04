@@ -9,6 +9,7 @@
 
 
 #include "WebServerCollector.h"
+#include "MetricFamily.h"
 #include "Poco/OSP/Web/WebServerService.h"
 #include "Poco/Prometheus/Collector.h"
 #include "Poco/Prometheus/Exporter.h"
@@ -31,31 +32,6 @@ namespace Poco::OSP::Prometheus {
 
 namespace
 {
-	class MetricFamily: public Poco::Prometheus::Metric
-		/// The name, type and help text of a metric whose samples
-		/// the WebServerCollector writes.
-	{
-	public:
-		MetricFamily() = delete;
-
-		MetricFamily(Type type, const std::string& name, const std::string& help):
-			Poco::Prometheus::Metric(type, name, nullptr)
-		{
-			setHelp(help);
-		}
-
-		~MetricFamily() override = default;
-
-		MetricFamily(const MetricFamily&) = delete;
-		MetricFamily(MetricFamily&&) = delete;
-		MetricFamily& operator = (const MetricFamily&) = delete;
-		MetricFamily& operator = (MetricFamily&&) = delete;
-
-		void exportTo(Poco::Prometheus::Exporter&) const override
-		{
-		}
-	};
-
 	[[nodiscard]] std::string serverLabel(const Poco::OSP::Web::WebServerService& webServerService)
 	{
 		std::string label(webServerService.secure() ? "https://"s : "http://"s);
@@ -119,13 +95,14 @@ void WebServerCollector::exportTo(Poco::Prometheus::Exporter& exporter) const
 		exporter.writeHeader(*metric.pMetric);
 		for (const auto& pServer: _servers)
 		{
-			exporter.writeSample(*metric.pMetric, labelNames, {serverLabel(*pServer)}, static_cast<Poco::Int64>(metric.value(*pServer)), 0);
+			exporter.writeSample(*metric.pMetric, labelNames, {serverLabel(*pServer)}, metric.value(*pServer), 0);
 		}
 	}
 }
 
 
-void WebServerCollector::addMetric(Poco::Prometheus::Metric::Type type, const std::string& name, const std::string& help, std::function<int(const Poco::OSP::Web::WebServerService&)> value)
+void WebServerCollector::addMetric(Poco::Prometheus::Metric::Type type, const std::string& name,
+	const std::string& help, std::function<Poco::Int64(const Poco::OSP::Web::WebServerService&)> value)
 {
 	_metrics.push_back(ServerMetric{std::make_unique<MetricFamily>(type, name, help), std::move(value)});
 }

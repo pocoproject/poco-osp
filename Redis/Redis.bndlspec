@@ -8,6 +8,10 @@
     <copyright>(c) 2021-2025, Aleph ONE Software Engineering LLC</copyright>
     <lazyStart>false</lazyStart>
     <runLevel>000</runLevel>
+    <dependency>
+      <symbolicName>poco.net</symbolicName>
+      <version>[1.3.0, 2.0.0)</version>
+    </dependency>
   </manifest>
   <code>
     ${bin}/*.dll,

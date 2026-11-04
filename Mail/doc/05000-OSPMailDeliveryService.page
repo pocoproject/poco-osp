@@ -95,7 +95,9 @@ Default is "localhost".
 
 !! osp.mail.port
 
-The port number of the outgoing SMTP server. Default is 25.
+The port number of the outgoing SMTP server, between 1 and 65535. Default is
+25. If the mail delivery service is enabled (osp.mail.enable) and the value is
+outside this range, the bundle that provides the service does not start.
 
 
 !! osp.mail.sender
@@ -161,13 +163,18 @@ token.
 !! osp.mail.socketTimeout
 
 The timeout in seconds for connecting to the outgoing SMTP server, for the
-TLS handshake, and for every send and receive operation. Default is 60 seconds.
+TLS handshake, and for every send and receive operation, at least 1. Default
+is 60 seconds. If the mail delivery service is enabled (osp.mail.enable) and
+the value is smaller, the bundle that provides the service does not start.
 
 
 !! osp.mail.sessionTimeout
 
 The time in seconds after which the connection to the outgoing SMTP server is
-closed when no message has been delivered. Default is 30 seconds.
+closed when no message has been delivered, between 1 and 2147483 (almost 25
+days). Default is 30 seconds. If the mail delivery service is enabled
+(osp.mail.enable) and the value is outside this range, the bundle that provides
+the service does not start.
 
 
 !! osp.mail.limits.maxQueued
@@ -189,6 +196,20 @@ The <*com.appinf.osp.mail.secure*> bundle provides a MailDeliveryService that
 sends messages over TLS. It is used instead of the service of the
 <*com.appinf.osp.mail*> bundle if osp.mail.secure is true. It uses all the
 settings above, and the following ones.
+
+NOTE: The secure mail service creates its own TLS context from the
+osp.mail.tls settings below. The openSSL.client settings of the application
+(certificate authorities, verification mode, client certificate, ciphers,
+invalid certificate handler) do not apply to it. The passphrase of an
+encrypted private key (osp.mail.tls.privateKey) is requested from the private
+key passphrase handlers that the SSL manager of the application has when the
+bundle starts. The SSL manager creates a handler from
+openSSL.client.privateKeyPassphraseHandler or
+openSSL.server.privateKeyPassphraseHandler when it creates its default client
+or server context, for example for the secure web server. If no handler exists
+when the bundle starts, an encrypted private key cannot be loaded, and the
+bundle does not start. For a server whose certificate is issued by a private
+certificate authority, set osp.mail.tls.caLocation.
 
 
 !! osp.mail.secure

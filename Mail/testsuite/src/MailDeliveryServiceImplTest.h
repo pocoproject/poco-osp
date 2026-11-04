@@ -28,7 +28,16 @@ public:
 	void testLoadConfigurationPrefersSettingsOverDefaults();
 	void testLoadConfigurationIgnoresCaseOfLoginMethod();
 	void testLoadConfigurationNamesInvalidLoginMethod();
-	void testNewSessionAfterFailedDelivery();
+	void testLoadConfigurationRejectsPortOutsideRange();
+	void testLoadConfigurationAcceptsPortsOneTo65535();
+	void testSessionTimeoutOfOneSecondIsAccepted();
+	void testSessionTimeoutBelowOneSecondIsRejected();
+	void testSessionTimeoutAbove2147483SecondsIsRejected();
+	void testSessionTimeoutAbove2147483647MillisecondsIsRejected();
+	void testSocketTimeoutBelowOneSecondIsRejected();
+	void testPortZeroIsRejected();
+	void testSessionClosedByServerIsReplaced();
+	void testSessionIsKeptWhileServerAcceptsReset();
 	void testStopFailsQueuedMessages();
 	void testSendMessageAfterStopThrows();
 	void testStatusWhileDelivering();

@@ -28,7 +28,7 @@ class StringExporter: public Poco::Prometheus::Exporter
 {
 public:
 	StringExporter() = default;
-		/// Creates the StringExporter for the given output stream.
+		/// Creates an empty StringExporter.
 
 	[[nodiscard]] std::string toString() const;
 		/// Returns a string containing all metrics.

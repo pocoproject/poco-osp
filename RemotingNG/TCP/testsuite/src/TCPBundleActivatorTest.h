@@ -43,6 +43,7 @@ public:
 	void testStandardExceptionOfServiceIsLogged();
 	void testServiceFactoryCanRegisterService();
 	void testServiceRegisteredDuringStartIsExported();
+	void testFailedStartLeavesNothingRegistered();
 
 	void setUp() override;
 	void tearDown() override;

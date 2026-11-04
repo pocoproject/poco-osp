@@ -26,6 +26,9 @@ public:
 	~NetBundleActivatorTest() override;
 
 	void testStopClearsProxyConfiguration();
+	void testFailedStartCanBeRepeated();
+	void testFailedPasswordReadCanBeRepeated();
+	void testProxyPortOutsideRangeIsRejected();
 
 	void setUp() override;
 	void tearDown() override;

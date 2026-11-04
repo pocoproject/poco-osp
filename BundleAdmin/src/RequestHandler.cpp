@@ -18,7 +18,6 @@
 #include "Poco/Net/HTTPResponse.h"
 #include "Poco/Net/HTTPServerRequest.h"
 #include "Poco/Net/HTTPServerResponse.h"
-#include "Poco/DigestEngine.h"
 #include "Poco/Exception.h"
 #include "Poco/Logger.h"
 #include "Poco/URI.h"
@@ -317,31 +316,24 @@ bool RequestHandler::isSameOriginPost()
 bool RequestHandler::hasValidCSRFToken(const std::string& token)
 {
 	Poco::OSP::Web::WebSession::Ptr pSession = session();
-	if (pSession == nullptr) return true;
-
-	// The same check as the one of the WebServerDispatcher for the CSRF token
-	// header field: a session without a token fails it like a wrong token.
-	const std::string expected = pSession->getValue<std::string>(Poco::OSP::Web::WebSession::CSRF_TOKEN, std::string());
-	return !expected.empty() && Poco::DigestEngine::constantTimeEquals(
-		Poco::DigestEngine::Digest(token.begin(), token.end()),
-		Poco::DigestEngine::Digest(expected.begin(), expected.end()));
+	return pSession == nullptr || pSession->isCSRFToken(token);
 }
 
 
 bool RequestHandler::isNeededByThisBundle(Poco::OSP::Bundle::Ptr pBundle)
 {
-	std::set<std::string> visited;
+	std::set<int> visited;
 	std::vector<Poco::OSP::Bundle::Ptr> pending{bundle()};
 	while (!pending.empty())
 	{
 		Poco::OSP::Bundle::Ptr pCurrent = pending.back();
 		pending.pop_back();
-		if (!visited.insert(pCurrent->symbolicName()).second) continue;
-		if (pCurrent->symbolicName() == pBundle->symbolicName()) return true;
+		if (!visited.insert(pCurrent->id()).second) continue;
+		if (pCurrent->id() == pBundle->id()) return true;
 
-		for (const auto& dependency: pCurrent->requiredBundles())
+		for (const auto& dependency: pCurrent->resolvedDependencies())
 		{
-			Poco::OSP::Bundle::Ptr pDependency = context()->findBundle(dependency.symbolicName);
+			Poco::OSP::Bundle::Ptr pDependency = context()->findBundle(dependency.id);
 			if (pDependency != nullptr) pending.push_back(pDependency);
 		}
 	}

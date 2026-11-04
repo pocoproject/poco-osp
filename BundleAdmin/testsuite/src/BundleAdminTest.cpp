@@ -155,10 +155,9 @@ namespace
 
 
 struct BundleAdminTest::Fixture
-	/// The bundles osp.web, com.appinf.osp.bundleadmin (with the bundle properties
-	/// of the bundle, and requiring osp.web), osp.test.target (named TARGET_NAME)
-	/// and ODD_SYMBOLIC_NAME, all started, a bundle installer service, and the
-	/// request handler factories of the bundle library.
+	/// Started bundles osp.web, osp.test.module (provides the module osp.test.module.api),
+	/// com.appinf.osp.bundleadmin (requires osp.web and that module), osp.test.target (TARGET_NAME) and
+	/// ODD_SYMBOLIC_NAME; a bundle installer service and the request handler factories of the bundle library.
 {
 	Fixture() = delete;
 
@@ -167,8 +166,14 @@ struct BundleAdminTest::Fixture
 		const Path base(Path(directory.path()).makeDirectory());
 		const Path webPath(directoryBelow(base, "bundles"s, "osp.web_1.0.0"s));
 		writeFile(webPath, "META-INF/manifest.mf"s, manifest("osp.web"s, "Web"s, ""s));
+		const Path modulePath(directoryBelow(base, "bundles"s, "osp.test.module_1.0.0"s));
+		writeFile(modulePath, "META-INF/manifest.mf"s,
+			manifest("osp.test.module"s, "Module"s, ""s)
+			+ "Provide-Module: osp.test.module.api;module-version=1.0.0\n");
 		const Path adminPath(directoryBelow(base, "bundles"s, "com.appinf.osp.bundleadmin_1.0.0"s));
-		writeFile(adminPath, "META-INF/manifest.mf"s, manifest("com.appinf.osp.bundleadmin"s, "Bundle Administration"s, "osp.web"s));
+		writeFile(adminPath, "META-INF/manifest.mf"s,
+			manifest("com.appinf.osp.bundleadmin"s, "Bundle Administration"s, "osp.web"s)
+			+ "Require-Module: osp.test.module.api\n");
 		writeFile(adminPath, "bundle.properties"s, readFile(BUNDLEADMIN_BUNDLE_PROPERTIES) + "\n" + extraProperties);
 		const Path targetPath(directoryBelow(base, "bundles"s, "osp.test.target_1.0.0"s));
 		writeFile(targetPath, "META-INF/manifest.mf"s, manifest("osp.test.target"s, TARGET_NAME, ""s));
@@ -182,10 +187,11 @@ struct BundleAdminTest::Fixture
 		pLoader = std::make_unique<Poco::OSP::BundleLoader>(*pCodeCache, new Poco::OSP::BundleFactory(Poco::OSP::LanguageTag("en"s, "US"s)), pContextFactory);
 		pRepository = std::make_unique<Poco::OSP::BundleRepository>(repositoryPath.toString(), *pLoader);
 		pWeb = pLoader->loadBundle(webPath.toString());
+		pModule = pLoader->loadBundle(modulePath.toString());
 		pAdmin = pLoader->loadBundle(adminPath.toString());
 		pTarget = pLoader->loadBundle(targetPath.toString());
 		pOdd = pLoader->loadBundle(oddPath.toString());
-		for (Bundle::Ptr pBundle: {pWeb, pAdmin, pTarget, pOdd})
+		for (Bundle::Ptr pBundle: {pWeb, pModule, pAdmin, pTarget, pOdd})
 		{
 			pBundle->resolve();
 			pBundle->start();
@@ -229,6 +235,7 @@ struct BundleAdminTest::Fixture
 	std::unique_ptr<Poco::OSP::BundleLoader> pLoader;
 	std::unique_ptr<Poco::OSP::BundleRepository> pRepository;
 	Bundle::Ptr pWeb;
+	Bundle::Ptr pModule;
 	Bundle::Ptr pAdmin;
 	Bundle::Ptr pTarget;
 	Bundle::Ptr pOdd;
@@ -312,6 +319,17 @@ void BundleAdminTest::testInfoPageEscapesBundleName()
 
 	assertTrue (contains(page, "<H1>Bundle: " + ESCAPED_TARGET_NAME + "</H1>"));
 	assertTrue (!contains(page, "<b>x</b>"s));
+}
+
+
+void BundleAdminTest::testInfoPageWithoutSymbolicNameShowsUnknownBundle()
+{
+	RequestStub request(Poco::Net::HTTPRequest::HTTP_GET, "/bundleAdmin/showBundle"s, ""s);
+
+	ResponseStub& response = _pFixture->handle("BundleInfoHandlerFactory"s, request);
+
+	assertTrue (response.getStatus() == Poco::Net::HTTPResponse::HTTP_OK);
+	assertTrue (contains(response.body(), "<H1>Unknown bundle.</H1>"s));
 }
 
 
@@ -514,7 +532,7 @@ void BundleAdminTest::testUploadInSessionRequiresCSRFToken()
 
 void BundleAdminTest::testStopOfNeededBundleIsRefused()
 {
-	for (const std::string& symbolicName: {"com.appinf.osp.bundleadmin"s, "osp.web"s})
+	for (const std::string& symbolicName: {"com.appinf.osp.bundleadmin"s, "osp.web"s, "osp.test.module"s})
 	{
 		for (const std::string& action: {"stop"s, "confirmedStop"s, "confirmedUninstall"s})
 		{
@@ -527,6 +545,32 @@ void BundleAdminTest::testStopOfNeededBundleIsRefused()
 	}
 	assertTrue (_pFixture->pAdmin->isActive());
 	assertTrue (_pFixture->pWeb->isActive());
+	assertTrue (_pFixture->pModule->isActive());
+}
+
+
+void BundleAdminTest::testStopOfBundleWithModuleDependentAsksForConfirmation()
+{
+	const Path base(Path(_pFixture->directory.path()).makeDirectory());
+	const Path providerPath(directoryBelow(base, "bundles"s, "osp.test.provider_1.0.0"s));
+	writeFile(providerPath, "META-INF/manifest.mf"s,
+		manifest("osp.test.provider"s, "Provider"s, ""s) + "Provide-Module: osp.test.module;module-version=1.0.0\n");
+	const Path userPath(directoryBelow(base, "bundles"s, "osp.test.moduleuser_1.0.0"s));
+	writeFile(userPath, "META-INF/manifest.mf"s, manifest("osp.test.moduleuser"s, "Module User"s, ""s)
+		+ "Require-Module: osp.test.module\n");
+	Bundle::Ptr pProvider = _pFixture->pLoader->loadBundle(providerPath.toString());
+	Bundle::Ptr pUser = _pFixture->pLoader->loadBundle(userPath.toString());
+	pUser->resolve();
+	pUser->start();
+
+	std::unique_ptr<RequestStub> pRequest = postRequest("/bundleAdmin/showBundle?symbolicName=osp.test.provider"s,
+		{{"symbolicName"s, "osp.test.provider"s}, {"action"s, "stop"s}});
+	ResponseStub& response = _pFixture->handle("BundleInfoHandlerFactory"s, *pRequest);
+
+	assertTrue (response.getStatus() == Poco::Net::HTTPResponse::HTTP_OK);
+	assertTrue (contains(response.body(), "osp.test.moduleuser"s));
+	assertTrue (pProvider->isActive());
+	assertTrue (pUser->isActive());
 }
 
 
@@ -637,6 +681,7 @@ CppUnit::Test* BundleAdminTest::suite()
 
 	CppUnit_addTest(pSuite, BundleAdminTest, testListPageEscapesBundleName);
 	CppUnit_addTest(pSuite, BundleAdminTest, testInfoPageEscapesBundleName);
+	CppUnit_addTest(pSuite, BundleAdminTest, testInfoPageWithoutSymbolicNameShowsUnknownBundle);
 	CppUnit_addTest(pSuite, BundleAdminTest, testInstallCompletePageEscapesBundleName);
 	CppUnit_addTest(pSuite, BundleAdminTest, testListPageEncodesSymbolicName);
 	CppUnit_addTest(pSuite, BundleAdminTest, testActionFormEscapesSymbolicName);
@@ -652,6 +697,7 @@ CppUnit::Test* BundleAdminTest::suite()
 	CppUnit_addTest(pSuite, BundleAdminTest, testUploadWithPutIsRefused);
 	CppUnit_addTest(pSuite, BundleAdminTest, testUploadInSessionRequiresCSRFToken);
 	CppUnit_addTest(pSuite, BundleAdminTest, testStopOfNeededBundleIsRefused);
+	CppUnit_addTest(pSuite, BundleAdminTest, testStopOfBundleWithModuleDependentAsksForConfirmation);
 	CppUnit_addTest(pSuite, BundleAdminTest, testNeededBundleHasNoStopButton);
 	CppUnit_addTest(pSuite, BundleAdminTest, testUpgradeOfNeededBundleIsRefused);
 	CppUnit_addTest(pSuite, BundleAdminTest, testUpgradeOfUnknownBundle);

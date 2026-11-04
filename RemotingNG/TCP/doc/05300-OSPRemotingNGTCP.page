@@ -11,6 +11,12 @@ the URI of the object is stored in the service property <[remoting.tcp.uri]>.
 A service that cannot be exported is logged as an error; its registration
 succeeds.
 
+NOTE: The listener has no authenticator and no authorizer. Every client that
+can connect to it can call the methods of the exported services that require
+no authentication and no permission; the methods that require one of them are
+refused. Configure the listener on 127.0.0.1 or on a local socket whose mode
+admits only trusted users.
+
 
 !!! Configuring the Bundle
 

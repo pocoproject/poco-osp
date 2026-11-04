@@ -6,11 +6,7 @@ POCO_SOURCES_AUTO(TEST_SRCS ${SRCS_G})
 file(GLOB_RECURSE HDRS_G "src/*.h")
 POCO_HEADERS_AUTO(TEST_SRCS ${HDRS_G})
 
-# The log capture of the Web test suite.
-list(APPEND TEST_SRCS ${PROJECT_SOURCE_DIR}/Web/testsuite/src/LogCapture.cpp)
-
-add_executable(OSPBundleAdmin-testrunner ${TEST_SRCS})
-target_include_directories(OSPBundleAdmin-testrunner PRIVATE ${PROJECT_SOURCE_DIR}/Web/testsuite/src)
+poco_add_executable(OSPBundleAdmin-testrunner ${TEST_SRCS})
 # The tests load the request handler factories from the bundle library, with
 # the bundle properties of the bundle.
 add_dependencies(OSPBundleAdmin-testrunner com.appinf.osp.bundleadmin)
@@ -24,4 +20,7 @@ add_test(
 	COMMAND OSPBundleAdmin-testrunner -ignore ${POCO_OSP_CPPIGNORE_FILE} -all
 )
 
-target_link_libraries(OSPBundleAdmin-testrunner PRIVATE Poco::OSPWeb Poco::OSP Poco::Net Poco::Zip Poco::Util Poco::XML Poco::Foundation Poco::CppUnit)
+target_link_libraries(OSPBundleAdmin-testrunner
+	PRIVATE OSPTestSupport Poco::OSPWeb Poco::OSP Poco::Net Poco::Zip Poco::Util Poco::XML Poco::Foundation
+		Poco::CppUnit
+)

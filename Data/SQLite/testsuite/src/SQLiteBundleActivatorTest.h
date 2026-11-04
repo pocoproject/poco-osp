@@ -26,6 +26,7 @@ public:
 	~SQLiteBundleActivatorTest() override;
 
 	void testSoftHeapLimitIsSetInBytes();
+	void testFailedStartDoesNotKeepConnector();
 
 	void setUp() override;
 	void tearDown() override;

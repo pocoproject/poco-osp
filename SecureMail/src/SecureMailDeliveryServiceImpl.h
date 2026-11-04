@@ -59,7 +59,8 @@ public:
 		/// and the default CA certificates, presents the client certificate and private key
 		/// if they are given, uses the cipher list if it is given, and checks that the
 		/// server certificate names the mail server unless extendedCertificateVerification
-		/// is false.
+		/// is false. Its own invalid certificate handler rejects a server certificate
+		/// that fails verification; the handler of the SSL manager is not used.
 
 	// Service
 	[[nodiscard]] const std::type_info& type() const override;

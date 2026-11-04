@@ -20,6 +20,7 @@
 #include "Poco/Util/MapConfiguration.h"
 #include "Poco/AutoPtr.h"
 #include "Poco/ClassLoader.h"
+#include "Poco/Exception.h"
 #include "Poco/Path.h"
 #include "Poco/TemporaryFile.h"
 #include "Poco/Types.h"
@@ -64,6 +65,41 @@ void SQLiteBundleActivatorTest::testSoftHeapLimitIsSetInBytes()
 }
 
 
+void SQLiteBundleActivatorTest::testFailedStartDoesNotKeepConnector()
+{
+	TemporaryBundle bundles(""s);
+	Poco::TemporaryFile persistency;
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pSettings = new Poco::Util::MapConfiguration;
+	pSettings->setString("data.sqlite.softHeapLimit"s, "8 MB"s);
+	bundles.registry().registerService(PreferencesService::SERVICE_NAME,
+		new PreferencesService(Poco::Path(persistency.path()), pSettings), Poco::OSP::Properties());
+	Poco::ClassLoader<Poco::OSP::BundleActivator> loader;
+	loader.loadLibrary(SQLITE_BUNDLE_LIBRARY);
+	std::unique_ptr<Poco::OSP::BundleActivator> pActivator(loader.create("SQLiteBundleActivator"s));
+	try
+	{
+		pActivator->start(bundles.context());
+		fail("the soft heap limit is not a number");
+	}
+	catch (Poco::SyntaxException&)
+	{
+	}
+
+	pSettings->setInt("data.sqlite.softHeapLimit"s, 0);
+	pActivator->start(bundles.context());
+	pActivator->stop(bundles.context());
+
+	try
+	{
+		Poco::Data::Session session("SQLite"s, ":memory:"s);
+		fail("the connector is not registered after stop()");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+}
+
+
 void SQLiteBundleActivatorTest::setUp()
 {
 }
@@ -80,6 +116,7 @@ CppUnit::Test* SQLiteBundleActivatorTest::suite()
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("SQLiteBundleActivatorTest");
 
 	CppUnit_addTest(pSuite, SQLiteBundleActivatorTest, testSoftHeapLimitIsSetInBytes);
+	CppUnit_addTest(pSuite, SQLiteBundleActivatorTest, testFailedStartDoesNotKeepConnector);
 
 	return pSuite;
 }

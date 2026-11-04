@@ -125,10 +125,12 @@ Poco::Net::HTTPResponse::HTTPStatus MetricsRequestHandlerFactory::authorize(cons
 		// The request has no Basic credentials, or they are malformed.
 		return Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED;
 	}
-	const bool authenticated = pAuthService->authenticate(username, password);
+	// The user may log in under another name of the account; permissions belong to the account.
+	std::string accountName;
+	const bool authenticated = pAuthService->authenticateAccount(username, password, accountName);
 	Poco::secureClear(password);
 	if (!authenticated) return Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED;
-	if (!pAuthService->authorize(username, _permission)) return Poco::Net::HTTPResponse::HTTP_FORBIDDEN;
+	if (!pAuthService->authorize(accountName, _permission)) return Poco::Net::HTTPResponse::HTTP_FORBIDDEN;
 	return Poco::Net::HTTPResponse::HTTP_OK;
 }
 

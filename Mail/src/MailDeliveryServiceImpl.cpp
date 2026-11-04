@@ -26,10 +26,13 @@
 #include "Poco/Format.h"
 #include "Poco/Mutex.h"
 #include "Poco/Notification.h"
+#include "Poco/NumberFormatter.h"
 #include "Poco/String.h"
+#include "Poco/Timespan.h"
 #include "Poco/Types.h"
 #include "Poco/UUIDGenerator.h"
 #include <exception>
+#include <limits>
 #include <memory>
 #include <sstream>
 
@@ -37,10 +40,40 @@
 namespace Poco::OSP::Mail {
 
 
+namespace
+{
+	constexpr int SMTP_OK = 250;
+		/// The answer to RSET (RFC 5321).
+
+	constexpr int LONGEST_SESSION_TIMEOUT = std::numeric_limits<Poco::Int32>::max()/1000;
+		/// The longest session timeout, in whole seconds, that the constructor accepts.
+}
+
+
 MailDeliveryServiceImpl::MailDeliveryServiceImpl(const Configuration& config, Poco::Logger& logger):
 	_config(config),
 	_logger(logger)
 {
+	// The delivery thread waits for at most the session timeout, in milliseconds as a long:
+	// 0 makes it spin, and long has 32 bits on Windows.
+	if (_config.sessionTimeout < Poco::Timespan::SECONDS
+		|| _config.sessionTimeout
+			> Poco::Timespan(std::numeric_limits<Poco::Int32>::max()*Poco::Timespan::MILLISECONDS))
+	{
+		throw Poco::InvalidArgumentException(Poco::format(
+			"The session timeout of the mail delivery service (osp.mail.sessionTimeout) "
+			"must be between 1 and %d seconds", LONGEST_SESSION_TIMEOUT));
+	}
+	// With 0, a connect fails at once, or a receive never times out and stop() does not return.
+	if (_config.socketTimeout < Poco::Timespan::SECONDS)
+	{
+		throw Poco::InvalidArgumentException(
+			"The socket timeout of the mail delivery service (osp.mail.socketTimeout) must be at least 1 second");
+	}
+	if (_config.port == 0)
+	{
+		throw Poco::InvalidArgumentException("The port of the SMTP server (osp.mail.port) must not be 0");
+	}
 }
 
 
@@ -120,7 +153,13 @@ MailDeliveryServiceImpl::Configuration MailDeliveryServiceImpl::loadConfiguratio
 
 	Configuration config;
 	config.host = getString("osp.mail.host");
-	config.port = static_cast<Poco::UInt16>(getInt("osp.mail.port"));
+	const int port = getInt("osp.mail.port");
+	if (port < 1 || port > std::numeric_limits<Poco::UInt16>::max())
+	{
+		throw Poco::InvalidArgumentException("osp.mail.port must be between 1 and 65535",
+			Poco::NumberFormatter::format(port));
+	}
+	config.port = static_cast<Poco::UInt16>(port);
 	config.clientHost = settings.getString("osp.mail.clientHost", defaults.getString("osp.mail.clientHost", ""));
 	config.sender = settings.getString("osp.mail.sender", "");
 	config.generateMID = settings.getBool("osp.mail.generateMID", false);
@@ -211,6 +250,13 @@ void MailDeliveryServiceImpl::run()
 				{
 					if (pHandle->message() != nullptr)
 					{
+						// The server may have closed the session of an earlier message.
+						if (_pSMTPClientSession != nullptr && !resetSMTPClientSession())
+						{
+							_logger.debug(
+								"The SMTP server has not accepted RSET; the message is sent over a new session.");
+							closeSMTPClientSession();
+						}
 						if (_pSMTPClientSession == nullptr)
 						{
 							try
@@ -339,6 +385,20 @@ void MailDeliveryServiceImpl::deliver(const Poco::Net::MailMessage& message)
 	_pSMTPClientSession->sendData();
 	std::istringstream istr(ostr.str());
 	_pSMTPClientSession->sendMessage(istr);
+}
+
+
+bool MailDeliveryServiceImpl::resetSMTPClientSession()
+{
+	try
+	{
+		std::string response;
+		return _pSMTPClientSession->sendCommand("RSET", response) == SMTP_OK;
+	}
+	catch (Poco::Exception&)
+	{
+		return false;
+	}
 }
 
 

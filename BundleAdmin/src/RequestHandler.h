@@ -160,9 +160,8 @@ protected:
 		/// that session.
 
 	[[nodiscard]] bool isNeededByThisBundle(Poco::OSP::Bundle::Ptr pBundle);
-		/// Returns true if pBundle is this bundle, or a bundle that this bundle depends
-		/// on, directly or through other bundles: stopping, uninstalling or replacing it
-		/// would stop the code that handles the request.
+		/// Returns true if pBundle is this bundle or one that it requires, directly or indirectly
+		/// (Require-Bundle or Require-Module): stopping, uninstalling or replacing it would stop this handler.
 
 	void sendForbidden();
 		/// Sends a 403 Forbidden response for a request that would change
