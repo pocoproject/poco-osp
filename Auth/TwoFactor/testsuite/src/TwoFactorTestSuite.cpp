@@ -13,6 +13,7 @@
 #include "TwoFactorTestSuite.h"
 #include "HOTPGeneratorTest.h"
 #include "SecretGeneratorTest.h"
+#include "TwoFactorServiceImplTest.h"
 
 
 CppUnit::Test* TwoFactorTestSuite::suite()
@@ -21,6 +22,7 @@ CppUnit::Test* TwoFactorTestSuite::suite()
 
 	pSuite->addTest(HOTPGeneratorTest::suite());
 	pSuite->addTest(SecretGeneratorTest::suite());
+	pSuite->addTest(TwoFactorServiceImplTest::suite());
 
 	return pSuite;
 }

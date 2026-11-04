@@ -32,6 +32,10 @@
 #include "Poco/RegularExpression.h"
 #include "Poco/SharedPtr.h"
 #include "Poco/Mutex.h"
+#include "Poco/Condition.h"
+#include <chrono>
+#include <map>
+#include <optional>
 #include <unordered_map>
 #include <set>
 
@@ -65,6 +69,12 @@ class OSPAuthData_API AuthAdminServiceImpl: public AbstractLDAPAuthAdminService
 	/// Version 4 is recommended for new deployments. Stored passwords using a lower
 	/// version than the one configured will automatically be upgraded as soon as
 	/// a user successfully authenticates.
+	/// A stored version 3 or 4 password hash with fewer PBKDF2 iterations than
+	/// configured is replaced in the same way.
+	///
+	/// The login of a user without a stored password hash, such as an unknown
+	/// user, computes a hash of the configured version, so that the time of
+	/// the login does not show whether the user exists or has a password.
 	///
 	/// As of 2021, the recommended number of iterations for PBKDF2 with HMAC-SHA256
 	/// is 310.000 for HMAC-SHA256 (version 4) and 720.000 for HMAC-SHA1 (version 3).
@@ -154,6 +164,8 @@ public:
 
 	// AuthAdminService
 	bool verifyCredentials(const std::string& username, const std::string& credentials) override;
+		/// Returns true only if the account name of the login equals username
+		/// ignoring case, as authenticate() does.
 	void changePassword(const std::string& username, const std::string& password) override;
 	void permissionsForUser(const std::string& username, std::set<std::string>& permissions) const override;
 	void effectivePermissionsForUser(const std::string& username, std::set<std::string>& permissions) const override;
@@ -185,6 +197,8 @@ public:
 	void setUserAttribute(const std::string& username, const std::string& attribute, const std::string& value) override;
 	void setRoleAttribute(const std::string& rolename, const std::string& attribute, const std::string& value);
 	void removeUserAttribute(const std::string& username, const std::string& attribute) override;
+	void setAuthAttribute(const std::string& username, const std::string& attribute, const std::string& value) override;
+	void removeAuthAttribute(const std::string& username, const std::string& attribute) override;
 	void replaceUserAttributes(const std::string& username, const std::map<std::string, std::string>& attributes) override;
 	void updateUserAttributes(const std::string& username, const std::map<std::string, std::string>& attributes) override;
 	void attributesForUser(const std::string& username, std::set<std::string>& attributes) const override;
@@ -205,6 +219,21 @@ public:
 
 	// AuthService
 	bool authenticate(const std::string& username, const std::string& credentials) const override;
+		/// Returns true only if the account name that authenticateAccount()
+		/// returns for the login equals username ignoring case. A login with
+		/// another name of an LDAP user is accepted as by authenticateAccount(),
+		/// with a warning in the log, but returns false.
+		///
+		/// Throws a Poco::Data::DataException if the auth database cannot be used.
+	[[nodiscard]] bool authenticateAccount(const std::string& username, const std::string& credentials,
+		std::string& accountName) const override;
+		/// The account name of an LDAP user is the sAMAccountName of the
+		/// user's entry in the ACCOUNT mode, in lower case, if the LDAP server
+		/// has given it; otherwise it is username, in lower case for an LDAP
+		/// user. The local account, the failure count, the lock-out and the
+		/// attributes of the user are kept under the account name.
+		///
+		/// Throws a Poco::Data::DataException if the auth database cannot be used.
 	bool authorize(const std::string& username, const std::string& permission) const override;
 	bool authorize(const std::string& userName, const std::string& roleOrScope, const std::string& permission) const override;
 	bool userExists(const std::string& username) const override;
@@ -228,10 +257,20 @@ protected:
 		SQL_CACHE_BUCKET_SIZE = 113 // next prime > 2*number of SQL statements
 	};
 
+	[[nodiscard]] int loginsWaitingForLDAP() const;
+		/// Returns the number of logins that wait for the LDAP round trip
+		/// of another login of the same user, for example for a test that
+		/// must know that a login waits.
+
 	Poco::Data::Session& session() const;
 	static void setupSession(Poco::Data::Session& session, const Poco::Util::AbstractConfiguration& properties, const AuthParams& authParams, Poco::Logger& logger);
 	bool sessionExpired() const;
-	bool authenticateDB(Poco::Data::Session& session, const std::string& username, const std::string& credentials) const;
+	[[nodiscard]] bool authenticateDB(Poco::Data::Session& session, const std::string& username,
+		const std::string& credentials, bool isLogin) const;
+		/// Returns true if the credentials match the stored password hash of
+		/// the user. If isLogin is true and the user has no stored password
+		/// hash, the credentials are hashed all the same (see the class
+		/// documentation).
 	void changePasswordImpl(Poco::Data::Session& session, const std::string& username, const std::string& hashedCredentials) const;
 	bool userExistsImpl(Poco::Data::Session& session, const std::string& username) const;
 	bool roleExistsImpl(Poco::Data::Session& session, const std::string& rolename) const;
@@ -250,6 +289,20 @@ protected:
 	bool authorizeRole(const std::string& rolename, const std::string& permission) const;
 
 	// AbstractLDAPAuthAdminService
+	[[nodiscard]] bool acceptLDAPAccount(const std::string& userName, const std::string& accountName) const override;
+		/// Returns false if the account is in its lock-out period.
+		///
+		/// If accountName differs from userName, the login waits while another
+		/// login has reserved the account name, as it waits for the logins of
+		/// its own name, and then reserves the account name until it ends. So
+		/// concurrent logins through several names of a user get no more
+		/// password guesses than the failure count allows. A login that still
+		/// waits at the end of its wait time (see ldapLoginWaitTime()) is
+		/// refused, and the refusal is not counted as a failed login.
+		/// In the USER bind mode, the account name is known only after the bind
+		/// of the user, so only the logins of one name wait for each other
+		/// before the bind; the lock-out of the LDAP server limits the guesses
+		/// through other names.
 	void createOrUpdateRoleImpl(const std::string& rolename) const override;
 	void createOrUpdateUserImpl(const std::string& username, const std::string& credentials) const override;
 	void replaceUserAttributeImpl(const std::string& username, const std::string& attribute, const std::string& value) const override;
@@ -261,33 +314,132 @@ protected:
 	std::string getRoleAttributeImpl(const std::string& rolename, const std::string& attribute, const std::string& deflt = std::string()) const override;
 
 private:
+	struct AccountState
+	{
+		bool exists = false;
+		bool ldapUser = false;
+		std::string ldapAttr;
+	};
+
+	struct LDAPLogin
+		/// A login whose LDAP round trip is in progress.
+	{
+		std::string userName;
+			/// The name of the login.
+		std::chrono::steady_clock::time_point deadline;
+			/// The end of the time that the login waits for other logins.
+	};
+
+	class LDAPLoginGuard
+		/// Ends the LDAP round trip of a user: removes the names that the
+		/// login has reserved and wakes the logins that wait for them.
+	{
+	public:
+		POCO_NODISCARD_CTOR LDAPLoginGuard(const AuthAdminServiceImpl& service, const std::string& username);
+		~LDAPLoginGuard();
+
+		LDAPLoginGuard() = delete;
+		LDAPLoginGuard(const LDAPLoginGuard&) = delete;
+		LDAPLoginGuard(LDAPLoginGuard&&) = delete;
+		LDAPLoginGuard& operator = (const LDAPLoginGuard&) = delete;
+		LDAPLoginGuard& operator = (LDAPLoginGuard&&) = delete;
+
+	private:
+		const AuthAdminServiceImpl& _service;
+		const std::string _username;
+	};
+
+	static constexpr std::chrono::seconds LDAP_LOGIN_WAIT_MARGIN{5};
+
 	using Permissions = std::set<std::string>;
 	using PermissionsPtr = Poco::SharedPtr<Permissions>;
 	using PermissionsCache = Poco::ExpireLRUCache<std::string, Permissions>;
 	using PasswordCache = Poco::ExpireCache<std::string, std::string>;
 	using SQLCache = std::unordered_map<std::string, std::string>;
 
-	bool authenticateImpl(const std::string& username, const std::string& credentials) const;
-	[[nodiscard]] bool authenticateImpl(Poco::Data::Session& sess, std::string& username, const std::string& credentials, bool& isLDAPUser) const;
+	[[nodiscard]] bool authenticateImpl(std::string& username, const std::string& credentials, bool validate,
+		bool& isLDAPUser) const;
+		/// Verifies the credentials and, if validate is true, fires validateUser
+		/// for an authenticated user. Holds the lock of the service except
+		/// during the conversation with the LDAP server.
+		///
 		/// On return, username holds the name the user is stored under,
-		/// which is lower case for an LDAP user.
+		/// which is the account name in lower case for an LDAP user.
+	void postLoginNotification(const std::string& username, bool isLDAPUser) const;
+		/// Posts the AuthNotification of a successful login of the user
+		/// stored under username, if the notification center has observers.
+	[[nodiscard]] std::optional<bool> authenticateWithoutLDAPImpl(Poco::Data::Session& sess,
+		const std::string& username, const std::string& credentials, bool isLDAPUser) const;
+		/// Returns the result of the authentication if it is decided without
+		/// the LDAP server: for a locked-out user, a cached password or a
+		/// local user. Returns no value for an LDAP user whose credentials
+		/// the LDAP server must verify.
+	[[nodiscard]] bool ldapUserNameImpl(Poco::Data::Session& sess, std::string& username, std::string& ldapAttr) const;
+		/// Returns true for an LDAP user, whose name is then changed to lower case,
+		/// the name the user is stored under.
+	[[nodiscard]] AccountState accountStateImpl(Poco::Data::Session& sess, std::string& username) const;
+		/// Returns the state of the account that decides how the user is
+		/// authenticated. On return, username holds the name the user is
+		/// stored under, which is lower case for an LDAP user.
+	[[nodiscard]] std::chrono::milliseconds ldapLoginWaitTime() const;
+		/// Returns how long a login waits for the LDAP round trip of
+		/// another login of the same user.
+	[[nodiscard]] bool waitForLDAPLoginImpl(const std::string& username,
+		std::chrono::steady_clock::time_point deadline) const;
+		/// Waits, with the lock of the service held, until a login that has
+		/// reserved username ends or the deadline passes. Returns false, and
+		/// logs that the login is refused, if the deadline has passed.
+	[[nodiscard]] bool applyLDAPResultImpl(Poco::Data::Session& sess, const std::string& username,
+		const std::string& credentials, std::optional<LDAPResult> ldapResult, const LDAPUser& ldapUser) const;
+		/// Stores the result of verifyLDAP(), other than LDAPResult::LOCKED_OUT,
+		/// and returns whether the user is authenticated. No result means a
+		/// directory error: the stored credentials decide only where
+		/// canUseLocalCredentials() allows it, and a mismatch counts as a
+		/// failure unless the LDAP server had accepted the password
+		/// (LDAPUser::passwordVerified) before the directory error.
+		///
+		/// Throws a Poco::Data::DataException if the user that the LDAP
+		/// server has accepted cannot be stored in the database.
+	[[nodiscard]] bool authenticateStoredImpl(Poco::Data::Session& sess, const std::string& username,
+		const std::string& credentials) const;
+		/// Verifies the credentials against the stored password hash and
+		/// updates the caches and the failure count.
+	void acceptStoredCredentialsImpl(Poco::Data::Session& sess, const std::string& username,
+		const std::string& credentials) const;
+		/// Caches the credentials and the permissions of a user whose
+		/// credentials match the stored password hash, and clears the
+		/// lock-out and the failure count.
 	bool validateUserImpl(Poco::Data::Session& sess, const std::string& username, bool valid) const;
 	PermissionsPtr loadPermissions(Poco::Data::Session& sess, const std::string& username) const;
 	void reloadPermissions(Poco::Data::Session& sess, const std::string& username) const;
 	bool isInlineAttribute(const std::string& attribute) const;
 	bool isAuthAttribute(const std::string& attribute) const;
+	[[nodiscard]] bool isAuthAttributeName(const std::string& attribute) const;
+		/// Returns true if the attribute name starts with the prefix auth_ in
+		/// lower case, as the names of authentication attributes are written.
+		/// isAuthAttribute() matches the prefix in any case, as the SQL
+		/// statements do, so that such names are not used for user attributes.
 	std::string getUserAttributeImpl(Poco::Data::Session& sess, const std::string& username, const std::string& attribute, const std::string& deflt) const;
 	std::string getRoleAttributeImpl(Poco::Data::Session& sess, const std::string& rolename, const std::string& attribute, const std::string& deflt) const;
 	void removeUserAttributeImpl(Poco::Data::Session& sess, const std::string& username, const std::string& attribute) const;
+	void storeUserAttribute(const std::string& username, const std::string& attribute, const std::string& value);
+	void deleteUserAttribute(const std::string& username, const std::string& attribute);
 	void lockOutUserIfTooManyFailures(Poco::Data::Session& sess, const std::string& username) const;
+	void resetFailureCountImpl(Poco::Data::Session& sess, const std::string& username) const;
 	void lockOutUserImpl(Poco::Data::Session& sess, const std::string& username, const Poco::DateTime& lockOutUntil) const;
 	void unlockOutUserImpl(Poco::Data::Session& sess, const std::string& username) const;
 	bool isUserLockedOutImpl(Poco::Data::Session& sess, const std::string& username) const;
-	static bool isInLockOutPeriod(const std::string& lockOutAttrValue);
+	[[nodiscard]] bool isLockedOutLoginImpl(Poco::Data::Session& sess, const std::string& accountName,
+		const std::string& username) const;
+		/// Returns true if the account of a login with username is in its
+		/// lock-out period, and logs the login attempt then.
+	[[nodiscard]] bool isInLockOutPeriod(const std::string& username, const std::string& lockout) const;
 	bool isLDAPUserImpl(Poco::Data::Session& sess, const std::string& username, std::string& ldapAttr) const;
 	bool isLDAPRoleImpl(Poco::Data::Session& sess, const std::string& rolename, std::string& ldapAttr) const;
 	std::string hashPersistentCredentials(Poco::Data::Session& sess, const std::string& username, const std::string& credentials) const;
 	std::string saltAndHashCredentials(const std::string& username, const std::string& credentials) const;
+	[[nodiscard]] int pbkdf2Iterations() const;
+		/// Returns the number of PBKDF2 iterations for a new hash of the configured version.
 	std::string hashCachedCredentials(const std::string& username, const std::string& credentials) const;
 	std::string sqlFor(const std::string& action) const;
 	std::string fixPlaceholders(const std::string& clause) const;
@@ -306,7 +458,6 @@ private:
 	mutable Poco::Timestamp _sessionLastUsed;
 	const AuthParams _authParams;
 	Poco::SharedPtr<Poco::RegularExpression> _pLocalUsersExpr;
-	Poco::SharedPtr<Poco::RegularExpression> _pLocalRolesExpr;
 	std::set<std::string> _inlineAttributes;
 	mutable SQLCache _sqlCache;
 	mutable PermissionsCache _permissionsCache;
@@ -314,6 +465,12 @@ private:
 	mutable PasswordCache _passwordPersistentHashCache;
 	std::string _cacheSalt;
 	mutable Poco::FastMutex _mutex;
+	mutable std::map<std::string, LDAPLogin> _ldapLogins;
+		/// The names reserved by the logins whose LDAP round trip is in
+		/// progress: the name of each login, and the account name that
+		/// acceptLDAPAccount() has reserved for it.
+	mutable Poco::Condition _ldapLoginEnded;
+	mutable int _ldapLoginsWaiting = 0;
 };
 
 

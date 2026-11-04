@@ -14,7 +14,9 @@ add_test(
 )
 set_tests_properties(OSPAuth PROPERTIES ENVIRONMENT POCO_BASE=${PROJECT_SOURCE_DIR})
 
-target_link_libraries(OSPAuth-testrunner PRIVATE Poco::OSPAuth Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation Poco::CppUnit)
+target_link_libraries(OSPAuth-testrunner
+	PRIVATE Poco::OSPAuth Poco::OSP Poco::Net Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation Poco::CppUnit
+)
 target_include_directories(OSPAuth-testrunner
 	PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
 )

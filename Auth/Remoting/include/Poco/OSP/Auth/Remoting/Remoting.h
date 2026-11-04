@@ -43,7 +43,11 @@
 
 
 #if !defined(OSPAuthRemoting_API)
-	#define OSPAuthRemoting_API
+	#if !defined(POCO_NO_GCC_API_ATTRIBUTE) && defined (__GNUC__) && (__GNUC__ >= 4)
+		#define OSPAuthRemoting_API __attribute__ ((visibility ("default")))
+	#else
+		#define OSPAuthRemoting_API
+	#endif
 #endif
 
 

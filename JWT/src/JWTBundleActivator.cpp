@@ -58,6 +58,7 @@ public:
 			config.ecPublicKey = pPrefs->configuration()->getString("jwt.validator.ec.publicKey", "");
 			config.leeway = Poco::Timespan(pPrefs->configuration()->getInt("jwt.validator.leeway", 5), 0);
 			config.issuer = pPrefs->configuration()->getString("jwt.validator.issuer", "");
+			config.audience = pPrefs->configuration()->getString("jwt.validator.audience", "");
 
 			JWTValidator::Ptr pValidator = new JWTValidator(config);
 			_pValidatorRef = pContext->registry().registerService(JWTValidator::SERVICE_NAME, pValidator, Properties());
@@ -70,7 +71,10 @@ public:
 
 	void stop(BundleContext::Ptr pContext)
 	{
+		// The registry unregisters by name: a reference left from an earlier start
+		// would remove a validator that another bundle has registered since.
 		pContext->registry().unregisterService(_pValidatorRef);
+		_pValidatorRef = nullptr;
 	}
 
 private:

@@ -17,6 +17,8 @@
 #include "Poco/OSP/Auth/PooledAuthAdminService.h"
 #include "Poco/Delegate.h"
 #include "Poco/Hash.h"
+#include "Poco/String.h"
+#include <cstddef>
 
 
 namespace Poco {
@@ -238,6 +240,19 @@ void PooledAuthAdminService::removeUserAttribute(const std::string& username, co
 }
 
 
+void PooledAuthAdminService::setAuthAttribute(const std::string& username, const std::string& attribute,
+	const std::string& value)
+{
+	forUser(username)->setAuthAttribute(username, attribute, value);
+}
+
+
+void PooledAuthAdminService::removeAuthAttribute(const std::string& username, const std::string& attribute)
+{
+	forUser(username)->removeAuthAttribute(username, attribute);
+}
+
+
 void PooledAuthAdminService::replaceUserAttributes(const std::string& username, const std::map<std::string, std::string>& attributes)
 {
 	forUser(username)->replaceUserAttributes(username, attributes);
@@ -271,6 +286,7 @@ std::vector<std::string> PooledAuthAdminService::findUsersByAttribute(const std:
 void PooledAuthAdminService::revokePermission(const std::string& permission)
 {
 	any()->revokePermission(permission);
+	invalidateCaches(INVALIDATE_CACHED_PERMISSIONS);
 }
 
 
@@ -354,6 +370,13 @@ bool PooledAuthAdminService::authenticate(const std::string& username, const std
 }
 
 
+bool PooledAuthAdminService::authenticateAccount(const std::string& username, const std::string& credentials,
+	std::string& accountName) const
+{
+	return forUser(username)->authenticateAccount(username, credentials, accountName);
+}
+
+
 bool PooledAuthAdminService::authorize(const std::string& username, const std::string& permission) const
 {
 	return forUser(username)->authorize(username, permission);
@@ -392,7 +415,8 @@ bool PooledAuthAdminService::isA(const std::type_info& otherType) const
 
 AuthAdminService::Ptr PooledAuthAdminService::forUser(const std::string& username) const
 {
-	std::size_t index = Poco::hash(username) % _backends.size();
+	// A backend keeps an LDAP user under the lower case name.
+	std::size_t index = Poco::hash(Poco::toLower(username)) % _backends.size();
 	return _backends[index];
 }
 
@@ -439,7 +463,7 @@ void PooledAuthAdminService::onRoleRemoved(const std::string& rolename)
 
 void PooledAuthAdminService::onValidateUser(ValidateUserEvent& event)
 {
-	validateUser(event);
+	validateUser(this, event);
 }
 
 

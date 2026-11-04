@@ -11,9 +11,11 @@
 
 
 #include "Poco/OSP/Auth/TwoFactor/SecretGenerator.h"
+#include "Poco/Exception.h"
 #include "SecretGeneratorTest.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
+#include <cstddef>
 
 
 using namespace Poco::OSP::Auth::TwoFactor;
@@ -39,6 +41,33 @@ void SecretGeneratorTest::testGenerate()
 	SecretGenerator generator160(160);
 	secret = generator160.generate();
 	assert (secret.size() == 20);
+}
+
+
+void SecretGeneratorTest::testInvalidLengthIsRejected()
+{
+	for (std::size_t bits: {std::size_t{72}, std::size_t{84}})
+	{
+		try
+		{
+			SecretGenerator generator(bits);
+			fail("a secret length below 80 bits or not a multiple of 8 must be rejected");
+		}
+		catch (Poco::AssertionViolationException&)
+		{
+		}
+	}
+}
+
+
+void SecretGeneratorTest::testRandomSecretRoundTrip()
+{
+	SecretGenerator generator(160);
+	for (int i = 0; i < 20; ++i)
+	{
+		const std::string secret = generator.generate();
+		assertTrue (SecretGenerator::fromBase32(SecretGenerator::toBase32(secret)) == secret);
+	}
 }
 
 
@@ -81,6 +110,8 @@ CppUnit::Test* SecretGeneratorTest::suite()
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("SecretGeneratorTest");
 
 	CppUnit_addTest(pSuite, SecretGeneratorTest, testGenerate);
+	CppUnit_addTest(pSuite, SecretGeneratorTest, testInvalidLengthIsRejected);
+	CppUnit_addTest(pSuite, SecretGeneratorTest, testRandomSecretRoundTrip);
 	CppUnit_addTest(pSuite, SecretGeneratorTest, testEncode);
 	CppUnit_addTest(pSuite, SecretGeneratorTest, testDecode);
 	CppUnit_addTest(pSuite, SecretGeneratorTest, testURI);

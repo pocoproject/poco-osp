@@ -79,6 +79,10 @@ protected:
 	}
 
 private:
+	static constexpr std::size_t MIN_DIGEST_SIZE = 20;
+	static_assert(Engine::DIGEST_SIZE >= MIN_DIGEST_SIZE,
+		"HOTPGenerator requires a digest of at least 20 bytes (RFC 4226, section 5.3)");
+
 	Poco::HMACEngine<Engine> _hmacEngine;
 	std::size_t _codeDigits;
 

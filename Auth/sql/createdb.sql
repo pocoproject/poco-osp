@@ -9,7 +9,8 @@
 CREATE TABLE auth_user
 (
 	username VARCHAR(256) PRIMARY KEY,
-	password VARCHAR(256) NOT NULL
+	password VARCHAR(256) NOT NULL,
+	auth_failures INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE auth_role
@@ -55,7 +56,9 @@ CREATE TABLE auth_role_mappings
 	internal_role VARCHAR(256) NOT NULL REFERENCES auth_role(rolename) ON DELETE CASCADE
 );
 
-INSERT INTO auth_user VALUES("admin", "3d29e163b9107fcb31077b45b47026e2");
+INSERT INTO auth_user (username, password) VALUES("admin", "3d29e163b9107fcb31077b45b47026e2");
+
+INSERT INTO auth_user_attributes VALUES("admin", "auth_ldap", "false");
 
 INSERT INTO auth_role VALUES("admin");
 

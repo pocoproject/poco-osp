@@ -70,11 +70,17 @@ target_link_libraries(${TARGET}
 	Poco::OSPAuthData Poco::OSPAuth Poco::OSP Poco::Data Poco::Util Poco::Foundation
 )
 
-# Copy Bundle Resources to build directory
-add_custom_command(TARGET ${TARGET}
-	POST_BUILD
+# Copy Bundle Resources to build directory. The testsuite reads bundle.properties
+# from the copy, so it is made again whenever a file of bundle/ changes.
+file(GLOB_RECURSE BUNDLE_RESOURCE_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/bundle/*)
+add_custom_command(
+	OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/BundleResources.copied
 	COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/bundle ${CMAKE_CURRENT_BINARY_DIR}/bundle
+	COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/BundleResources.copied
+	DEPENDS ${BUNDLE_RESOURCE_FILES}
+	VERBATIM
 )
+add_custom_target(${TARGET}-resources ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/BundleResources.copied)
 
 # Build Bundle
 poco_osp_bundle(${TARGET}-bundle

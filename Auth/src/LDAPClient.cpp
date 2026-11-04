@@ -15,6 +15,13 @@
 
 
 #include "Poco/OSP/Auth/LDAPClient.h"
+#include "Poco/Exception.h"
+#include "Poco/Format.h"
+#include "Poco/Timespan.h"
+#include <cstddef>
+#include <string>
+#include <utility>
+#include <vector>
 
 #if defined(POCO_OS_FAMILY_WINDOWS)
 #include "LDAPClient_WIN32.cpp"
@@ -76,6 +83,26 @@ namespace
 			LDAPClient::escapeFilterValue(upn)
 		);
 	}
+
+
+	[[nodiscard]] std::string onlyAccountName(std::vector<std::string>& accountNames, const std::string& name)
+		/// Returns the only sAMAccountName value of the entry of the given
+		/// user or DN, or an empty string if it has none.
+	{
+		if (accountNames.size() > 1)
+		{
+			throw Poco::IOException("The LDAP entry of the user has more than one sAMAccountName value", name);
+		}
+		return accountNames.empty() ? std::string() : std::move(accountNames.front());
+	}
+
+
+	[[nodiscard]] std::string onlyValue(std::vector<std::string>& values)
+		/// Returns the only value of an attribute of an entry, or an empty
+		/// string if it has none or several.
+	{
+		return values.size() == 1 ? std::move(values.front()) : std::string();
+	}
 }
 
 
@@ -87,6 +114,35 @@ LDAPClient::LDAPClient(Poco::Logger& logger):
 
 
 LDAPClient::~LDAPClient() = default;
+
+
+LDAPClient::Result LDAPClient::bindResult(int resultCode)
+{
+	switch (resultCode)
+	{
+	case LDAP_SUCCESS:
+		return Result::SUCCESS_RESULT;
+	case LDAP_INVALID_CREDENTIALS:
+	case LDAP_INAPPROPRIATE_AUTH:
+#if defined(POCO_OS_FAMILY_WINDOWS)
+	case LDAP_INSUFFICIENT_RIGHTS:
+#else
+	case LDAP_INSUFFICIENT_ACCESS:
+#endif
+	case LDAP_UNWILLING_TO_PERFORM:
+	case LDAP_CONSTRAINT_VIOLATION:
+		return Result::WRONG_CREDENTIALS;
+	case LDAP_BUSY:
+	case LDAP_UNAVAILABLE:
+	case LDAP_TIMELIMIT_EXCEEDED:
+	case LDAP_SERVER_DOWN:
+	case LDAP_CONNECT_ERROR:
+	case LDAP_TIMEOUT:
+		return Result::SERVER_INACCESSIBLE;
+	default:
+		return Result::ERROR_RESULT;
+	}
+}
 
 
 bool LDAPClient::initialize(const std::string& uri)
@@ -101,16 +157,29 @@ bool LDAPClient::setTimeLimit(int limit)
 }
 
 
+bool LDAPClient::setTimeout(const Poco::Timespan& timeout)
+{
+	return _impl->setTimeout(timeout);
+}
+
+
 LDAPClient::Result LDAPClient::bind(const std::string& username, const std::string& credentials)
 {
+	if (!isValidBindValue(username))
+	{
+		_logger.debug("LDAP bind refused without contacting the server: the user name is empty or contains a NUL "
+			"character."s);
+		return Result::WRONG_CREDENTIALS;
+	}
+
 	auto credentialName { username };
 	if (_mode == Mode::DIST_NAME)
 	{
-		credentialName = Poco::format(_searchBase, escapeLDAP(username));
+		credentialName = distinguishedName(username);
 	}
 	_username = username;
 
-	return _impl->bind(credentialName, credentials);
+	return bindDirect(credentialName, credentials);
 }
 
 
@@ -170,21 +239,36 @@ void LDAPClient::setExtraAttributesMap(const AttributesNameMap& nameMap)
 
 bool LDAPClient::findUserDN(const std::string& username, std::string& userDN)
 {
+	_accountName.clear();
+	_userPrincipalName.clear();
+	_principalName.clear();
+	if (!isValidBindValue(username))
+	{
+		return false;
+	}
+
 	LDAPClientImpl::AuthProperties properties;
 	const auto filter = accountSearchFilter(_userObjectClass, username);
 
-	if (_impl->find(_searchBase, filter, true, false, properties))
+	// Searched like a group, for which finding no entry is not a failure,
+	// so that only a failed search and several entries are reported as such.
+	if (!_impl->find(_searchBase, filter, true, true, _mode == Mode::ACCOUNT_NAME, properties))
 	{
-		userDN = std::move(properties.distinguishedName);
-		return !userDN.empty();
+		throw Poco::IOException("The LDAP search for the user failed or found more than one entry", username);
 	}
-
-	return false;
+	_accountName = onlyAccountName(properties.accountNames, username);
+	_userPrincipalName = onlyValue(properties.userPrincipalNames);
+	_principalName = onlyValue(properties.principalNames);
+	userDN = std::move(properties.distinguishedName);
+	return !userDN.empty();
 }
 
 
 bool LDAPClient::fetchOwnProperties()
 {
+	_accountName.clear();
+	_userPrincipalName.clear();
+	_principalName.clear();
 	LDAPClientImpl::AuthProperties properties;
 
 	auto searchBase {_searchBase};
@@ -194,7 +278,7 @@ bool LDAPClient::fetchOwnProperties()
 	switch (_mode)
 	{
 	case Mode::DIST_NAME:
-		searchBase = Poco::format(_searchBase, escapeLDAP(username));
+		searchBase = distinguishedName(username);
 		filter = "(objectClass=" + _userObjectClass + ")";
 		break;
 	case Mode::ACCOUNT_NAME:
@@ -202,12 +286,16 @@ bool LDAPClient::fetchOwnProperties()
 		break;
 	}
 
-	if (_impl->find(searchBase, filter, _mode != Mode::DIST_NAME, false, properties))
+	if (_impl->find(searchBase, filter, _mode != Mode::DIST_NAME, false, _mode == Mode::ACCOUNT_NAME, properties))
 	{
-		_fullName = std::move(properties.fullName);
-		_permissions = std::move(properties.permissions);
-		_roles = std::move(properties.roles);
-		_attributes = std::move(properties.attributes);
+		_accountName = onlyAccountName(properties.accountNames, username);
+		_userPrincipalName = onlyValue(properties.userPrincipalNames);
+		_principalName = onlyValue(properties.principalNames);
+		setOwnProperties(
+			std::move(properties.fullName),
+			std::move(properties.roles),
+			std::move(properties.permissions),
+			std::move(properties.attributes));
 		return true;
 	}
 
@@ -222,15 +310,22 @@ bool LDAPClient::fetchOwnProperties(const std::string& userDN)
 		return fetchOwnProperties();
 	}
 
+	_accountName.clear();
+	_userPrincipalName.clear();
+	_principalName.clear();
 	LDAPClientImpl::AuthProperties properties;
 	const std::string filter = "(objectClass=" + _userObjectClass + ")";
 
-	if (_impl->find(userDN, filter, false, false, properties))
+	if (_impl->find(userDN, filter, false, false, _mode == Mode::ACCOUNT_NAME, properties))
 	{
-		_fullName = std::move(properties.fullName);
-		_permissions = std::move(properties.permissions);
-		_roles = std::move(properties.roles);
-		_attributes = std::move(properties.attributes);
+		_accountName = onlyAccountName(properties.accountNames, userDN);
+		_userPrincipalName = onlyValue(properties.userPrincipalNames);
+		_principalName = onlyValue(properties.principalNames);
+		setOwnProperties(
+			std::move(properties.fullName),
+			std::move(properties.roles),
+			std::move(properties.permissions),
+			std::move(properties.attributes));
 		return true;
 	}
 
@@ -243,7 +338,7 @@ bool LDAPClient::fetchGroupPermissions(const std::string& groupDN, Permissions& 
 	LDAPClientImpl::AuthProperties properties;
 	std::string filter = "(objectClass=" + _groupObjectClass + ")";
 
-	if (_impl->find(groupDN, filter, false, true, properties))
+	if (_impl->find(groupDN, filter, false, true, false, properties))
 	{
 		permissions = std::move(properties.permissions);
 		return true;
@@ -258,12 +353,46 @@ int LDAPClient::lastReturnCode() const
 }
 
 
+std::string LDAPClient::distinguishedName(const std::string& username) const
+{
+	return Poco::format(_bindDN.empty() ? _searchBase : _bindDN, escapeLDAP(username));
+}
+
+
+void LDAPClient::setOwnProperties(std::string fullName, Roles roles, Permissions permissions, Attributes attributes)
+{
+	_fullName = std::move(fullName);
+	_roles = std::move(roles);
+	_permissions = std::move(permissions);
+	_attributes = std::move(attributes);
+}
+
+
+void LDAPClient::setAccountName(std::string accountName)
+{
+	_accountName = std::move(accountName);
+}
+
+
+void LDAPClient::setUserPrincipalName(std::string userPrincipalName)
+{
+	_userPrincipalName = std::move(userPrincipalName);
+}
+
+
+void LDAPClient::setPrincipalName(std::string principalName)
+{
+	_principalName = std::move(principalName);
+}
+
+
 std::string LDAPClient::escapeLDAP(const std::string& str)
 {
 	std::string result;
 	result.reserve(str.size());
-	for (auto ch: str)
+	for (std::size_t i = 0; i < str.size(); ++i)
 	{
+		const char ch = str[i];
 		switch (ch)
 		{
 		case ',':
@@ -278,12 +407,29 @@ std::string LDAPClient::escapeLDAP(const std::string& str)
 			result += '\\';
 			result += ch;
 			break;
+		case ' ':
+			// A server may drop a leading or trailing space that is not escaped.
+			if (i == 0 || i + 1 == str.size())
+			{
+				result += '\\';
+			}
+			result += ch;
+			break;
+		case '\0':
+			result += escapeHexByte(0);
+			break;
 		default:
 			result += ch;
 			break;
 		}
 	}
 	return result;
+}
+
+
+bool LDAPClient::isValidBindValue(const std::string& value)
+{
+	return !value.empty() && value.find('\0') == std::string::npos;
 }
 
 

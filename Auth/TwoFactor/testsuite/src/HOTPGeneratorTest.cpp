@@ -11,11 +11,11 @@
 
 
 #include "Poco/OSP/Auth/TwoFactor/HOTPGenerator.h"
-#include "Poco/Timestamp.h"
+#include "Poco/SHA2Engine.h"
 #include "HOTPGeneratorTest.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
-#include <iostream>
+#include <vector>
 
 
 using namespace Poco::OSP::Auth::TwoFactor;
@@ -47,13 +47,36 @@ void HOTPGeneratorTest::testGenerate()
 }
 
 
-void HOTPGeneratorTest::testGenerateTOTP()
+void HOTPGeneratorTest::testGenerateTOTPTestVectors()
 {
-	const std::string secret = "0123456789";
-	HOTPGenerator<Poco::SHA1Engine> generator(secret);
-	Poco::UInt64 movingFactor = static_cast<Poco::UInt64>(Poco::Timestamp().epochTime())/30;
-	std::string code = generator.generate(movingFactor);
-	std::cout << code << std::endl;
+	// Test vectors from RFC 6238, Appendix B: time in seconds, time step of 30 s, 8 digits.
+	struct Vector
+	{
+		Poco::UInt64 time;
+		const char* sha1;
+		const char* sha256;
+		const char* sha512;
+	};
+	const std::vector<Vector> vectors =
+	{
+		{59, "94287082", "46119246", "90693936"},
+		{1111111109, "07081804", "68084774", "25091201"},
+		{1111111111, "14050471", "67062674", "99943326"},
+		{1234567890, "89005924", "91819424", "93441116"},
+		{2000000000, "69279037", "90698825", "38618901"},
+		{20000000000, "65353130", "77737706", "47863826"}
+	};
+	constexpr Poco::UInt64 TIME_STEP = 30;
+
+	HOTPGenerator<Poco::SHA1Engine> sha1("12345678901234567890"s, 8);
+	HOTPGenerator<Poco::SHA2Engine256> sha256("12345678901234567890123456789012"s, 8);
+	HOTPGenerator<Poco::SHA2Engine512> sha512("1234567890123456789012345678901234567890123456789012345678901234"s, 8);
+	for (const auto& v: vectors)
+	{
+		assertEqual (std::string(v.sha1), sha1.generate(v.time/TIME_STEP));
+		assertEqual (std::string(v.sha256), sha256.generate(v.time/TIME_STEP));
+		assertEqual (std::string(v.sha512), sha512.generate(v.time/TIME_STEP));
+	}
 }
 
 
@@ -72,7 +95,7 @@ CppUnit::Test* HOTPGeneratorTest::suite()
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("HOTPGeneratorTest");
 
 	CppUnit_addTest(pSuite, HOTPGeneratorTest, testGenerate);
-	CppUnit_addTest(pSuite, HOTPGeneratorTest, testGenerateTOTP);
+	CppUnit_addTest(pSuite, HOTPGeneratorTest, testGenerateTOTPTestVectors);
 
 	return pSuite;
 }

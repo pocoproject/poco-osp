@@ -71,10 +71,6 @@ else()
 		target_sources(${LIBNAME} PRIVATE src/LDAPClient.cpp)
 		target_sources(${LIBNAME} PRIVATE include/Poco/OSP/Auth/LDAPClient.h)
 
-		# NOTE: Newer versions of LDAP library mark some functions as obsolete
-		# We enable obsolete functions for now anyway.
-		target_compile_definitions(${LIBNAME} PRIVATE LDAP_DEPRECATED)
-
 		target_compile_definitions(${LIBNAME} PUBLIC POCO_OSP_AUTH_ENABLE_LDAP)
 		target_link_libraries(${LIBNAME}
 			PUBLIC

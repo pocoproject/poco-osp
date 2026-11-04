@@ -43,7 +43,11 @@
 
 
 #if !defined(OSPAuthTwoFactor_API)
-	#define OSPAuthTwoFactor_API
+	#if !defined(POCO_NO_GCC_API_ATTRIBUTE) && defined (__GNUC__) && (__GNUC__ >= 4)
+		#define OSPAuthTwoFactor_API __attribute__ ((visibility ("default")))
+	#else
+		#define OSPAuthTwoFactor_API
+	#endif
 #endif
 
 

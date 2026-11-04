@@ -8,6 +8,7 @@ set(LIBVERSION ${SHARED_LIBRARY_VERSION})
 # Sources
 POCO_SOURCES_AUTO(LIB_SRCS
 	src/TwoFactorService.cpp
+	src/TwoFactorServiceImpl.cpp
 	src/SecretGenerator.cpp
 )
 
@@ -23,7 +24,6 @@ endif()
 
 POCO_SOURCES_AUTO(BUNDLE_SRCS
 	src/TwoFactorBundleActivator.cpp
-	src/TwoFactorServiceImpl.cpp
 )
 
 # Shared Library
@@ -38,7 +38,7 @@ set_target_properties(${LIBNAME}
 
 target_link_libraries(${LIBNAME}
 	PUBLIC
-	Poco::OSP Poco::Foundation Poco::Crypto
+	Poco::OSPAuth Poco::OSP Poco::Foundation Poco::Crypto
 )
 target_include_directories(${LIBNAME}
 	PUBLIC

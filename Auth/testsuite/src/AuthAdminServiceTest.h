@@ -26,8 +26,10 @@ public:
 	AuthAdminServiceTest(const std::string& name);
 	~AuthAdminServiceTest();
 	
-	void testEscapeLDAP();
+	void testLDAPParamsHaveDefaultTimeout();
+	void testDefaultAuthenticateAccountReturnsUserName();
 #if defined(POCO_OSP_AUTH_ENABLE_LDAP)
+	void testEscapeLDAP();
 	void testEscapeLDAPFilterValue();
 #endif
 

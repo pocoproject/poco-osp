@@ -24,6 +24,8 @@
 #include "Poco/UnicodeConverter.h"
 #include "Poco/OSP/Auth/LDAPClient.h"
 
+#include <algorithm>
+#include <memory>
 #include <set>
 #include <vector>
 #include <windows.h>
@@ -44,6 +46,33 @@ namespace {
 		Poco::UnicodeConverter::toUTF8(ws, s);
 		return s;
 	}
+
+
+	[[nodiscard]] l_timeval toTimeval(const Poco::Timespan& timespan)
+	{
+		l_timeval tv;
+		tv.tv_sec = static_cast<LONG>(timespan.totalSeconds());
+		tv.tv_usec = static_cast<LONG>(timespan.useconds());
+		return tv;
+	}
+
+
+	struct MessageDeleter
+	{
+		void operator()(LDAPMessage* pMessage) const
+		{
+			ldap_msgfree(pMessage);
+		}
+	};
+
+
+	struct BerElementDeleter
+	{
+		void operator()(BerElement* pBerElement) const
+		{
+			ber_free(pBerElement, 0);
+		}
+	};
 }
 
 
@@ -69,6 +98,12 @@ public:
 		Roles roles;
 		Permissions permissions;
 		Attributes attributes;
+		std::vector<std::string> accountNames;
+			/// The values of sAMAccountName, if it is queried.
+		std::vector<std::string> userPrincipalNames;
+			/// The values of userPrincipalName, queried with sAMAccountName.
+		std::vector<std::string> principalNames;
+			/// The values of msDS-PrincipalName, queried with sAMAccountName.
 	};
 
 	LDAPClientImpl(Poco::Logger& logger);
@@ -86,15 +121,17 @@ public:
 
 	void unbind();
 
-	void setTimeout(int secs);
-		/// Query timeout
+	[[nodiscard]] bool setTimeout(const Poco::Timespan& timeout);
+		/// Sets the timeout for connecting, for sending each request and
+		/// for the result of each operation.
 
 	void setRoleAttributeName(const std::string& name);
 	void setPermissionAttributeName(const std::string& name);
 	void setRolePermissionAttributeName(const std::string& name);
 	void setExtraAttributesMap(const AttributesNameMap& nameMap);
 
-	bool find(const std::string& searchBase, const std::string& filter, bool subtree, bool queryRoles, AuthProperties& properties);
+	[[nodiscard]] bool find(const std::string& searchBase, const std::string& filter, bool subtree, bool queryRoles,
+		bool queryAccountName, AuthProperties& properties);
 
 	int lastReturnCode() const;
 		/// Return code of the last LDAP operation.
@@ -104,13 +141,20 @@ private:
 	bool isExtraAttribute(const std::string& attr, std::string& canonicalAttr) const;
 
 	static const std::string DISPLAY_NAME_ATTR;
+	static const std::string ACCOUNT_NAME_ATTR;
+	static const std::string USER_PRINCIPAL_NAME_ATTR;
+	static const std::string PRINCIPAL_NAME_ATTR;
+	static constexpr long DEFAULT_TIMEOUT_SECONDS = 30;
 
 	Poco::Logger& _logger;
 	LDAP* _ldap{nullptr};
 	bool _bindSuccessful{false};
 	ULONG _rc{0};
 
-	int _timeoutSec{30};
+	Poco::Timespan _timeout{DEFAULT_TIMEOUT_SECONDS, 0};
+	Poco::Timespan _bindTimeout;
+		/// The limit for connecting and for the result of a bind; zero
+		/// until setTimeout() is called, and the bind then waits without a limit.
 
 	std::string _roleAttributeName;
 	std::string _permissionAttributeName;
@@ -119,6 +163,9 @@ private:
 };
 
 const std::string LDAPClientImpl::DISPLAY_NAME_ATTR{"displayName"s};
+const std::string LDAPClientImpl::ACCOUNT_NAME_ATTR{"sAMAccountName"s};
+const std::string LDAPClientImpl::USER_PRINCIPAL_NAME_ATTR{"userPrincipalName"s};
+const std::string LDAPClientImpl::PRINCIPAL_NAME_ATTR{"msDS-PrincipalName"s};
 
 
 LDAPClientImpl::LDAPClientImpl(Poco::Logger& logger) : _logger(logger)
@@ -200,29 +247,41 @@ bool LDAPClientImpl::setTimeLimit(int limit)
 }
 
 
-void LDAPClientImpl::setTimeout(int secs)
+bool LDAPClientImpl::setTimeout(const Poco::Timespan& timeout)
 {
-	_timeoutSec = secs;
+	if (_ldap == nullptr)
+	{
+		return false;
+	}
+
+	_timeout = timeout;
+	_bindTimeout = timeout;
+	l_timeval tv = toTimeval(timeout);
+	_rc = ldap_set_optionW(_ldap, LDAP_OPT_SEND_TIMEOUT, &tv);
+	if (_rc != LDAP_SUCCESS)
+	{
+		_logger.error("Failed to set LDAP send timeout: %s"s, ldapError(_rc));
+		return false;
+	}
+	return true;
 }
 
 
 LDAPClientImpl::Result LDAPClientImpl::bind(const std::string& bindDN, const std::string& credentials)
 {
-	Result result{Result::ERROR_RESULT};
-
 	if (!_ldap)
 	{
 		_logger.error("LDAP not initialized");
 		return Result::ERROR_RESULT;
 	}
 
-	if (credentials.empty())
-	{
-		// Anonymous bind is attempted if credentials (password) is ampty.
-		_logger.warning("LDAP: anonymous bind with empty credentials (%s). Some operations may fail."s, bindDN);
-	}
-
 	_bindSuccessful = false;
+	if (!LDAPClient::isValidBindValue(credentials))
+	{
+		_logger.debug("LDAP bind refused without contacting the server (password empty or containing a NUL character): "
+			"%s."s, bindDN);
+		return Result::WRONG_CREDENTIALS;
+	}
 
 	// Convert bindDN and credentials to wide strings
 	std::wstring wbindDN;
@@ -230,27 +289,62 @@ LDAPClientImpl::Result LDAPClientImpl::bind(const std::string& bindDN, const std
 	Poco::UnicodeConverter::toUTF16(bindDN, wbindDN);
 	Poco::UnicodeConverter::toUTF16(credentials, wcreds);
 
-	_rc = ldap_simple_bind_sW(_ldap, const_cast<LPWSTR>(wbindDN.c_str()), const_cast<LPWSTR>(wcreds.c_str()));
-	
-	switch (_rc)
+	if (_bindTimeout > 0)
 	{
-	case LDAP_SUCCESS:
+		// ldap_simple_bind_sW() would wait for the connection and for the result without a limit.
+		l_timeval timeout = toTimeval(_bindTimeout);
+		_rc = ldap_connect(_ldap, &timeout);
+		if (_rc == LDAP_SUCCESS)
+		{
+			const ULONG msgId = ldap_simple_bindW(_ldap, const_cast<LPWSTR>(wbindDN.c_str()),
+				const_cast<LPWSTR>(wcreds.c_str()));
+			if (msgId == static_cast<ULONG>(-1))
+			{
+				_rc = LdapGetLastError();
+			}
+			else
+			{
+				LDAPMessage* pMessage = nullptr;
+				const ULONG resultType = ldap_result(_ldap, msgId, LDAP_MSG_ALL, &timeout, &pMessage);
+				if (resultType == 0)
+				{
+					ldap_abandon(_ldap, msgId);
+					_rc = LDAP_TIMEOUT;
+				}
+				else if (resultType == static_cast<ULONG>(-1))
+				{
+					_rc = LdapGetLastError();
+				}
+				else
+				{
+					_rc = ldap_result2error(_ldap, pMessage, TRUE);
+				}
+			}
+		}
+	}
+	else
+	{
+		_rc = ldap_simple_bind_sW(_ldap, const_cast<LPWSTR>(wbindDN.c_str()), const_cast<LPWSTR>(wcreds.c_str()));
+	}
+	Poco::secureClear(wcreds);
+
+	const Result result = LDAPClient::bindResult(static_cast<int>(_rc));
+	if (result == Result::SUCCESS_RESULT)
+	{
 		_logger.debug("LDAP bind successful: %s."s, bindDN);
 		_bindSuccessful = true;
-		result = Result::SUCCESS_RESULT;
-		break;
-	case LDAP_INVALID_CREDENTIALS:
+	}
+	else if (_rc == LDAP_INVALID_CREDENTIALS)
+	{
 		_logger.debug("LDAP bind failed (invalid credentials): %s."s, bindDN);
-		result = Result::WRONG_CREDENTIALS;
-		break;
-	case LDAP_SERVER_DOWN:
-	case LDAP_CONNECT_ERROR:
+	}
+	else if (result == Result::SERVER_INACCESSIBLE)
+	{
 		_logger.error("LDAP server inaccessible for %s: %s"s, bindDN, ldapError(_rc));
-		result = Result::SERVER_INACCESSIBLE;
-		break;
-	default:
+	}
+	else
+	{
 		_logger.error("LDAP bind failed for %s: %s"s, bindDN, ldapError(_rc));
-		result = Result::ERROR_RESULT;
 	}
 	return result;
 }
@@ -302,7 +396,8 @@ void LDAPClientImpl::setExtraAttributesMap(const AttributesNameMap& nameMap)
 }
 
 
-bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filter, bool subtree, bool queryRoles, AuthProperties& properties)
+bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filter, bool subtree, bool queryRoles,
+	bool queryAccountName, AuthProperties& properties)
 {
 	if (!_ldap)
 	{
@@ -310,15 +405,19 @@ bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filt
 		return false;
 	}
 
-	constexpr int MAX_LDAP_ATTRS = 12;
+	// display name, account name, user principal name, principal name, permission and role attribute
+	constexpr std::size_t MAX_FIXED_ATTRS = 6;
+	constexpr std::size_t MAX_LDAP_ATTRS = MAX_FIXED_ATTRS + LDAPClient::MAX_EXTRA_ATTRIBUTES;
 	LPWSTR pSearchAttr[MAX_LDAP_ATTRS + 1];
-	int nSearchAttr = 0;
+	std::size_t nSearchAttr = 0;
 
 	const auto& permAttrName{ queryRoles ? _rolePermissionAttributeName : _permissionAttributeName };
 
 	// Convert attribute names to wide strings on the fly and store pointers.
 	// We'll allocate temporary wstrings to hold them and keep pointers valid for the call.
 	std::vector<std::wstring> tmpAttrs;
+	// pSearchAttr points into the strings, so the vector must not reallocate.
+	tmpAttrs.reserve(MAX_LDAP_ATTRS);
 	auto pushAttr = [&](const std::string& a)
 	{
 		tmpAttrs.emplace_back();
@@ -328,18 +427,25 @@ bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filt
 
 	// displayName
 	pushAttr(DISPLAY_NAME_ATTR);
+	if (queryAccountName)
+	{
+		pushAttr(ACCOUNT_NAME_ATTR);
+		pushAttr(USER_PRINCIPAL_NAME_ATTR);
+		pushAttr(PRINCIPAL_NAME_ATTR);
+	}
 	// permission or role-permission attribute
 	if (!permAttrName.empty()) pushAttr(permAttrName);
 	// role attribute
 	if (!_roleAttributeName.empty()) pushAttr(_roleAttributeName);
 	// extra attributes
-	for (auto it = _extraAttributesMap.begin(); nSearchAttr < MAX_LDAP_ATTRS && it != _extraAttributesMap.end(); ++it)
+	const std::size_t extraCount = std::min(_extraAttributesMap.size(), LDAPClient::MAX_EXTRA_ATTRIBUTES);
+	for (std::size_t i = 0; i < extraCount; ++i)
 	{
-		pushAttr(it->first);
+		pushAttr(_extraAttributesMap[i].first);
 	}
 	pSearchAttr[nSearchAttr] = nullptr;
 
-	LDAPMessage* pMessage = nullptr;
+	LDAPMessage* pRawMessage = nullptr;
 
 	// Build wide variants of searchBase and filter
 	std::wstring wSearchBase;
@@ -348,9 +454,7 @@ bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filt
 	Poco::UnicodeConverter::toUTF16(filter, wFilter);
 
 	// Setup timeout (l_timeval used by WinLDAP)
-	l_timeval timeout;
-	timeout.tv_sec = _timeoutSec;
-	timeout.tv_usec = 0;
+	l_timeval timeout = toTimeval(_timeout);
 
 	_rc = ldap_search_ext_sW(
 		_ldap,
@@ -363,11 +467,12 @@ bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filt
 		nullptr,
 		&timeout,
 		1000,
-		&pMessage
+		&pRawMessage
 	);
+	const std::unique_ptr<LDAPMessage, MessageDeleter> pMessage(pRawMessage);
 
-	_logger.debug("Search \"%s\" \"%s\" attribute count %d: rc = %d"s, searchBase, filter, nSearchAttr, _rc);
-	for (int i{0}; i < nSearchAttr; i++)
+	_logger.debug("Search \"%s\" \"%s\" attribute count %z: rc = %d"s, searchBase, filter, nSearchAttr, _rc);
+	for (std::size_t i{0}; i < nSearchAttr; i++)
 	{
 		// convert attr back to UTF-8 for logging
 		std::string attrUtf8;
@@ -378,10 +483,6 @@ bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filt
 	if (_rc != LDAP_SUCCESS)
 	{
 		_logger.error("LDAP search failed: %s"s, ldapError(_rc));
-		if (pMessage)
-		{
-			ldap_msgfree(pMessage);
-		}
 		return false;
 	}
 
@@ -390,9 +491,13 @@ bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filt
 	Permissions ldapPermissions;
 	Roles ldapRoles;
 	Attributes ldapAttributes;
+	std::vector<std::string> accountNames;
+	std::vector<std::string> userPrincipalNames;
+	std::vector<std::string> principalNames;
 	int entryCount = 0;
 
-	for (LDAPMessage* pEntry = ldap_first_entry(_ldap, pMessage); pEntry != nullptr; pEntry = ldap_next_entry(_ldap, pEntry))
+	for (LDAPMessage* pEntry = ldap_first_entry(_ldap, pMessage.get()); pEntry != nullptr;
+		pEntry = ldap_next_entry(_ldap, pEntry))
 	{
 		entryCount++;
 		LPWSTR pDN = ldap_get_dnW(_ldap, pEntry);
@@ -410,20 +515,19 @@ bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filt
 			}
 			ldap_memfreeW(pDN);
 		}
-		BerElement* pBer = nullptr;
+		BerElement* pRawBer = nullptr;
+		LPWSTR pAttr = ldap_first_attributeW(_ldap, pEntry, &pRawBer);
+		const std::unique_ptr<BerElement, BerElementDeleter> pBer(pRawBer);
 
-		for (LPWSTR pAttr = ldap_first_attributeW(_ldap, pEntry, &pBer); pAttr != nullptr; pAttr = ldap_next_attributeW(_ldap, pEntry, pBer))
+		for (; pAttr != nullptr; pAttr = ldap_next_attributeW(_ldap, pEntry, pBer.get()))
 		{
-			// pAttr is wide string
-			LPWSTR* ppValues = ldap_get_valuesW(_ldap, pEntry, pAttr);
-			if (ppValues)
+			// The values are read with their length as UTF-8 bytes, so that a NUL character does not shorten them.
+			berval** ppValues = ldap_get_values_lenW(_ldap, pEntry, pAttr);
+			if (ppValues != nullptr)
 			{
 				for (int i = 0; ppValues[i] != nullptr; ++i)
 				{
-					// convert value to UTF-8
-					std::wstring wvalue(ppValues[i]);
-					std::string value;
-					Poco::UnicodeConverter::toUTF8(wvalue, value);
+					std::string value(ppValues[i]->bv_val, ppValues[i]->bv_len);
 					Poco::trimInPlace(value);
 
 					// convert attribute name to UTF-8 for comparisons/lookup
@@ -433,6 +537,19 @@ bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filt
 
 					std::string canonicalAttr;
 
+					// Not one of the alternatives below, as an extra attribute may map it too.
+					if (queryAccountName && Poco::UTF8::icompare(ACCOUNT_NAME_ATTR, attr) == 0)
+					{
+						accountNames.push_back(value);
+					}
+					else if (queryAccountName && Poco::UTF8::icompare(USER_PRINCIPAL_NAME_ATTR, attr) == 0)
+					{
+						userPrincipalNames.push_back(value);
+					}
+					else if (queryAccountName && Poco::UTF8::icompare(PRINCIPAL_NAME_ATTR, attr) == 0)
+					{
+						principalNames.push_back(value);
+					}
 					if (Poco::UTF8::icompare(DISPLAY_NAME_ATTR, attr) == 0)
 					{
 						if (_logger.debug())
@@ -441,23 +558,8 @@ bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filt
 						}
 						displayName = value;
 					}
-					else if (Poco::UTF8::icompare(permAttrName, attr) == 0)
-					{
-						if (_logger.debug())
-						{
-							_logger.debug("Found permission: \"%s\""s, value);
-						}
-						ldapPermissions.insert(value);
-					}
-					else if (Poco::UTF8::icompare(_permissionAttributeName, attr) == 0)
-					{
-						if (_logger.debug())
-						{
-							_logger.debug("Found permission: \"%s\""s, value);
-						}
-						ldapPermissions.insert(value);
-					}
-					else if (Poco::UTF8::icompare(_rolePermissionAttributeName, attr) == 0)
+					else if (Poco::UTF8::icompare(_permissionAttributeName, attr) == 0 ||
+						Poco::UTF8::icompare(_rolePermissionAttributeName, attr) == 0)
 					{
 						if (_logger.debug())
 						{
@@ -482,20 +584,13 @@ bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filt
 						ldapAttributes[canonicalAttr] = value;
 					}
 				}
-				ldap_value_freeW(ppValues);
+				ldap_value_free_len(ppValues);
 			}
 
 			// Free attribute string (wide)
 			ldap_memfreeW(pAttr);
 		}
-
-		if (pBer)
-		{
-			ber_free(pBer, 0);
-		}
 	}
-
-	ldap_msgfree(pMessage);
 
 	if (entryCount < 1)
 	{
@@ -517,6 +612,9 @@ bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filt
 	properties.permissions = std::move(ldapPermissions);
 	properties.roles = std::move(ldapRoles);
 	properties.attributes = std::move(ldapAttributes);
+	properties.accountNames = std::move(accountNames);
+	properties.userPrincipalNames = std::move(userPrincipalNames);
+	properties.principalNames = std::move(principalNames);
 
 	return true;
 }

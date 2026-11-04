@@ -42,11 +42,10 @@ Authorizer::~Authorizer() = default;
 bool Authorizer::authorize(const std::string& /*method*/, const std::string& permission)
 {
 	// The authenticated username and scope (if any) are read from HTTP headers
-	// set by WebServerDispatcher. For any endpoint with a non-empty URL-level
-	// permission, the dispatcher guarantees:
+	// set by WebServerDispatcher. The dispatcher removes both headers from every
+	// request a client sends, and for a request it has authenticated:
 	//   - X-OSP-Authorized-User is set to the authenticated username
 	//   - X-OSP-Authorized-Scope is set to the JWT audience for Bearer auth (empty otherwise)
-	//   - Both headers are erased if the user is not authorized
 	//
 	// We do NOT fall back to Basic auth credentials from Context: for endpoints
 	// with URL-level permissions, the dispatcher has already validated Basic

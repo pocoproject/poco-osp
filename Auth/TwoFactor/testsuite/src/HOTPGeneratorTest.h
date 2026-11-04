@@ -27,7 +27,7 @@ public:
 	~HOTPGeneratorTest();
 
 	void testGenerate();
-	void testGenerateTOTP();
+	void testGenerateTOTPTestVectors();
 
 	void setUp();
 	void tearDown();

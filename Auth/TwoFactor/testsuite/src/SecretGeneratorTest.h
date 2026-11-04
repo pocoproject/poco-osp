@@ -27,6 +27,8 @@ public:
 	~SecretGeneratorTest();
 
 	void testGenerate();
+	void testInvalidLengthIsRejected();
+	void testRandomSecretRoundTrip();
 	void testEncode();
 	void testDecode();
 	void testURI();

@@ -47,9 +47,11 @@ class OSPAuthRemoting_API Authenticator: public Poco::RemotingNG::Authenticator
 	/// gates access to RemotingNG endpoints behind a valid dispatcher-injected
 	/// identity.
 	///
-	/// Every RemotingNG endpoint using per-method authorization MUST have a
-	/// non-empty URL-level permission in the dispatcher mapping to prevent
-	/// the X-OSP-Authorized-User header from being spoofed by the client.
+	/// The dispatcher removes the X-OSP-Authorized-User and
+	/// X-OSP-Authorized-Scope headers that a client sends, for every mapping,
+	/// and sets them only for a request it has authenticated. For an endpoint
+	/// mapped without a URL-level permission the header is therefore absent
+	/// and authentication fails.
 {
 public:
 	using Ptr = Poco::AutoPtr<Authenticator>;

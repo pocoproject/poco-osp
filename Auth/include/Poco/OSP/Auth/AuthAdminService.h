@@ -58,10 +58,10 @@ public:
 		std::map<std::string, std::string> attributes;
 			/// Attributes of user to validate.
 
-		int flags;
+		int flags = 0;
 			/// User flags, see UserFlags.
 
-		bool valid;
+		bool valid = false;
 			/// True if the account is valid, otherwise false.
 			///
 			/// Will be set to true when the event is fired.
@@ -88,12 +88,17 @@ public:
 		/// a user account. This can be used to check if
 		/// a user account has expired or otherwise
 		/// disabled at the application level.
+		///
+		/// The delegates are called while the service holds its
+		/// internal lock, so they must not call the service.
+		/// The user's attributes and flags are given in the
+		/// event (attributes, flags).
 
 	enum
 	{
 		INVALIDATE_CACHED_PASSWORDS = 1,
 		INVALIDATE_CACHED_PERMISSIONS = 2,
-		INVALIDATE_ALL = INVALIDATE_CACHED_PASSWORDS | INVALIDATE_CACHED_PASSWORDS
+		INVALIDATE_ALL = INVALIDATE_CACHED_PASSWORDS | INVALIDATE_CACHED_PERMISSIONS
 	};
 
 	enum UserFlags
@@ -108,6 +113,9 @@ public:
 
 	virtual void changePassword(const std::string& username, const std::string& password) = 0;
 		/// Changes the password for the user with the given username.
+		///
+		/// Throws a Poco::NotFoundException if the user does not exist, and
+		/// a Poco::InvalidArgumentException if the password is empty.
 
 	virtual void permissionsForUser(const std::string& username, std::set<std::string>& permissions) const = 0;
 		/// Returns a set of permissions for the user given by username.
@@ -203,7 +211,8 @@ public:
 		/// Adds a new user to the database.
 		///
 		/// Throws a Poco::ExistsException if an user with the given username
-		/// already exists.
+		/// already exists, and a Poco::InvalidArgumentException if the
+		/// password is empty.
 
 	virtual void removeUser(const std::string& username) = 0;
 		/// Removes the user identified by username from the database.
@@ -280,9 +289,37 @@ public:
 
 	virtual void setUserAttribute(const std::string& username, const std::string& attribute, const std::string& value) = 0;
 		/// Sets the value of a user attribute.
+		///
+		/// Throws a Poco::InvalidArgumentException if the name of the attribute
+		/// starts with "auth_", in any case (see setAuthAttribute()).
 
 	virtual void removeUserAttribute(const std::string& username, const std::string& attribute) = 0;
 		/// Removes the given attribute from username.
+		///
+		/// Throws a Poco::InvalidArgumentException if the name of the attribute
+		/// starts with "auth_", in any case (see removeAuthAttribute()).
+
+	virtual void setAuthAttribute(const std::string& username, const std::string& attribute,
+		const std::string& value) = 0;
+		/// Sets the value of an authentication attribute of a user.
+		///
+		/// The names of authentication attributes start with "auth_". They are
+		/// reserved for the service and for extensions of the authentication,
+		/// such as the two-factor authentication, and are only changed with
+		/// setAuthAttribute() and removeAuthAttribute(). getUserAttribute()
+		/// returns them.
+		///
+		/// Throws a Poco::InvalidArgumentException if the name of the attribute
+		/// does not start with "auth_" in lower case. A database may compare
+		/// attribute names without case, so another case could reach another
+		/// authentication attribute.
+
+	virtual void removeAuthAttribute(const std::string& username, const std::string& attribute) = 0;
+		/// Removes the given authentication attribute (see setAuthAttribute())
+		/// from username.
+		///
+		/// Throws a Poco::InvalidArgumentException if the name of the attribute
+		/// does not start with "auth_" in lower case.
 
 	virtual void replaceUserAttributes(const std::string& username, const std::map<std::string, std::string>& attributes) = 0;
 		/// Replaces the attributes of the given user.

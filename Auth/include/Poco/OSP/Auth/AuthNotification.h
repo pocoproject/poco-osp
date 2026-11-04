@@ -51,6 +51,9 @@ public:
 	const std::string& fullName() const;
 	const Roles& roles() const;
 	const Permissions& permissions() const;
+		/// Returns the permissions granted to the user directly,
+		/// without the permissions of the user's roles.
+
 	const Attributes& attributes() const;
 
 private:

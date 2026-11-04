@@ -35,6 +35,10 @@ class OSPAuthTwoFactor_API TwoFactorService: public Poco::OSP::Service
 	/// This service helps to implement two-factor authentication
 	/// using Time-based One-Time Passwords (TOTPs) specified in
 	/// RFC 6238 and supported by Google Authenticator or Authy.
+	///
+	/// The username of each member is the account name of the user that
+	/// AuthService::authenticateAccount() returns, so that a user who can
+	/// log in with several names has one secret.
 {
 public:
 	using Ptr = Poco::AutoPtr<TwoFactorService>;

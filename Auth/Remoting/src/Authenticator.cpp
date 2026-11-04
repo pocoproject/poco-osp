@@ -41,11 +41,8 @@ Poco::RemotingNG::AuthenticateResult Authenticator::authenticate(
 	// Trust the dispatcher-injected X-OSP-Authorized-User header. The dispatcher
 	// (WebServerDispatcher::authorize) has already validated the session cookie,
 	// HTTP Basic credentials, or Bearer JWT before the request reached here.
-	// It overwrites/erases this header for any mapping with a non-empty URL-level
-	// permission, so it cannot be spoofed by clients on protected endpoints.
-	//
-	// Every RemotingNG endpoint using @permission MUST have a non-empty URL-level
-	// permission in the dispatcher mapping to prevent header spoofing.
+	// It removes this header from every request a client sends and sets it only
+	// after successful authentication, so a client cannot supply it.
 	auto pContext = Poco::RemotingNG::Context::get();
 	if (!pContext || !pContext->has("httpRequest"s))
 	{

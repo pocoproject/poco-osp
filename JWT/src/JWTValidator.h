@@ -35,17 +35,25 @@ public:
 		std::string rsaPublicKey;
 		std::string ecPublicKey;
 		Poco::Timespan leeway;
-		std::string issuer;
+		std::string issuer;   /// if not empty, the issuer that a token must name
+		std::string audience; /// if not empty, the audience that a token must name
 	};
 
 	explicit JWTValidator(const Config& config);
 		/// Creates the JWTValidator with the given configuration.
+		///
+		/// Logs a warning for every algorithm for which the configuration has no key.
 
 	~JWTValidator();
 		/// Destroys the JWTValidator.
 
 	// TokenValidator
 	bool validateToken(const std::string& token, std::string& username, std::string& scope);
+		/// Accepts a token that is signed with one of the configured algorithms and
+		/// keys, has not expired, is valid already, names a subject, and names the
+		/// configured issuer and audience, if they are configured.
+		///
+		/// Rejected tokens are logged at debug level at most, and never with the token.
 
 	static const std::string SERVICE_NAME;
 
@@ -56,6 +64,7 @@ private:
 	Poco::JWT::Signer _signer;
 	Poco::Timespan _leeway;
 	std::string _issuer;
+	std::string _audience;
 	Poco::Logger& _logger;
 };
 
