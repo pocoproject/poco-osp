@@ -22,10 +22,12 @@
 #include "Poco/OSP/Web/WebSession.h"
 #include "Poco/OSP/Web/WebRequestHandlerFactory.h"
 #include "Poco/OSP/Web/LibraryRequestHandlerFactory.h"
+#include "Poco/OSP/Web/LibraryWebFilterFactory.h"
 #include "Poco/OSP/Bundle.h"
 #include "Poco/OSP/BundleEvent.h"
 #include "Poco/OSP/ServiceRegistry.h"
 #include "Poco/OSP/Auth/AuthService.h"
+#include "Poco/OSP/Auth/RequestIdentity.h"
 #include "Poco/OSP/Properties.h"
 #include "Poco/OSP/ServiceRef.h"
 #include "Poco/OSP/BundleContext.h"
@@ -49,9 +51,14 @@
 #include "Poco/JSON/Object.h"
 #include "Poco/StreamCopier.h"
 #include "Poco/AutoPtr.h"
+#include "Poco/SharedPtr.h"
 #include "Poco/Exception.h"
+#include "Poco/Ascii.h"
 #include "Poco/Types.h"
 #include "Poco/Timespan.h"
+#include "Poco/Timestamp.h"
+#include "Poco/DateTimeFormat.h"
+#include "Poco/DateTimeFormatter.h"
 #include "Poco/InflatingStream.h"
 #include "Poco/URI.h"
 #include "Poco/Event.h"
@@ -70,6 +77,9 @@
 #include "CppUnit/TestSuite.h"
 #include "CppUnit/TestCase.h"
 #include "CppUnit/Test.h"
+#include <algorithm>
+#include <atomic>
+#include <cstddef>
 #include <ios>
 #include <istream>
 #include <map>
@@ -115,6 +125,7 @@ namespace
 	public:
 		using WebServerDispatcher::WebServerDispatcher;
 		using WebServerDispatcher::cleanPath;
+		using WebServerDispatcher::isResourcePath;
 		using WebServerDispatcher::findResource;
 	};
 
@@ -177,6 +188,24 @@ namespace
 		}
 	};
 
+	class DisablingAuthService: public TestAuthService
+		/// Reports the user "alice" as enabled until disableAlice() is called.
+	{
+	public:
+		[[nodiscard]] bool userEnabled(const std::string& userName) const override
+		{
+			return userName != "alice" || !_aliceDisabled;
+		}
+
+		void disableAlice()
+		{
+			_aliceDisabled = true;
+		}
+
+	private:
+		std::atomic<bool> _aliceDisabled{false};
+	};
+
 	class BlockingAuthService: public TestAuthService
 		/// Blocks in authenticate() until released, to keep a request inside authorization.
 	{
@@ -220,6 +249,61 @@ namespace
 		}
 	};
 
+	class RequestIdentityHandler: public Poco::Net::HTTPRequestHandler
+		/// Answers with the user and the scope of the RequestIdentity of the thread,
+		/// as "<user>|<scope>", with "-" for a missing value.
+	{
+	public:
+		void handleRequest(Poco::Net::HTTPServerRequest&, Poco::Net::HTTPServerResponse& response) override
+		{
+			const Poco::OSP::Auth::RequestIdentity* pIdentity = Poco::OSP::Auth::RequestIdentity::current();
+			std::string body("-|-");
+			if (pIdentity != nullptr)
+			{
+				body = pIdentity->user() + "|" + (pIdentity->scope().empty() ? "-"s : pIdentity->scope());
+			}
+			response.sendBuffer(body.data(), body.size());
+		}
+	};
+
+	class ThrowingIdentityHandlerFactory: public Poco::Net::HTTPRequestHandlerFactory
+		/// Creates handlers that store the user of the RequestIdentity of the thread,
+		/// or "-", in the given string, and then throw.
+	{
+	public:
+		explicit ThrowingIdentityHandlerFactory(std::string& user):
+			_pUser(&user)
+		{
+		}
+
+		[[nodiscard]] Poco::Net::HTTPRequestHandler* createRequestHandler(const Poco::Net::HTTPServerRequest&) override
+		{
+			return new Handler(*_pUser);
+		}
+
+	private:
+		class Handler: public Poco::Net::HTTPRequestHandler
+		{
+		public:
+			explicit Handler(std::string& user):
+				_pUser(&user)
+			{
+			}
+
+			void handleRequest(Poco::Net::HTTPServerRequest&, Poco::Net::HTTPServerResponse&) override
+			{
+				const Poco::OSP::Auth::RequestIdentity* pIdentity = Poco::OSP::Auth::RequestIdentity::current();
+				*_pUser = pIdentity != nullptr ? pIdentity->user() : "-"s;
+				throw Poco::IllegalStateException("the handler failed"s);
+			}
+
+		private:
+			std::string* _pUser;
+		};
+
+		std::string* _pUser;
+	};
+
 	class BodyHandler: public Poco::Net::HTTPRequestHandler
 		/// Answers with the request body.
 	{
@@ -229,6 +313,35 @@ namespace
 			std::string body;
 			Poco::StreamCopier::copyToString(request.stream(), body);
 			response.sendBuffer(body.data(), body.size());
+		}
+	};
+
+	class ControlCharacterResponseHandler: public Poco::Net::HTTPRequestHandler
+		/// Answers with a reason phrase and a header field that hold control characters.
+	{
+	public:
+		void handleRequest(Poco::Net::HTTPServerRequest&, Poco::Net::HTTPServerResponse& response) override
+		{
+			response.setStatusAndReason(HTTPResponse::HTTP_OK, "OK\x1b[2J"s);
+			response.set("X-Note"s, "a\r\nInjected: b"s);
+			response.sendBuffer("ok", 2);
+		}
+	};
+
+	class CredentialAndNonTokenFieldResponseHandler: public Poco::Net::HTTPRequestHandler
+		/// Answers with header fields named by a credential field name in either letter case,
+		/// by names that are not HTTP tokens, and by X-Note.
+	{
+	public:
+		void handleRequest(Poco::Net::HTTPServerRequest&, Poco::Net::HTTPServerResponse& response) override
+		{
+			response.add("Set-Cookie:sid"s, "response-colon"s);
+			response.add("X\r\nSet-Cookie"s, "response-crlf"s);
+			response.add(" Cookie "s, "response-padded"s);
+			response.add("Cookie"s, "response-cookie"s);
+			response.add("cookie"s, "response-lower"s);
+			response.add("X-Note"s, "response-note"s);
+			response.sendBuffer("ok", 2);
 		}
 	};
 
@@ -397,6 +510,14 @@ namespace
 		for (const auto& cookie: cookies) session.cookies.add(cookie.getName(), cookie.getValue());
 		return session;
 	}
+
+	[[nodiscard]] bool hasControlCharacter(const std::string& text)
+		/// Returns true if text has a control character other than the line feed
+		/// and the tab that separate the header fields in the full request log.
+	{
+		return std::any_of(text.begin(), text.end(), [](char ch) { return ch != '\n' && ch != '\t'
+			&& Poco::Ascii::hasProperties(ch, Poco::Ascii::ACP_CONTROL); });
+	}
 }
 
 
@@ -543,6 +664,28 @@ void WebServerDispatcherTest::testVirtualDirectoryFail()
 }
 
 
+void WebServerDispatcherTest::testChildInOtherCaseConflictsWithParent()
+{
+	WebServerDispatcher disp(_pFixture->dispatcherConfig());
+	WebServerDispatcher::VirtualPath child("/ADMIN/sub"s, "res"s, WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.zipBundle());
+	child.security.mode = WebServerDispatcher::SM_ALL;
+	disp.addVirtualPath(child);
+
+	WebServerDispatcher::VirtualPath parent("/admin"s, "res"s, WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle());
+	parent.security.mode = WebServerDispatcher::SM_NONE;
+	try
+	{
+		disp.addVirtualPath(parent);
+		fail("a parent mapping that allows no children must conflict with a child in another case");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+}
+
+
 void WebServerDispatcherTest::testRemoveDir()
 {
 	WebServerDispatcher disp(_pFixture->dispatcherConfig());
@@ -561,16 +704,16 @@ void WebServerDispatcherTest::testRemoveDir()
 
 	WebServerDispatcher::PathMap mappings;
 	disp.virtualPathMappings(mappings);
-	assertEqual (1, mappings.count("/sub/subsub/"s));
+	assertTrue (mappings.contains("/sub/subsub/"s));
 
 	disp.removeVirtualPath("/sub/subsub");
 	disp.virtualPathMappings(mappings);
-	assertEqual (0, mappings.count("/sub/subsub/"s));
-	assertEqual (1, mappings.count("/sub/"s));
+	assertFalse (mappings.contains("/sub/subsub/"s));
+	assertTrue (mappings.contains("/sub/"s));
 
 	disp.addVirtualPath(vPath);
 	disp.virtualPathMappings(mappings);
-	assertEqual (1, mappings.count("/sub/subsub/"s));
+	assertTrue (mappings.contains("/sub/subsub/"s));
 }
 
 
@@ -737,6 +880,31 @@ void WebServerDispatcherTest::testStaticResourceHasExactLength()
 }
 
 
+void WebServerDispatcherTest::testCachedResourceOutlivesBundleStop()
+{
+	TestDispatcher dispatcher(_pFixture->dispatcherConfig(WebServerDispatcher::CONF_OPT_CACHE_RESOURCES));
+	std::string mediaType;
+	std::string resolvedPath;
+	// The first stream is created with the cache entry, the second from the existing one.
+	std::unique_ptr<std::istream> pStream(dispatcher.findResource(_pFixture->bundles.bundle(), "www"s, "hello.txt"s,
+		"index.html"s, mediaType, resolvedPath, true));
+	assertTrue (pStream != nullptr);
+	std::unique_ptr<std::istream> pCachedStream(dispatcher.findResource(_pFixture->bundles.bundle(), "www"s,
+		"hello.txt"s, "index.html"s, mediaType, resolvedPath, true));
+	assertTrue (pCachedStream != nullptr);
+
+	BundleEvent stopping(_pFixture->bundles.bundle(), BundleEvent::EV_BUNDLE_STOPPING);
+	_pFixture->bundles.events().bundleStopping(this, stopping);
+
+	for (auto* pResourceStream: {pStream.get(), pCachedStream.get()})
+	{
+		std::string content;
+		Poco::StreamCopier::copyToString(*pResourceStream, content);
+		assertEqual (TemporaryBundle::HELLO_TXT, content);
+	}
+}
+
+
 void WebServerDispatcherTest::testCleanPathRejectsDotSegments()
 {
 	for (const auto& rejected: {"/a/../b"s, "/./x"s, "/a/b/.."s, "/a/b/."s, "/a\\..\\b"s, Poco::URI("/a/%2e%2e/b"s).getPath(), ""s})
@@ -752,6 +920,222 @@ void WebServerDispatcherTest::testCleanPathRejectsDotSegments()
 	path = "/a/.b/c...d/";
 	assertTrue (TestDispatcher::cleanPath(path));
 	assertEqual ("/a/.b/c...d/"s, path);
+}
+
+
+void WebServerDispatcherTest::testCleanPathRejectsControlCharacters()
+{
+	for (const auto& rejected: {"/a.txt\0.html"s, "/a\x1b[2J.txt"s, "/a\x7f.txt"s,
+		Poco::URI("/a.txt%00.html"s).getPath()})
+	{
+		std::string path(rejected);
+		assertFalse (TestDispatcher::cleanPath(path));
+	}
+}
+
+
+void WebServerDispatcherTest::testCleanPathRejectsSegmentsEndingWithDotOrSpace()
+{
+	for (const auto& rejected: {"/admin./secret.txt"s, "/admin../secret.txt"s, "/admin /secret.txt"s, "/hello.txt "s,
+		"/a/b /"s})
+	{
+		std::string path(rejected);
+		assertFalse (TestDispatcher::cleanPath(path));
+	}
+}
+
+
+void WebServerDispatcherTest::testCaseVariantOfProtectedPathIsProtected()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	TemporaryBundle::writeFile(Path(_pFixture->bundles.bundle()->path()), "www/admin/secret.txt"s, "secret"s);
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig());
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/"s, "www"s, WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle()));
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/admin"s, "www/admin"s,
+		WebServerDispatcher::PathSecurity(WebServerDispatcher::SM_OWNER, ""s, "read"s), _pFixture->bundles.bundle()));
+	try
+	{
+		pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/Admin"s, "www"s,
+			WebServerDispatcher::PathSecurity(), _pFixture->bundles.bundle()));
+		fail("a mapping that differs from another one only in case must be rejected");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+	TestServer server(*pDispatcher);
+
+	const std::vector<std::pair<std::string, HTTPResponse::HTTPStatus>> expected{
+		{"/admin/secret.txt"s, HTTPResponse::HTTP_UNAUTHORIZED},
+		{"/Admin/secret.txt"s, HTTPResponse::HTTP_UNAUTHORIZED},
+		{"/ADMIN/secret.txt"s, HTTPResponse::HTTP_UNAUTHORIZED},
+		{"/admin./secret.txt"s, HTTPResponse::HTTP_BAD_REQUEST}
+	};
+	for (const auto& [uri, status]: expected)
+	{
+		HTTPRequest request(HTTPRequest::HTTP_GET, uri);
+		HTTPResponse response;
+		const std::string body = server.send(request, response);
+		assertTrue (response.getStatus() == status);
+		assertTrue (body.find("secret"s) == std::string::npos);
+	}
+
+	HTTPRequest request(HTTPRequest::HTTP_GET, "/Admin/secret.txt"s);
+	Poco::Net::HTTPBasicCredentials("alice"s, "secret"s).authenticate(request);
+	HTTPResponse response;
+	assertEqual ("secret"s, server.send(request, response));
+}
+
+
+void WebServerDispatcherTest::testResourcePathRejectsOtherNamesOfFiles()
+{
+	for (const auto& rejected: {"/page.psp::$DATA"s, "/a:b/page.psp"s, "/c:/page.psp"s})
+	{
+		assertFalse (TestDispatcher::isResourcePath(rejected));
+	}
+#if defined(POCO_OS_FAMILY_WINDOWS)
+	assertFalse (TestDispatcher::isResourcePath("/ADMINI~1/secret.txt"s));
+#else
+	assertTrue (TestDispatcher::isResourcePath("/ADMINI~1/secret.txt"s));
+#endif
+	assertTrue (TestDispatcher::isResourcePath("/backup~/page~a.psp"s));
+}
+
+
+void WebServerDispatcherTest::testColonAnswersBadRequestForResourcesOnly()
+{
+	WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
+	pDispatcher->addVirtualPath(handlerPath("/api"s, ""s, _pFixture->bundles.bundle()));
+	TestServer server(*pDispatcher);
+
+	HTTPRequest resource(HTTPRequest::HTTP_GET, "/dir/hello.txt::$DATA"s);
+	HTTPResponse response;
+	server.send(resource, response);
+	assertTrue (response.getStatus() == HTTPResponse::HTTP_BAD_REQUEST);
+
+	HTTPRequest handler(HTTPRequest::HTTP_GET, "/api/urn:item:1"s);
+	assertEqual ("-|-"s, server.send(handler, response));
+	assertTrue (response.getStatus() == HTTPResponse::HTTP_OK);
+}
+
+
+void WebServerDispatcherTest::testNonASCIIVariantOfProtectedPathIsProtected()
+{
+	// The protected path is U+00FC "ber" in normalization form C; the requests name it in other cases and forms.
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	TemporaryBundle::writeFile(Path(_pFixture->bundles.bundle()->path()), "www/\xC3\xBC" "ber/secret.txt"s, "secret"s);
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig());
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/"s, "www"s, WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle()));
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/\xC3\xBC" "ber"s, "www/\xC3\xBC" "ber"s,
+		WebServerDispatcher::PathSecurity(WebServerDispatcher::SM_OWNER, ""s, "read"s), _pFixture->bundles.bundle()));
+	for (const auto& variant: {"/\xC3\x9C" "BER"s, "/u\xCC\x88" "ber"s})
+	{
+		try
+		{
+			pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath(variant, "www"s,
+				WebServerDispatcher::PathSecurity(), _pFixture->bundles.bundle()));
+			fail("a mapping that differs from another one only in case or normalization form must be rejected");
+		}
+		catch (Poco::InvalidArgumentException&)
+		{
+		}
+	}
+	TestServer server(*pDispatcher);
+
+	for (const auto& uri: {"/%C3%9CBER/secret.txt"s, "/u%CC%88ber/secret.txt"s, "/U%CC%88BER/secret.txt"s})
+	{
+		HTTPRequest request(HTTPRequest::HTTP_GET, uri);
+		HTTPResponse response;
+		const std::string body = server.send(request, response);
+		assertTrue (response.getStatus() == HTTPResponse::HTTP_UNAUTHORIZED);
+		assertTrue (body.find("secret"s) == std::string::npos);
+
+		Poco::Net::HTTPBasicCredentials("alice"s, "secret"s).authenticate(request);
+		assertEqual ("secret"s, server.send(request, response));
+	}
+}
+
+
+void WebServerDispatcherTest::testLongerFormOfProtectedPathIsProtected()
+{
+	// U+212A KELVIN SIGN is 'K' in normalization form C, and two bytes longer in UTF-8.
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	TemporaryBundle::writeFile(Path(_pFixture->bundles.bundle()->path()), "www/kelvin/secret.txt"s, "secret"s);
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig());
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/"s, "www"s, WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle()));
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/kelvin"s, "www/kelvin"s,
+		WebServerDispatcher::PathSecurity(WebServerDispatcher::SM_OWNER, ""s, "read"s), _pFixture->bundles.bundle()));
+	TestServer server(*pDispatcher);
+
+	HTTPRequest request(HTTPRequest::HTTP_GET, "/%E2%84%AAelvin/secret.txt"s);
+	HTTPResponse response;
+	const std::string body = server.send(request, response);
+	assertTrue (response.getStatus() == HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (body.find("secret"s) == std::string::npos);
+
+	Poco::Net::HTTPBasicCredentials("alice"s, "secret"s).authenticate(request);
+	assertEqual ("secret"s, server.send(request, response));
+}
+
+
+void WebServerDispatcherTest::testFoldedSpellingOfProtectedPathIsNotFound()
+{
+	// U+017F is its own lower-case form; case-insensitive APFS opens it as 's'.
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	TemporaryBundle::writeFile(Path(_pFixture->bundles.bundle()->path()), "www/secret/a.txt"s, "secret"s);
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig());
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/"s, "www"s, WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle()));
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/secret"s, "www/secret"s,
+		WebServerDispatcher::PathSecurity(WebServerDispatcher::SM_OWNER, ""s, "read"s), _pFixture->bundles.bundle()));
+	TestServer server(*pDispatcher);
+
+	HTTPRequest request(HTTPRequest::HTTP_GET, "/%C5%BFecret/a.txt"s);
+	HTTPResponse response;
+	server.send(request, response);
+	assertTrue (response.getStatus() == HTTPResponse::HTTP_NOT_FOUND);
+}
+
+
+void WebServerDispatcherTest::testExactMatchIgnoresCase()
+{
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig());
+	WebServerDispatcher::VirtualPath vPath(handlerPath("/exact"s, ""s, _pFixture->bundles.bundle()));
+	vPath.exactMatch = true;
+	pDispatcher->addVirtualPath(vPath);
+	TestServer server(*pDispatcher);
+
+	for (const auto& uri: {"/exact"s, "/EXACT"s, "/Exact/"s})
+	{
+		HTTPRequest request(HTTPRequest::HTTP_GET, uri);
+		HTTPResponse response;
+		server.send(request, response);
+		assertTrue (response.getStatus() == HTTPResponse::HTTP_OK);
+	}
+	HTTPRequest below(HTTPRequest::HTTP_GET, "/EXACT/below"s);
+	HTTPResponse response;
+	server.send(below, response);
+	assertTrue (response.getStatus() == HTTPResponse::HTTP_NOT_FOUND);
+}
+
+
+void WebServerDispatcherTest::testControlCharacterInPathAnswersBadRequest()
+{
+	_pFixture->writePersistentFiles();
+	WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/persist"s, "persist"s,
+		WebServerDispatcher::PathSecurity(), _pFixture->bundles.bundle()));
+	TestServer server(*pDispatcher);
+
+	for (const auto& uri: {"/dir/hello.txt%00.html"s, "/persist/file.txt%00.html"s, "/dir/hello.txt%0a"s})
+	{
+		HTTPRequest request(HTTPRequest::HTTP_GET, uri);
+		HTTPResponse response;
+		server.send(request, response);
+		assertTrue (response.getStatus() == HTTPResponse::HTTP_BAD_REQUEST);
+	}
 }
 
 
@@ -834,6 +1218,47 @@ void WebServerDispatcherTest::testPersistentResourceEndingWithSlash()
 }
 
 
+void WebServerDispatcherTest::testPersistentResourceWithEmptySegment()
+{
+	_pFixture->writePersistentFiles();
+	WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/persist"s, "persist"s,
+		WebServerDispatcher::PathSecurity(), _pFixture->bundles.bundle()));
+	TestServer server(*pDispatcher);
+
+	HTTPRequest request(HTTPRequest::HTTP_GET, "/persist//file.txt"s);
+	HTTPResponse response;
+	assertEqual ("persistent"s, server.send(request, response));
+	assertTrue (response.getStatus() == HTTPResponse::HTTP_OK);
+}
+
+
+void WebServerDispatcherTest::testPersistentResourceIsFoundOnlyUnderItsName()
+{
+	_pFixture->writePersistentFiles();
+	TestDispatcher dispatcher(_pFixture->dispatcherConfig());
+	std::string mediaType;
+	std::string resolvedPath;
+	std::unique_ptr<std::istream> pStream(dispatcher.findResource(_pFixture->bundles.bundle(), "persist"s, "FILE.TXT"s,
+		"index.html"s, mediaType, resolvedPath, false));
+	assertTrue (pStream == nullptr);
+
+	const Path persistentDirectory(_pFixture->bundles.context()->persistentDirectory());
+	TemporaryBundle::writeFile(persistentDirectory, "persist/sub/index.html"s, "index"s);
+	std::unique_ptr<std::istream> pIndex(dispatcher.findResource(_pFixture->bundles.bundle(), "persist"s, "sub"s,
+		"index.html"s, mediaType, resolvedPath, false));
+	assertTrue (pIndex != nullptr);
+	if (!Poco::File(Path(persistentDirectory, Path("persist/SUB/index.html"s, Path::PATH_UNIX))).exists())
+	{
+		warnmsg("The file system distinguishes case, index case skipped.");
+		return;
+	}
+	std::unique_ptr<std::istream> pOtherCase(dispatcher.findResource(_pFixture->bundles.bundle(), "persist"s, "SUB"s,
+		"index.html"s, mediaType, resolvedPath, false));
+	assertTrue (pOtherCase == nullptr);
+}
+
+
 void WebServerDispatcherTest::testRangeRequests()
 {
 	WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher(WebServerDispatcher::CONF_OPT_ENABLE_ACCEPT_RANGE);
@@ -896,6 +1321,46 @@ void WebServerDispatcherTest::testClientAuthorizationHeadersAreRemoved()
 	request.set(AUTHORIZED_SCOPE_HEADER, "admin"s);
 	HTTPResponse response;
 	assertEqual ("alice|-"s, server.send(request, response));
+}
+
+
+void WebServerDispatcherTest::testRequestIdentityIsSetWhileHandlerRuns()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	_pFixture->bundles.registry().registerService(TOKEN_VALIDATOR_NAME, new TestTokenValidator, Properties());
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig());
+	const WebServerDispatcher::PathSecurity protectedPath(WebServerDispatcher::SM_OWNER, ""s, "read"s);
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/public"s,
+		new TestHandlerFactory<RequestIdentityHandler>, WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle()));
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/protected"s,
+		new TestHandlerFactory<RequestIdentityHandler>, protectedPath, _pFixture->bundles.bundle()));
+	TestServer server(*pDispatcher);
+	HTTPResponse response;
+
+	HTTPRequest basic(HTTPRequest::HTTP_GET, "/protected"s);
+	Poco::Net::HTTPBasicCredentials("alice"s, "secret"s).authenticate(basic);
+	assertEqual ("alice|-"s, server.send(basic, response));
+
+	HTTPRequest bearer(HTTPRequest::HTTP_GET, "/protected"s);
+	bearer.setCredentials("Bearer"s, "alice-token"s);
+	assertEqual ("alice|api"s, server.send(bearer, response));
+
+	HTTPRequest claimed(HTTPRequest::HTTP_GET, "/public"s);
+	claimed.set(AUTHORIZED_USER_HEADER, "mallory"s);
+	assertEqual ("-|-"s, server.send(claimed, response));
+
+	// In the thread that runs the handler, the identity ends with the handler, also if it throws.
+	std::string handlerUser;
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/failing"s,
+		new ThrowingIdentityHandlerFactory(handlerUser), protectedPath, _pFixture->bundles.bundle()));
+	ServerRequestStub failing("127.0.0.1:50000"s, false);
+	failing.setURI("/failing"s);
+	Poco::Net::HTTPBasicCredentials("alice"s, "secret"s).authenticate(failing);
+	pDispatcher->handleRequest(failing, failing.response(), false);
+	assertEqual ("alice"s, handlerUser);
+	assertTrue (failing.response().getStatus() == HTTPResponse::HTTP_INTERNAL_SERVER_ERROR);
+	assertTrue (Poco::OSP::Auth::RequestIdentity::current() == nullptr);
 }
 
 
@@ -1267,6 +1732,75 @@ void WebServerDispatcherTest::testSessionUserWithoutPermissionIsForbidden()
 }
 
 
+void WebServerDispatcherTest::testSessionUserWithoutPermissionForHomePageIsNotAuthorized()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	WebSessionManager::Ptr pSessionManager = new WebSessionManager(_pFixture->bundles.context());
+	_pFixture->bundles.registry().registerService(WebSessionManager::SERVICE_NAME, pSessionManager, Properties());
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig());
+	WebServerDispatcher::VirtualPath home("/"s, "www"s,
+		WebServerDispatcher::PathSecurity(WebServerDispatcher::SM_OWNER, ""s, "admin"s), _pFixture->bundles.bundle());
+	home.security.authMethods = WebServerDispatcher::AUTH_SESSION;
+	home.security.session = "app";
+	home.redirectOn401 = "/login"s;
+	pDispatcher->addVirtualPath(home);
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/login"s,
+		new LoginHandlerFactory(pSessionManager, _pFixture->bundles.context()), WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle()));
+	TestServer server(*pDispatcher);
+	const Session session = loginSession(server, "/login"s);
+
+	HTTPRequest request(HTTPRequest::HTTP_GET, "/"s);
+	request.setCookies(session.cookies);
+	HTTPResponse response;
+	const std::string body = server.send(request, response);
+	assertTrue (response.getStatus() == HTTPResponse::HTTP_FORBIDDEN);
+	assertTrue (body.find("You are not authorized to access / on this server."s) != std::string::npos);
+}
+
+
+void WebServerDispatcherTest::testDisabledUserIsNotAuthenticated()
+{
+	Poco::AutoPtr<DisablingAuthService> pAuthService = new DisablingAuthService;
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, pAuthService, Properties());
+	_pFixture->bundles.registry().registerService(TOKEN_VALIDATOR_NAME, new TestTokenValidator, Properties());
+	WebSessionManager::Ptr pSessionManager = new WebSessionManager(_pFixture->bundles.context());
+	_pFixture->bundles.registry().registerService(WebSessionManager::SERVICE_NAME, pSessionManager, Properties());
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig());
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/login"s,
+		new LoginHandlerFactory(pSessionManager, _pFixture->bundles.context()), WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle()));
+	WebServerDispatcher::VirtualPath api(handlerPath("/api"s, "*"s, _pFixture->bundles.bundle(),
+		WebServerDispatcher::AUTH_SESSION | WebServerDispatcher::AUTH_BEARER));
+	api.security.session = "app";
+	pDispatcher->addVirtualPath(api);
+	TestServer server(*pDispatcher);
+	const Session session = loginSession(server, "/login"s);
+	const auto sessionStatus = [&server, &session]()
+	{
+		HTTPRequest request(HTTPRequest::HTTP_GET, "/api"s);
+		request.setCookies(session.cookies);
+		HTTPResponse response;
+		server.send(request, response);
+		return response.getStatus();
+	};
+	const auto bearerStatus = [&server]()
+	{
+		HTTPRequest request(HTTPRequest::HTTP_GET, "/api"s);
+		request.setCredentials("Bearer"s, "alice-token"s);
+		HTTPResponse response;
+		server.send(request, response);
+		return response.getStatus();
+	};
+
+	assertTrue (sessionStatus() == HTTPResponse::HTTP_OK);
+	assertTrue (bearerStatus() == HTTPResponse::HTTP_OK);
+	pAuthService->disableAlice();
+	assertTrue (sessionStatus() == HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (bearerStatus() == HTTPResponse::HTTP_UNAUTHORIZED);
+}
+
+
 void WebServerDispatcherTest::testUnregisteredSessionManagerIsNotUsed()
 {
 	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
@@ -1297,10 +1831,12 @@ void WebServerDispatcherTest::testUnregisteredSessionManagerIsNotUsed()
 void WebServerDispatcherTest::testSecondFilterForMediaTypeIsRejected()
 {
 	WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
-	pDispatcher->addFilter("text/plain"s, new NamedFilterFactory("first"s), WebFilter::Args());
+	pDispatcher->addFilter("text/plain"s, new NamedFilterFactory("first"s), WebFilter::Args(),
+		_pFixture->bundles.bundle());
 	try
 	{
-		pDispatcher->addFilter("text/plain"s, new NamedFilterFactory("second"s), WebFilter::Args());
+		pDispatcher->addFilter("text/plain"s, new NamedFilterFactory("second"s), WebFilter::Args(),
+			_pFixture->bundles.bundle());
 		fail("a second filter for a media type must be rejected");
 	}
 	catch (Poco::ExistsException&)
@@ -1342,6 +1878,181 @@ void WebServerDispatcherTest::testLogMessagesHoldNoTokenAndNoControlCharacters()
 		assertTrue (message.getText().find('\n') == std::string::npos);
 	}
 	assertTrue (messages[1].getText().find("mal\\nlory"s) != std::string::npos);
+}
+
+
+void WebServerDispatcherTest::testLoggedRequestDataHasNoControlCharacters()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	_pFixture->bundles.registry().registerService(TOKEN_VALIDATOR_NAME, new TestTokenValidator, Properties());
+	// Not sent over a connection, as HTTPRequest::write() and read() can reject control characters.
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	request.setMethod("G\x1b[2JT"s);
+	request.setURI("/protected?\x1b[2J\x1b[31m"s);
+	request.setVersion("H\x1b[2J"s);
+	request.setCredentials("Bearer"s, "rejected-token-value"s);
+	request.set("Host"s, "\x1b[2Jhost"s);
+	request.set("Referer"s, "\x1b[2Jreferer"s);
+	request.set("User-Agent"s, "\x1b[2Jagent"s);
+	// Poco::URI can reject control characters in the query, and the request is then answered with 400.
+	bool parsesURI = true;
+	try
+	{
+		const Poco::URI uri(request.getURI());
+	}
+	catch (Poco::SyntaxException&)
+	{
+		parsesURI = false;
+		warnmsg("Poco::URI rejects control characters, token warning case skipped.");
+	}
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(
+		_pFixture->dispatcherConfig(WebServerDispatcher::CONF_OPT_LOG_FULL_REQUEST));
+	pDispatcher->addVirtualPath(handlerPath("/protected"s, "read"s, _pFixture->bundles.bundle()));
+	LogCapture bundleLog(_pFixture->bundles.context()->logger().name());
+	LogCapture accessLog("osp.web.access"s);
+
+	pDispatcher->handleRequest(request, request.response(), false);
+	assertTrue (request.response().getStatus() ==
+		(parsesURI ? HTTPResponse::HTTP_UNAUTHORIZED : HTTPResponse::HTTP_BAD_REQUEST));
+
+	// The full request log adds the request before and the response after the token warning.
+	const std::size_t messageCount = parsesURI ? 3 : 2;
+	const std::vector<Poco::Message> messages = bundleLog.channel().waitForMessages(messageCount);
+	assertEqual (messageCount, messages.size());
+	if (parsesURI)
+	{
+		const std::string& tokenWarning = messages.at(1).getText();
+		assertTrue (tokenWarning.find("/protected?%1B[2J%1B[31m"s) != std::string::npos);
+	}
+	for (const auto& message: messages)
+	{
+		assertFalse (hasControlCharacter(message.getText()));
+	}
+	const std::vector<Poco::Message> accessMessages = accessLog.channel().waitForMessages(1);
+	assertEqual (1, accessMessages.size());
+	assertFalse (hasControlCharacter(accessMessages[0].getText()));
+	for (const auto& property: {"host"s, "referer"s, "useragent"s})
+	{
+		assertFalse (hasControlCharacter(accessMessages[0].get(property)));
+	}
+}
+
+
+void WebServerDispatcherTest::testFullRequestLogEscapesMethodAndFieldValue()
+{
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(
+		_pFixture->dispatcherConfig(WebServerDispatcher::CONF_OPT_LOG_FULL_REQUEST));
+	pDispatcher->addVirtualPath(handlerPath("/open"s, ""s, _pFixture->bundles.bundle()));
+	LogCapture capture(_pFixture->bundles.context()->logger().name());
+
+	// HTTPRequest::read() accepts a control character in the method and in a field value.
+	// The log does not rely on a field value without CR LF.
+	const std::vector<std::pair<std::string, std::string>> methodsAndAgents{
+		{"GET"s, "agent"s}, {"G\x1b[2JET"s, "agent"s}, {"GET"s, "\x1b[2Jagent"s}, {"GET"s, "a\r\nInjected: b"s}};
+	for (const auto& [method, userAgent]: methodsAndAgents)
+	{
+		ServerRequestStub request("127.0.0.1:50000"s, false);
+		request.setMethod(method);
+		request.setURI("/open"s);
+		request.set("User-Agent"s, userAgent);
+		pDispatcher->handleRequest(request, request.response(), false);
+		assertTrue (request.response().getStatus() == HTTPResponse::HTTP_OK);
+	}
+
+	// A request message and a response message per request.
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(8);
+	assertEqual (8, messages.size());
+	for (std::size_t i = 0; i < messages.size(); i += 2)
+	{
+		assertTrue (messages.at(i).getText().rfind("Request from "s, 0) == 0);
+	}
+	assertTrue (messages.at(2).getText().find("\n\tG%1B[2JET /open HTTP/1.0\n\t"s) != std::string::npos);
+	assertTrue (messages.at(4).getText().find("\n\tUser-Agent: %1B[2Jagent"s) != std::string::npos);
+	assertTrue (messages.at(6).getText().find("\n\tUser-Agent: a%0D%0AInjected: b"s) != std::string::npos);
+	for (const auto& message: messages)
+	{
+		assertFalse (hasControlCharacter(message.getText()));
+	}
+}
+
+
+void WebServerDispatcherTest::testFullResponseLogEscapesFieldValue()
+{
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig(
+		WebServerDispatcher::CONF_OPT_LOG_FULL_REQUEST | WebServerDispatcher::CONF_OPT_ENABLE_CORS));
+	WebServerDispatcher::VirtualPath vPath(handlerPath("/reflect"s, ""s, _pFixture->bundles.bundle()));
+	vPath.cors.enable = true;
+	vPath.cors.allowOrigin = "**"s;
+	pDispatcher->addVirtualPath(vPath);
+	LogCapture bundleLog(_pFixture->bundles.context()->logger().name());
+	LogCapture accessLog("osp.web.access"s);
+
+	// HTTPRequest::read() accepts a control character in a field value, and the origin is copied into the response.
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	request.setURI("/reflect"s);
+	request.set("Origin"s, "https://\x1b[2Ja.example"s);
+	pDispatcher->handleRequest(request, request.response(), false);
+	assertTrue (request.response().getStatus() == HTTPResponse::HTTP_OK);
+
+	const std::vector<Poco::Message> messages = bundleLog.channel().waitForMessages(2);
+	assertEqual (2, messages.size());
+	const std::string& responseText = messages.at(1).getText();
+	assertTrue (responseText.rfind("Response to "s, 0) == 0);
+	assertTrue (responseText.find("\n\tAccess-Control-Allow-Origin: https://%1B[2Ja.example"s) != std::string::npos);
+	for (const auto& message: messages)
+	{
+		assertFalse (hasControlCharacter(message.getText()));
+	}
+	assertEqual (1, accessLog.channel().waitForMessages(1).size());
+}
+
+
+void WebServerDispatcherTest::testFullResponseLogEscapesReasonAndFieldOfHandler()
+{
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(
+		_pFixture->dispatcherConfig(WebServerDispatcher::CONF_OPT_LOG_FULL_REQUEST));
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/note"s,
+		new TestHandlerFactory<ControlCharacterResponseHandler>, WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle()));
+	LogCapture capture(_pFixture->bundles.context()->logger().name());
+
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	request.setURI("/note"s);
+	pDispatcher->handleRequest(request, request.response(), false);
+	assertTrue (request.response().getStatus() == HTTPResponse::HTTP_OK);
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(2);
+	assertEqual (2, messages.size());
+	const std::string& responseText = messages.at(1).getText();
+	assertTrue (responseText.rfind("Response to "s, 0) == 0);
+	assertTrue (responseText.find(" 200 OK%1B[2J\n\t"s) != std::string::npos);
+	assertTrue (responseText.find("\n\tX-Note: a%0D%0AInjected: b"s) != std::string::npos);
+	for (const auto& message: messages)
+	{
+		assertFalse (hasControlCharacter(message.getText()));
+	}
+}
+
+
+void WebServerDispatcherTest::testBadRequestDebugMessageHasNoControlCharacters()
+{
+	WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
+	LogCapture capture(_pFixture->bundles.context()->logger().name());
+	_pFixture->bundles.context()->logger().setLevel(Poco::Message::PRIO_DEBUG);
+
+	// Poco::URI rejects the incomplete percent encoding with an exception text that holds the path.
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	request.setURI("/dir/\x1b[2J%"s);
+	pDispatcher->handleRequest(request, request.response(), false);
+	assertTrue (request.response().getStatus() == HTTPResponse::HTTP_BAD_REQUEST);
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
+	const auto badRequest = std::find_if(messages.begin(), messages.end(), [](const Poco::Message& message)
+		{ return message.getText().find("answered with 400 Bad Request: "s) != std::string::npos; });
+	assertTrue (badRequest != messages.end());
+	const std::string& text = badRequest->getText();
+	assertTrue (text.find("/dir/%1B[2J%"s, text.find("400 Bad Request"s)) != std::string::npos);
+	assertFalse (hasControlCharacter(text));
 }
 
 
@@ -1387,6 +2098,71 @@ void WebServerDispatcherTest::testFullRequestLogHasNoCredentials()
 }
 
 
+void WebServerDispatcherTest::testFullRequestLogRedactsFieldsWithCredentialOrNonTokenNames()
+{
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(
+		_pFixture->dispatcherConfig(WebServerDispatcher::CONF_OPT_LOG_FULL_REQUEST));
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/fields"s,
+		new TestHandlerFactory<CredentialAndNonTokenFieldResponseHandler>, WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle()));
+	LogCapture capture(_pFixture->bundles.context()->logger().name());
+
+	// HTTPRequest::read() ends a field name at the first colon or line end.
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	request.setURI("/fields"s);
+	request.add(" Cookie "s, "request-padded"s);
+	request.add("Cookie"s, "request-cookie"s);
+	request.add("cookie"s, "request-lower"s);
+	request.add("X-Note"s, "request-note"s);
+	pDispatcher->handleRequest(request, request.response(), false);
+	assertTrue (request.response().getStatus() == HTTPResponse::HTTP_OK);
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(2);
+	assertEqual (2, messages.size());
+	const std::string& requestText = messages.at(0).getText();
+	assertTrue (requestText.find("\n\t Cookie : <redacted>"s) != std::string::npos);
+	assertTrue (requestText.find("\n\tCookie: <redacted>"s) != std::string::npos);
+	assertTrue (requestText.find("\n\tcookie: <redacted>"s) != std::string::npos);
+	assertTrue (requestText.find("\n\tX-Note: request-note"s) != std::string::npos);
+	const std::string& responseText = messages.at(1).getText();
+	assertTrue (responseText.find("\n\tSet-Cookie:sid: <redacted>"s) != std::string::npos);
+	assertTrue (responseText.find("\n\tX%0D%0ASet-Cookie: <redacted>"s) != std::string::npos);
+	assertTrue (responseText.find("\n\t Cookie : <redacted>"s) != std::string::npos);
+	assertTrue (responseText.find("\n\tCookie: <redacted>"s) != std::string::npos);
+	assertTrue (responseText.find("\n\tcookie: <redacted>"s) != std::string::npos);
+	assertTrue (responseText.find("\n\tX-Note: response-note"s) != std::string::npos);
+	for (const auto& value: {"request-padded"s, "request-cookie"s, "request-lower"s, "response-colon"s,
+		"response-crlf"s, "response-padded"s, "response-cookie"s, "response-lower"s})
+	{
+		assertTrue (requestText.find(value) == std::string::npos);
+		assertTrue (responseText.find(value) == std::string::npos);
+	}
+}
+
+
+void WebServerDispatcherTest::testFullRequestLogKeepsRequestLineWithFieldNameAsMethod()
+{
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(
+		_pFixture->dispatcherConfig(WebServerDispatcher::CONF_OPT_LOG_FULL_REQUEST));
+	pDispatcher->addVirtualPath(handlerPath("/open"s, ""s, _pFixture->bundles.bundle()));
+	LogCapture capture(_pFixture->bundles.context()->logger().name());
+
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	request.setMethod("Cookie:"s);
+	request.setURI("/open?visible"s);
+	request.set("Cookie"s, "osp.web.session.app=request-session-id"s);
+	pDispatcher->handleRequest(request, request.response(), false);
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(2);
+	assertEqual (2, messages.size());
+	const std::string& requestText = messages.at(0).getText();
+	assertTrue (requestText.rfind("Request from "s, 0) == 0);
+	assertTrue (requestText.find("\n\tCookie: /open?visible HTTP/1.0\n\t"s) != std::string::npos);
+	assertTrue (requestText.find("\n\tCookie: <redacted>"s) != std::string::npos);
+	assertTrue (requestText.find("request-session-id"s) == std::string::npos);
+}
+
+
 void WebServerDispatcherTest::testForwardedClientAddressIsAnIPAddressOnly()
 {
 	WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
@@ -1420,7 +2196,7 @@ void WebServerDispatcherTest::testJSONErrorResponseEscapesRequestData()
 	WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
 	TestServer server(*pDispatcher);
 
-	const std::string uri("/missing\\\"%01");
+	const std::string uri("/missing\\\"");
 	HTTPRequest request(HTTPRequest::HTTP_GET, uri);
 	request.set("Accept"s, "application/json"s);
 	HTTPResponse response;
@@ -1524,6 +2300,39 @@ void WebServerDispatcherTest::testCORSOrigins()
 }
 
 
+void WebServerDispatcherTest::testOriginDependentResponsesVaryByOrigin()
+{
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(
+		_pFixture->dispatcherConfig(WebServerDispatcher::CONF_OPT_ENABLE_CORS));
+	for (const auto& [path, allowOrigin]: std::map<std::string, std::string>{{"/none"s, ""s}, {"/reflect"s, "**"s},
+		{"/any"s, "*"s}, {"/list"s, "https://a.example"s}})
+	{
+		WebServerDispatcher::VirtualPath vPath(handlerPath(path, ""s, _pFixture->bundles.bundle()));
+		vPath.cors.enable = true;
+		vPath.cors.allowOrigin = allowOrigin;
+		pDispatcher->addVirtualPath(vPath);
+	}
+	TestServer server(*pDispatcher);
+	const auto vary = [&server](const std::string& uri, const std::string& origin)
+	{
+		HTTPRequest request(HTTPRequest::HTTP_GET, uri);
+		if (!origin.empty()) request.set("Origin"s, origin);
+		HTTPResponse response;
+		server.send(request, response);
+		return response.get("Vary"s, ""s);
+	};
+	const std::string sameOrigin("http://127.0.0.1:"s + std::to_string(server.port()));
+
+	for (const auto& origin: {""s, sameOrigin, "https://a.example"s})
+	{
+		assertEqual ("Origin"s, vary("/reflect"s, origin));
+		assertEqual ("Origin"s, vary("/list"s, origin));
+		assertEqual (""s, vary("/none"s, origin));
+		assertEqual (""s, vary("/any"s, origin));
+	}
+}
+
+
 void WebServerDispatcherTest::testIsSameOrigin()
 {
 	ServerRequestStub plainRequest("127.0.0.1:50000"s, false);
@@ -1557,6 +2366,27 @@ void WebServerDispatcherTest::testInvalidIfModifiedSinceIsIgnored()
 	future.set("If-Modified-Since"s, "Fri, 01 Jan 2100 00:00:00 GMT"s);
 	server.send(future, response);
 	assertTrue (response.getStatus() == HTTPResponse::HTTP_NOT_MODIFIED);
+}
+
+
+void WebServerDispatcherTest::testChangedResourceOfDirectoryBundleIsModified()
+{
+	const Path bundlePath(Path::forDirectory(_pFixture->bundles.bundle()->path()));
+	TemporaryBundle::writeFile(bundlePath, "www/hello.txt"s, "changed"s);
+	// The bundle directory is older than If-Modified-Since, the resource newer. Only the
+	// time of the file is set: Poco::File::setLastModified() cannot open a directory on Windows.
+	const Poco::Timestamp bundleModified = Poco::File(bundlePath).getLastModified();
+	const Path resourcePath(bundlePath, Path("www/hello.txt"s, Path::PATH_UNIX));
+	Poco::File(resourcePath).setLastModified(bundleModified + 2*Poco::Timespan::HOURS);
+	WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
+	TestServer server(*pDispatcher);
+
+	HTTPRequest request(HTTPRequest::HTTP_GET, "/dir/hello.txt"s);
+	request.set("If-Modified-Since"s,
+		Poco::DateTimeFormatter::format(bundleModified + Poco::Timespan::HOURS, Poco::DateTimeFormat::HTTP_FORMAT));
+	HTTPResponse response;
+	assertEqual ("changed"s, server.send(request, response));
+	assertTrue (response.getStatus() == HTTPResponse::HTTP_OK);
 }
 
 
@@ -1674,7 +2504,101 @@ void WebServerDispatcherTest::testStaticResourceResponses()
 #if defined(OSPWEB_TEST_LIBRARY)
 
 
-void WebServerDispatcherTest::testBundleLibraryStaysLoadedUntilBundleStopped()
+namespace
+{
+	using LibraryLoader = LibraryReference<WebRequestHandlerFactory>::Loader;
+
+	[[nodiscard]] WebServerDispatcher::RequestHandlerFactoryPtr sessionValueFactory(
+		const std::shared_ptr<LibraryLoader>& pLoader, const BundleContext::Ptr& pContext)
+		/// Returns a factory of the test library that keeps it loaded; its handlers store a value
+		/// in the session "test".
+	{
+		auto pLibrary = std::make_shared<LibraryReference<WebRequestHandlerFactory>>(pLoader, OSPWEB_TEST_LIBRARY,
+			"WebServer"s);
+		std::unique_ptr<WebRequestHandlerFactory> pLibraryFactory(
+			pLibrary->create("SessionValueRequestHandlerFactory"s));
+		pLibraryFactory->init(pContext);
+		return new LibraryRequestHandlerFactory(std::move(pLibrary), std::move(pLibraryFactory));
+	}
+
+	void storeSessionValue(Poco::Net::HTTPRequestHandlerFactory& factory, const WebSession::Ptr& pSession)
+		/// Lets a handler of the factory store its value in the given session.
+	{
+		ServerRequestStub request("127.0.0.1:50000"s, false);
+		Poco::Net::NameValueCollection cookies;
+		cookies.add("osp.web.session.test"s, pSession->id());
+		request.setCookies(cookies);
+		std::unique_ptr<Poco::Net::HTTPRequestHandler> pHandler(factory.createRequestHandler(request));
+		pHandler->handleRequest(request, request.response());
+	}
+
+	void removeSessions(WebSessionManager& sessionManager)
+	{
+		std::vector<std::string> ids;
+		sessionManager.forEachSession([&ids](const std::string& id, const WebSession&)
+			{
+				ids.push_back(id);
+			});
+		for (const auto& id: ids)
+		{
+			sessionManager.remove(sessionManager.findById(id));
+		}
+	}
+
+	class StopDuringRequestFactory: public Poco::Net::HTTPRequestHandlerFactory
+		/// Fires the stop events of the directory bundle during a request, then creates the
+		/// handler with the given factory.
+	{
+	public:
+		StopDuringRequestFactory(TemporaryBundle& bundles, WebServerDispatcher::RequestHandlerFactoryPtr pFactory):
+			_pBundles(&bundles),
+			_pFactory(std::move(pFactory))
+		{
+		}
+
+		[[nodiscard]] Poco::Net::HTTPRequestHandler* createRequestHandler(
+			const Poco::Net::HTTPServerRequest& request) override
+		{
+			BundleEvent stopping(_pBundles->bundle(), BundleEvent::EV_BUNDLE_STOPPING);
+			_pBundles->events().bundleStopping(this, stopping);
+			BundleEvent stopped(_pBundles->bundle(), BundleEvent::EV_BUNDLE_STOPPED);
+			_pBundles->events().bundleStopped(this, stopped);
+			return _pFactory->createRequestHandler(request);
+		}
+
+	private:
+		TemporaryBundle* _pBundles;
+		WebServerDispatcher::RequestHandlerFactoryPtr _pFactory;
+	};
+
+	class RemoveDuringRequestFilterFactory: public WebFilterFactory
+		/// Removes the filter of the given media type during a request, then creates the
+		/// filter with the given factory.
+	{
+	public:
+		RemoveDuringRequestFilterFactory(WebServerDispatcher& dispatcher, const std::string& mediaType,
+			WebServerDispatcher::WebFilterFactoryPtr pFactory):
+			_pDispatcher(&dispatcher),
+			_mediaType(mediaType),
+			_pFactory(std::move(pFactory))
+		{
+		}
+
+		[[nodiscard]] WebFilter* createFilter(const WebFilter::Args& args) override
+		{
+			_pDispatcher->removeFilter(_mediaType);
+			return _pFactory->createFilter(args);
+		}
+
+	private:
+		WebServerDispatcher* _pDispatcher;
+		std::string _mediaType;
+		WebServerDispatcher::WebFilterFactoryPtr _pFactory;
+	};
+}
+
+
+void WebServerDispatcherTest::testBundleLibraryStaysLoadedWhileSessionsExist()
 {
 	// Created before the session manager, as in the web bundle, so that the dispatcher
 	// removes the mappings of a stopping bundle before the session manager releases the
@@ -1682,35 +2606,188 @@ void WebServerDispatcherTest::testBundleLibraryStaysLoadedUntilBundleStopped()
 	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig());
 	WebSessionManager::Ptr pSessionManager = new WebSessionManager(_pFixture->bundles.context());
 	_pFixture->bundles.registry().registerService(WebSessionManager::SERVICE_NAME, pSessionManager, Properties());
-	using Reference = LibraryReference<WebRequestHandlerFactory>;
-	auto pLoader = std::make_shared<Reference::Loader>();
-	const std::string path(OSPWEB_TEST_LIBRARY);
-	auto pLibrary = std::make_shared<Reference>(pLoader, path, "WebServer"s);
-	std::unique_ptr<WebRequestHandlerFactory> pLibraryFactory(pLoader->create("SessionValueRequestHandlerFactory"s));
-	pLibraryFactory->init(_pFixture->bundles.context());
-	WebServerDispatcher::RequestHandlerFactoryPtr pFactory = new LibraryRequestHandlerFactory(std::move(pLibrary), std::move(pLibraryFactory));
-	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/library"s, pFactory, WebServerDispatcher::PathSecurity(), _pFixture->bundles.bundle()));
+	auto pLoader = std::make_shared<LibraryLoader>();
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/library"s,
+		sessionValueFactory(pLoader, _pFixture->bundles.context()), WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle()));
 	ServerRequestStub request("127.0.0.1:50000"s, false);
-	WebSession::Ptr pSession = pSessionManager->create("test"s, request, SESSION_TIMEOUT_SECONDS, _pFixture->bundles.context());
-	Poco::Net::NameValueCollection cookies;
-	cookies.add("osp.web.session.test"s, pSession->id());
-	request.setCookies(cookies);
-	std::unique_ptr<Poco::Net::HTTPRequestHandler> pHandler(pFactory->createRequestHandler(request));
-	pFactory.reset();
-	pHandler->handleRequest(request, request.response());
-	pHandler.reset();
+	WebSession::Ptr pSession = pSessionManager->create("test"s, request, SESSION_TIMEOUT_SECONDS,
+		_pFixture->bundles.context());
+	WebServerDispatcher::PathMap mappings;
+	pDispatcher->virtualPathMappings(mappings);
+	storeSessionValue(*mappings.at("/library/"s).pFactory, pSession);
+	mappings.clear();
 	assertTrue (pSession->has("value"s));
 
 	BundleEvent stopping(_pFixture->bundles.bundle(), BundleEvent::EV_BUNDLE_STOPPING);
 	_pFixture->bundles.events().bundleStopping(this, stopping);
 
 	assertFalse (pSession->has("value"s));
-	assertTrue (pLoader->isLibraryLoaded(path));
+	assertTrue (pLoader->isLibraryLoaded(OSPWEB_TEST_LIBRARY));
 
 	BundleEvent stopped(_pFixture->bundles.bundle(), BundleEvent::EV_BUNDLE_STOPPED);
 	_pFixture->bundles.events().bundleStopped(this, stopped);
 
-	assertFalse (pLoader->isLibraryLoaded(path));
+	assertTrue (pLoader->isLibraryLoaded(OSPWEB_TEST_LIBRARY));
+	pSessionManager->remove(pSession);
+	pSession.reset();
+	assertFalse (pLoader->isLibraryLoaded(OSPWEB_TEST_LIBRARY));
+}
+
+
+void WebServerDispatcherTest::testValueInSessionOfOtherBundleOutlivesBundleStop()
+{
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig());
+	WebSessionManager::Ptr pSessionManager = new WebSessionManager(_pFixture->bundles.context());
+	_pFixture->bundles.registry().registerService(WebSessionManager::SERVICE_NAME, pSessionManager, Properties());
+	auto pLoader = std::make_shared<LibraryLoader>();
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/library"s,
+		sessionValueFactory(pLoader, _pFixture->bundles.context()), WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle()));
+	// The session of another bundle keeps the values of a stopping bundle.
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	const BundleContext::Ptr pOtherContext = _pFixture->bundles.context()->contextForBundle(
+		_pFixture->bundles.zipBundle());
+	WebSession::Ptr pSession = pSessionManager->create("test"s, request, SESSION_TIMEOUT_SECONDS, pOtherContext);
+	WebSession::Ptr pRenewedSession = pSessionManager->create("test"s, request, SESSION_TIMEOUT_SECONDS, pOtherContext);
+	WebServerDispatcher::PathMap mappings;
+	pDispatcher->virtualPathMappings(mappings);
+	storeSessionValue(*mappings.at("/library/"s).pFactory, pSession);
+	storeSessionValue(*mappings.at("/library/"s).pFactory, pRenewedSession);
+	mappings.clear();
+
+	BundleEvent stopping(_pFixture->bundles.bundle(), BundleEvent::EV_BUNDLE_STOPPING);
+	_pFixture->bundles.events().bundleStopping(this, stopping);
+	BundleEvent stopped(_pFixture->bundles.bundle(), BundleEvent::EV_BUNDLE_STOPPED);
+	_pFixture->bundles.events().bundleStopped(this, stopped);
+	pRenewedSession = pSessionManager->renew("test"s, request, pRenewedSession);
+
+	assertTrue (pSession->has("value"s));
+	assertTrue (pRenewedSession->has("value"s));
+	assertTrue (pLoader->isLibraryLoaded(OSPWEB_TEST_LIBRARY));
+	pSessionManager->remove(pSession);
+	pSession.reset();
+	assertTrue (pLoader->isLibraryLoaded(OSPWEB_TEST_LIBRARY));
+	pSessionManager->remove(pRenewedSession);
+	pRenewedSession.reset();
+	assertFalse (pLoader->isLibraryLoaded(OSPWEB_TEST_LIBRARY));
+}
+
+
+void WebServerDispatcherTest::testFilterLibraryStaysLoadedWhileSessionsExist()
+{
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig());
+	WebSessionManager::Ptr pSessionManager = new WebSessionManager(_pFixture->bundles.context());
+	_pFixture->bundles.registry().registerService(WebSessionManager::SERVICE_NAME, pSessionManager, Properties());
+	auto pLoader = std::make_shared<LibraryReference<WebFilterFactory>::Loader>();
+	auto pLibrary = std::make_shared<LibraryReference<WebFilterFactory>>(pLoader, OSPWEB_TEST_LIBRARY, "WebFilter"s);
+	std::unique_ptr<WebFilterFactory> pLibraryFactory(pLibrary->create("SessionValueFilterFactory"s));
+	pLibraryFactory->init(_pFixture->bundles.context());
+	WebServerDispatcher::WebFilterFactoryPtr pFactory = Poco::makeShared<LibraryWebFilterFactory>(std::move(pLibrary),
+		std::move(pLibraryFactory));
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	WebSession::Ptr pSession = pSessionManager->create("test"s, request, SESSION_TIMEOUT_SECONDS, _pFixture->bundles.context());
+	Poco::Net::NameValueCollection cookies;
+	cookies.add("osp.web.session.test"s, pSession->id());
+	request.setCookies(cookies);
+	std::istringstream resource;
+	std::unique_ptr<WebFilter>(pFactory->createFilter(WebFilter::Args()))->process(request, request.response(),
+		"/filtered"s, resource, _pFixture->bundles.bundle());
+	pDispatcher->addFilter("text/x-session"s, std::move(pFactory), WebFilter::Args(), _pFixture->bundles.bundle());
+	assertTrue (pSession->has("value"s));
+
+	pDispatcher->removeFilter("text/x-session"s);
+
+	assertTrue (pLoader->isLibraryLoaded(OSPWEB_TEST_LIBRARY));
+	pSessionManager->remove(pSession);
+	pSession.reset();
+	assertFalse (pLoader->isLibraryLoaded(OSPWEB_TEST_LIBRARY));
+}
+
+
+void WebServerDispatcherTest::testRequestDuringBundleStopKeepsLibraryForItsSession()
+{
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig());
+	WebSessionManager::Ptr pSessionManager = new WebSessionManager(_pFixture->bundles.context());
+	_pFixture->bundles.registry().registerService(WebSessionManager::SERVICE_NAME, pSessionManager, Properties());
+	auto pLoader = std::make_shared<LibraryLoader>();
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/library"s,
+		new StopDuringRequestFactory(_pFixture->bundles, sessionValueFactory(pLoader, _pFixture->bundles.context())),
+		WebServerDispatcher::PathSecurity(), _pFixture->bundles.bundle()));
+
+	// The handler creates the session after the bundle has stopped.
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	request.setURI("/library"s);
+	pDispatcher->handleRequest(request, request.response(), false);
+
+	assertTrue (request.response().getStatus() == HTTPResponse::HTTP_NO_CONTENT);
+	assertEqual (std::size_t{1}, pSessionManager->countSessions());
+	assertTrue (pLoader->isLibraryLoaded(OSPWEB_TEST_LIBRARY));
+	removeSessions(*pSessionManager);
+	assertFalse (pLoader->isLibraryLoaded(OSPWEB_TEST_LIBRARY));
+}
+
+
+void WebServerDispatcherTest::testRequestDuringFilterRemovalKeepsLibraryForItsSession()
+{
+	WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
+	WebSessionManager::Ptr pSessionManager = new WebSessionManager(_pFixture->bundles.context());
+	_pFixture->bundles.registry().registerService(WebSessionManager::SERVICE_NAME, pSessionManager, Properties());
+	auto pLoader = std::make_shared<LibraryReference<WebFilterFactory>::Loader>();
+	auto pLibrary = std::make_shared<LibraryReference<WebFilterFactory>>(pLoader, OSPWEB_TEST_LIBRARY, "WebFilter"s);
+	std::unique_ptr<WebFilterFactory> pLibraryFactory(pLibrary->create("SessionValueFilterFactory"s));
+	pLibraryFactory->init(_pFixture->bundles.context());
+	WebServerDispatcher::WebFilterFactoryPtr pFactory = Poco::makeShared<LibraryWebFilterFactory>(std::move(pLibrary),
+		std::move(pLibraryFactory));
+	pDispatcher->addFilter("text/plain"s,
+		new RemoveDuringRequestFilterFactory(*pDispatcher, "text/plain"s, std::move(pFactory)), WebFilter::Args(),
+		_pFixture->bundles.bundle());
+
+	// The filter creates the session after it has been removed.
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	request.setURI("/dir/hello.txt"s);
+	pDispatcher->handleRequest(request, request.response(), false);
+
+	assertEqual (std::size_t{1}, pSessionManager->countSessions());
+	assertTrue (pLoader->isLibraryLoaded(OSPWEB_TEST_LIBRARY));
+	removeSessions(*pSessionManager);
+	assertFalse (pLoader->isLibraryLoaded(OSPWEB_TEST_LIBRARY));
+}
+
+
+void WebServerDispatcherTest::testUninstallingBundleRemovesSessionsThatKeepItsLibrary()
+{
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig());
+	WebSessionManager::Ptr pSessionManager = new WebSessionManager(_pFixture->bundles.context());
+	_pFixture->bundles.registry().registerService(WebSessionManager::SERVICE_NAME, pSessionManager, Properties());
+	auto pLoader = std::make_shared<LibraryLoader>();
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/library"s,
+		sessionValueFactory(pLoader, _pFixture->bundles.context()), WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle()));
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	const BundleContext::Ptr pOtherContext = _pFixture->bundles.context()->contextForBundle(
+		_pFixture->bundles.zipBundle());
+	WebSession::Ptr pSession = pSessionManager->create("test"s, request, SESSION_TIMEOUT_SECONDS, pOtherContext);
+	const std::string retainingId = pSession->id();
+	WebServerDispatcher::PathMap mappings;
+	pDispatcher->virtualPathMappings(mappings);
+	storeSessionValue(*mappings.at("/library/"s).pFactory, pSession);
+	mappings.clear();
+	pSession.reset();
+
+	BundleEvent stopping(_pFixture->bundles.bundle(), BundleEvent::EV_BUNDLE_STOPPING);
+	_pFixture->bundles.events().bundleStopping(this, stopping);
+	BundleEvent stopped(_pFixture->bundles.bundle(), BundleEvent::EV_BUNDLE_STOPPED);
+	_pFixture->bundles.events().bundleStopped(this, stopped);
+	const std::string laterId = pSessionManager->create("test"s, request, SESSION_TIMEOUT_SECONDS, pOtherContext)->id();
+	assertTrue (pLoader->isLibraryLoaded(OSPWEB_TEST_LIBRARY));
+
+	BundleEvent uninstalling(_pFixture->bundles.bundle(), BundleEvent::EV_BUNDLE_UNINSTALLING);
+	_pFixture->bundles.events().bundleUninstalling(this, uninstalling);
+
+	assertTrue (pSessionManager->findById(retainingId) == nullptr);
+	assertTrue (pSessionManager->findById(laterId) != nullptr);
+	assertFalse (pLoader->isLibraryLoaded(OSPWEB_TEST_LIBRARY));
 }
 
 
@@ -1736,20 +2813,35 @@ CppUnit::Test* WebServerDispatcherTest::suite()
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testVirtualDirectoryRoot);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testVirtualDirectoryAllow);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testVirtualDirectoryFail);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testChildInOtherCaseConflictsWithParent);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRemoveDir);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRemovePatternRemovesEveryMapping);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testParseRange);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testCanonicalPathWithQuery);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRedirectLocationOn401);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testStaticResourceHasExactLength);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testCachedResourceOutlivesBundleStop);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testStaticResourceResponses);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testCleanPathRejectsDotSegments);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testCleanPathRejectsControlCharacters);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testControlCharacterInPathAnswersBadRequest);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testCleanPathRejectsSegmentsEndingWithDotOrSpace);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testCaseVariantOfProtectedPathIsProtected);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testNonASCIIVariantOfProtectedPathIsProtected);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testLongerFormOfProtectedPathIsProtected);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFoldedSpellingOfProtectedPathIsNotFound);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testExactMatchIgnoresCase);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testResourcePathRejectsOtherNamesOfFiles);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testColonAnswersBadRequestForResourcesOnly);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testDotSegmentsAnswerBadRequest);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testMalformedURIAnswersBadRequest);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testPersistentResourceStaysInsideItsDirectory);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testPersistentResourceEndingWithSlash);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testPersistentResourceWithEmptySegment);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testPersistentResourceIsFoundOnlyUnderItsName);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRangeRequests);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testClientAuthorizationHeadersAreRemoved);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRequestIdentityIsSetWhileHandlerRuns);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testAuthorizationDoesNotBlockOtherRequests);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testUnavailableAuthServiceAnswers503);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testUnavailableAuthServiceIsLoggedOnce);
@@ -1760,20 +2852,36 @@ CppUnit::Test* WebServerDispatcherTest::suite()
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testBasicCredentialsAreAuthorizedUnderAccountName);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testSessionCSRFProtection);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testSessionUserWithoutPermissionIsForbidden);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testSessionUserWithoutPermissionForHomePageIsNotAuthorized);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testDisabledUserIsNotAuthenticated);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testUnregisteredSessionManagerIsNotUsed);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testSecondFilterForMediaTypeIsRejected);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testLogMessagesHoldNoTokenAndNoControlCharacters);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testLoggedRequestDataHasNoControlCharacters);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullRequestLogEscapesMethodAndFieldValue);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullResponseLogEscapesFieldValue);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullResponseLogEscapesReasonAndFieldOfHandler);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testBadRequestDebugMessageHasNoControlCharacters);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullRequestLogHasNoCredentials);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullRequestLogRedactsFieldsWithCredentialOrNonTokenNames);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullRequestLogKeepsRequestLineWithFieldNameAsMethod);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testForwardedClientAddressIsAnIPAddressOnly);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testJSONErrorResponseEscapesRequestData);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testCORSOrigins);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testOriginDependentResponsesVaryByOrigin);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testIsSameOrigin);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testInvalidIfModifiedSinceIsIgnored);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testChangedResourceOfDirectoryBundleIsModified);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testCompressedResponses);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testStrictPersistentResourceIsNotReplacedOnError);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testUnreadRequestBodyClosesConnection);
 #if defined(OSPWEB_TEST_LIBRARY)
-	CppUnit_addTest(pSuite, WebServerDispatcherTest, testBundleLibraryStaysLoadedUntilBundleStopped);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testBundleLibraryStaysLoadedWhileSessionsExist);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testValueInSessionOfOtherBundleOutlivesBundleStop);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFilterLibraryStaysLoadedWhileSessionsExist);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRequestDuringBundleStopKeepsLibraryForItsSession);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRequestDuringFilterRemovalKeepsLibraryForItsSession);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testUninstallingBundleRemovesSessionsThatKeepItsLibrary);
 #endif
 
 	return pSuite;

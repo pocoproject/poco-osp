@@ -97,6 +97,12 @@ TemporaryBundle::TemporaryBundle(const std::string& properties)
 TemporaryBundle::~TemporaryBundle() = default;
 
 
+void TemporaryBundle::installLibrary(const std::string& libraryName, const std::string& path)
+{
+	Poco::File(path).copyTo(_pContext->pathForLibrary(libraryName));
+}
+
+
 void TemporaryBundle::writeFile(const Path& baseDir, const std::string& relativePath, const std::string& content)
 {
 	const Path path(baseDir, Path(relativePath, Path::PATH_UNIX));

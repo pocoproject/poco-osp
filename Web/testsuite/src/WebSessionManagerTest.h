@@ -42,6 +42,8 @@ public:
 #endif
 	void testAddressMismatchRemovesSession();
 	void testRenewReplacesSession();
+	void testUpdateSessionTimeoutReplacesCookies();
+	void testForEachSessionVisitsCachedSessions();
 	void testCSRFCookieCreatesMissingToken();
 	void testRemoveForUserRemovesOnlyThatUser();
 	void testRemoveForUserWhileAttributesChange();
@@ -52,6 +54,8 @@ public:
 	void testSessionOutlivesManagerAndBundleLoader();
 	void testBundleStoppingWhileSessionsComeAndGo();
 	void testReplacedAttributeReleasesSessionOutsideLock();
+	void testClearCacheReleasesCachedSessions();
+	void testClearCacheKeepsStoredSessions();
 
 	static CppUnit::Test* suite();
 

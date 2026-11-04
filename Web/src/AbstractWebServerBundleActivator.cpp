@@ -25,12 +25,14 @@
 #include "Poco/Net/HTTPServer.h"
 #include "Poco/Net/HTTPServerParams.h"
 #include "Poco/Net/ServerSocket.h"
+#include "Poco/Net/SocketAddress.h"
 #include "Poco/Util/AbstractConfiguration.h"
 #include "Poco/Format.h"
 #include "Poco/NumberFormatter.h"
 #include "Poco/Timespan.h"
 #include "Poco/AutoPtr.h"
 #include "Poco/Types.h"
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -125,9 +127,9 @@ namespace
 			return _pServer->currentThreads();
 		}
 
-		[[nodiscard]] int totalConnections() const override
+		[[nodiscard]] Poco::Int64 totalConnections() const override
 		{
-			return static_cast<int>(_pServer->totalConnections());
+			return _pServer->totalConnections();
 		}
 
 		[[nodiscard]] int currentConnections() const override
@@ -205,6 +207,12 @@ void AbstractWebServerBundleActivator::start(BundleContext::Ptr pContext)
 
 	ServerSettings settings = readSettings(pContext, _secure);
 	if (settings.port == 0) return;
+	if (settings.port < 0 || settings.port > std::numeric_limits<Poco::UInt16>::max())
+	{
+		pContext->logger().error("The port %d is not between 1 and 65535. The %s server is not started."s,
+			settings.port, serverKind);
+		return;
+	}
 
 	HTTPServerParams::Ptr pParams = new HTTPServerParams;
 	pParams->setServerName(Poco::format("%s:%d"s, settings.host, settings.port));
@@ -217,7 +225,8 @@ void AbstractWebServerBundleActivator::start(BundleContext::Ptr pContext)
 
 	pContext->logger().information("Starting %s server on port %d."s, serverKind, settings.port);
 
-	Poco::Net::ServerSocket socket = createServerSocket(Poco::Net::SocketAddress(settings.host, settings.port));
+	const Poco::Net::SocketAddress address(settings.host, static_cast<Poco::UInt16>(settings.port));
+	Poco::Net::ServerSocket socket = createServerSocket(address);
 	auto pServer = std::make_shared<HTTPServer>(new WebServerRequestHandlerFactory(*pDispatcher, _secure), pDispatcher->threadPool(), socket, pParams);
 	pDispatcher->threadPool().addCapacity(settings.maxThreads);
 	try

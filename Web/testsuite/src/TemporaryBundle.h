@@ -74,6 +74,10 @@ public:
 	[[nodiscard]] Poco::OSP::BundleEvents& events();
 		/// Returns the bundle events of the loader.
 
+	void installLibrary(const std::string& libraryName, const std::string& path);
+		/// Copies the shared library with the given path to the code cache, where
+		/// BundleContext::pathForLibrary() finds it under the given library name.
+
 	static void writeFile(const Poco::Path& baseDir, const std::string& relativePath, const std::string& content);
 		/// Writes content to the file with the given path (in UNIX notation)
 		/// below baseDir, and creates the directories of the path.

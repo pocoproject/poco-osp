@@ -31,6 +31,7 @@
 #include "Poco/Timespan.h"
 #include "Poco/Net/ServerSocket.h"
 #include "Poco/Net/Socket.h"
+#include "Poco/Net/SocketDefs.h"
 #include "Poco/Net/SocketAddress.h"
 #include "Poco/Net/WebSocket.h"
 #include "Poco/Net/StreamSocket.h"
@@ -41,6 +42,13 @@
 #include "Poco/Clock.h"
 #include "Poco/Thread.h"
 #include "Poco/Timestamp.h"
+#if defined(OSP_WEBEVENT_ENABLE_TLS)
+#include "Poco/Net/Context.h"
+#include "Poco/Net/HTTPSClientSession.h"
+#include "Poco/Net/SecureServerSocket.h"
+#include "Poco/Environment.h"
+#include "Poco/Path.h"
+#endif
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -176,6 +184,7 @@ public:
 		Poco::UInt64 dropped = 0;
 		Poco::UInt64 enqueued = 0;
 		Poco::Clock lastActive;
+		bool pingPending = false;
 		bool found = false;
 	};
 
@@ -204,13 +213,13 @@ public:
 
 	~TestableWebEventServiceImpl() override
 	{
-		if (_pDestroyed != nullptr) _pDestroyed->set();
+		if (_pDestroyed != nullptr) _pDestroyed->ready.set();
 	}
 
-	void setDestroyedEvent(Poco::Event* pEvent)
-		/// The event set by the destructor, if any.
+	void setDestroyedEvent(SignalState::Ptr pState)
+		/// The state whose event the destructor sets, if any.
 	{
-		_pDestroyed = pEvent;
+		_pDestroyed = std::move(pState);
 	}
 
 	[[nodiscard]] SubscriberStats inspectFirstSubscriber()
@@ -225,6 +234,7 @@ public:
 			stats.dropped = pSubscriber->droppedFrames;
 			stats.enqueued = pSubscriber->enqueuedFrames;
 			stats.lastActive = pSubscriber->lastActive;
+			stats.pingPending = pSubscriber->pingPending;
 			stats.found = true;
 		}
 		return stats;
@@ -234,7 +244,7 @@ public:
 	bool firstSubscriber(Subscriber::Ptr& pSubscriber, long timeoutMs = 5000);
 
 private:
-	Poco::Event* _pDestroyed = nullptr;
+	SignalState::Ptr _pDestroyed;
 };
 
 
@@ -356,6 +366,17 @@ WebEventServiceImpl::Config serviceConfig(int workerCount)
 }
 
 
+WebEventServiceImpl::Config serviceConfig(int workerCount, int maxPendingFrames, bool clientNotify)
+	/// The default configuration with the given number of workers, queue
+	/// limit and client notifications.
+{
+	WebEventServiceImpl::Config config = serviceConfig(workerCount);
+	config.maxPendingFrames = maxPendingFrames;
+	config.clientNotify = clientNotify;
+	return config;
+}
+
+
 class ThreadBlock
 	/// Parks a worker or the main thread of a service until released.
 	/// The destructor releases the thread and waits until it has left the
@@ -459,15 +480,17 @@ private:
 
 struct LocalService
 	/// A dedicated service + HTTP server for tests needing a non-default
-	/// worker count or per-subscriber queue limit.
+	/// configuration or server socket.
 {
-	LocalService(int workerCount, int maxPendingFrames, bool clientNotify = false)
+	LocalService(int workerCount, int maxPendingFrames, bool clientNotify = false):
+		LocalService(serviceConfig(workerCount, maxPendingFrames, clientNotify))
 	{
-		WebEventServiceImpl::Config config = serviceConfig(workerCount);
-		config.maxPendingFrames = maxPendingFrames;
-		config.clientNotify = clientNotify;
+	}
+
+	explicit LocalService(const WebEventServiceImpl::Config& config,
+		const Poco::Net::ServerSocket& serverSocket = Poco::Net::ServerSocket(Poco::Net::SocketAddress("127.0.0.1", 0)))
+	{
 		pService = new TestableWebEventServiceImpl(Poco::OSP::BundleContext::Ptr(), config);
-		Poco::Net::ServerSocket serverSocket(Poco::Net::SocketAddress("127.0.0.1", 0));
 		port = serverSocket.address().port();
 		pServer = std::make_unique<Poco::Net::HTTPServer>(
 			new WebEventTestRequestHandlerFactory(pService), pool, serverSocket, new Poco::Net::HTTPServerParams);
@@ -655,11 +678,11 @@ WebEventService::NotificationEvent receiveNotification(Poco::Net::WebSocket& ws)
 }
 
 
-Poco::Net::StreamSocket connectRawWebSocket(Poco::UInt16 port)
+Poco::Net::StreamSocket upgradeRawWebSocket(Poco::Net::HTTPClientSession& session)
 	/// Performs the WebSocket handshake by hand and returns the bare
-	/// stream socket, so a test can write a frame in pieces.
+	/// stream socket, so a test can write a frame in pieces, or several
+	/// frames at once.
 {
-	Poco::Net::HTTPClientSession session("127.0.0.1", port);
 	Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, "/webevent", Poco::Net::HTTPMessage::HTTP_1_1);
 	request.set("Connection", "Upgrade");
 	request.set("Upgrade", "websocket");
@@ -673,6 +696,62 @@ Poco::Net::StreamSocket connectRawWebSocket(Poco::UInt16 port)
 		throw Poco::IOException("WebSocket handshake failed: " + response.getReason());
 	return session.detachSocket();
 }
+
+
+Poco::Net::StreamSocket connectRawWebSocket(Poco::UInt16 port)
+{
+	Poco::Net::HTTPClientSession session("127.0.0.1", port);
+	return upgradeRawWebSocket(session);
+}
+
+
+#if defined(OSP_WEBEVENT_ENABLE_TLS)
+
+
+std::string tlsDataFile(const std::string& name)
+	/// The path of a file of the TLS test data of the SecureMail test
+	/// suite: a certificate for localhost and its key.
+{
+	Poco::Path path(Poco::Path::forDirectory(Poco::Environment::get("POCO_BASE")));
+	path.pushDirectory("SecureMail");
+	path.pushDirectory("testsuite");
+	path.pushDirectory("data");
+	path.setFileName(name);
+	return path.toString();
+}
+
+
+Poco::Net::SecureServerSocket secureServerSocket()
+	/// A TLS server socket on a free port of the loopback interface.
+{
+	Poco::Net::Context::Params params;
+	params.privateKeyFile = tlsDataFile("localhost.key");
+	params.certificateFile = tlsDataFile("localhost.pem");
+	params.verificationMode = Poco::Net::Context::VERIFY_NONE;
+	Poco::Net::Context::Ptr pContext = new Poco::Net::Context(Poco::Net::Context::TLS_SERVER_USE, params);
+	return Poco::Net::SecureServerSocket(Poco::Net::SocketAddress("127.0.0.1", 0), 64, pContext);
+}
+
+
+Poco::Net::Context::Ptr tlsClientContext()
+	/// A TLS client context that accepts the test certificate.
+{
+	Poco::Net::Context::Params params;
+	params.verificationMode = Poco::Net::Context::VERIFY_NONE;
+	return new Poco::Net::Context(Poco::Net::Context::TLS_CLIENT_USE, params);
+}
+
+
+Poco::Net::WebSocket connectSecureWebSocket(Poco::UInt16 port)
+{
+	Poco::Net::HTTPSClientSession session("127.0.0.1", port, tlsClientContext());
+	Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, "/webevent", Poco::Net::HTTPMessage::HTTP_1_1);
+	Poco::Net::HTTPResponse response;
+	return Poco::Net::WebSocket(session, request, response);
+}
+
+
+#endif
 
 
 std::string maskedTextFrame(const std::string& payload)
@@ -829,8 +908,8 @@ void WebEventServiceTest::stopService(bool check)
 	/// Stops the service, then the server and its threads, in that order.
 	/// With check, the service must be left with exactly one reference:
 	/// anything more is a reference still held by a server or service
-	/// thread. Every test ends with the check; tearDown repeats the
-	/// sequence without it, for tests that failed before their end.
+	/// thread. tearDown calls it without check, for tests that failed
+	/// before their end.
 {
 	if (_pService == nullptr) return;
 	_pService->stop();
@@ -1127,7 +1206,7 @@ void WebEventServiceTest::testBadSocketDescriptorRecovery()
 
 	// Stale subscriber removed, healthy subscriber added.
 	// The healthy subscription and the bad-fd detection/removal are
-	// triggered by separate select() iterations, so ordering between
+	// triggered by separate waits on the poll set, so ordering between
 	// "event 2 fires" and "stale removed" is not strictly defined on
 	// all platforms. Poll with a bounded timeout instead of asserting
 	// the exact moment.
@@ -1235,7 +1314,7 @@ void WebEventServiceTest::testOverlappingSubscriptionsEnqueueOneFrame()
 
 
 void WebEventServiceTest::testResetSocketIsDispatchedOnce()
-	/// A socket that select() reports readable and in error at once must
+	/// A socket that the poll set reports readable and in error at once must
 	/// reach one worker only. Handing it to two, one to read and one to
 	/// shut down, has both reading the same socket.
 {
@@ -1381,12 +1460,12 @@ void WebEventServiceTest::testLocalServiceTearsDownSynchronously()
 	/// before the scope ends: nothing may outlive it on another thread.
 {
 	const std::string subject("com.example.teardown");
-	Poco::Event destroyed(Poco::Event::EVENT_MANUALRESET);
+	SignalState::Ptr pDestroyed = new SignalState;
 	std::unique_ptr<Poco::Net::WebSocket> pWS;
 	{
 		SubscriptionWaiter waiter;
 		LocalService local(1, 0);
-		local.pService->setDestroyedEvent(&destroyed);
+		local.pService->setDestroyedEvent(pDestroyed);
 		local.pService->subscriptionRequestReceived += delegate(&waiter, &SubscriptionWaiter::onSubscription);
 
 		pWS = std::make_unique<Poco::Net::WebSocket>(connectWebSocket(local.port));
@@ -1394,7 +1473,7 @@ void WebEventServiceTest::testLocalServiceTearsDownSynchronously()
 		assertTrue(waiter.event.tryWait(2000));
 		local.pService->subscriptionRequestReceived -= delegate(&waiter, &SubscriptionWaiter::onSubscription);
 	}
-	assertTrue(destroyed.tryWait(0));
+	assertTrue(pDestroyed->ready.tryWait(0));
 
 	// the client's socket is shut: its next read ends
 	pWS->setReceiveTimeout(Poco::Timespan(2, 0));
@@ -1454,6 +1533,7 @@ void WebEventServiceTest::testListSubscribers()
 			Poco::Thread::sleep(25);
 	}
 	assertTrue(_pService->listSubscribers().empty());
+	stopService();
 }
 
 
@@ -1499,6 +1579,7 @@ void WebEventServiceTest::testCloseFrameIsAnsweredWhileTcpStaysOpen()
 	assertTrue(_pService->listSubscribers().empty());
 
 	try { socket.close(); } catch (...) {}
+	stopService();
 }
 
 
@@ -1693,8 +1774,8 @@ void WebEventServiceTest::testAllowedOriginsAreParsedTrimmedAndLowered()
 	auto pOrigins = Poco::OSP::WebEvent::WebEventRequestHandler::parseAllowedOrigins(" https://App.Example ,, http://b.example:8080,");
 	assertTrue(pOrigins != nullptr);
 	assertEqual(2, static_cast<int>(pOrigins->size()));
-	assertEqual(1, static_cast<int>(pOrigins->count("https://app.example")));
-	assertEqual(1, static_cast<int>(pOrigins->count("http://b.example:8080")));
+	assertTrue(pOrigins->contains("https://app.example"));
+	assertTrue(pOrigins->contains("http://b.example:8080"));
 	assertTrue(Poco::OSP::WebEvent::WebEventRequestHandler::parseAllowedOrigins("")->empty());
 	stopService();
 }
@@ -1941,6 +2022,8 @@ void WebEventServiceTest::testWorkerCountIsDefaultedAndLimited()
 	/// A worker count of zero or less starts defaultWorkerCount() workers,
 	/// and a count above MAX_WORKER_COUNT starts that many: as many tasks
 	/// can be parked at once, and not one more.
+	/// Timing-dependent by nature: "not one more" is a wait of 200 ms in
+	/// which no further worker takes the task.
 {
 	const int defaultCount = std::min(WebEventServiceImpl::defaultWorkerCount(), WebEventServiceImpl::MAX_WORKER_COUNT);
 	const std::vector<std::pair<int, int>> cases =
@@ -1970,35 +2053,56 @@ void WebEventServiceTest::testWorkerCountIsDefaultedAndLimited()
 void WebEventServiceTest::testInvalidMessagesCloseTheConnection()
 	/// A message that is not one valid WebEvent text frame is a protocol
 	/// violation: the server closes the connection and removes the
-	/// subscriber without acting on the message.
+	/// subscriber without acting on the message. The CLOSE frame also
+	/// reaches a client whose frame is rejected for its header before its
+	/// payload has been read, and that connection ends without a reset.
 {
 	struct Case
 	{
 		std::string text;
 		int flags;
+		bool payloadUnread;
 	};
 	const int text = static_cast<int>(Poco::Net::WebSocket::FRAME_TEXT);
+	const std::string longSubject(16384, 'x');
 	const std::vector<Case> cases =
 	{
-		{"HELLO com.example.invalid WebEvent/1.0", text},
-		{"SUBSCRIBE com.example.invalid WebEvent/2.0", text},
-		{"SUBSCRIBE com.example.invalid,,com.example.other WebEvent/1.0", text},
-		{"SUBSCRIBE com.example.invalid, WebEvent/1.0", text},
-		{"SUBSCRIBE com.example.invalid WebEvent/1.0", static_cast<int>(Poco::Net::WebSocket::FRAME_OP_TEXT)},
-		{"SUBSCRIBE com.example.invalid." + std::string(5000, 'x') + " WebEvent/1.0", text}
+		{"HELLO com.example.invalid WebEvent/1.0", text, false},
+		{"SUBSCRIBE com.example.invalid WebEvent/2.0", text, false},
+		{"SUBSCRIBE com.example.invalid,,com.example.other WebEvent/1.0", text, false},
+		{"SUBSCRIBE com.example.invalid, WebEvent/1.0", text, false},
+		{"SUBSCRIBE com.example.invalid WebEvent/1.0", static_cast<int>(Poco::Net::WebSocket::FRAME_OP_TEXT), false},
+		{"SUBSCRIBE com.example.invalid." + longSubject + " WebEvent/1.0", text, true},
+		{"SUBSCRIBE com.example.invalid." + longSubject + " WebEvent/1.0",
+			static_cast<int>(Poco::Net::WebSocket::FRAME_OP_PING), true}
 	};
 
+	TestableWebEventServiceImpl& testable = testableService(_pService);
 	for (const auto& c: cases)
 	{
 		Poco::Net::WebSocket ws = connectWebSocket(_port);
 		ws.setReceiveTimeout(Poco::Timespan(5, 0));
 		assertTrue(waitUntil([&]{ return _pService->listSubscribers().size() == 1; }, 5000));
 		ws.sendFrame(c.text.data(), static_cast<int>(c.text.size()), c.flags);
+		if (c.payloadUnread)
+		{
+			// Read only after the single worker has closed the connection, so that a reset caused
+			// by an unread payload always precedes the read (on Windows it discards the CLOSE frame).
+			ws.shutdownSend();
+			assertTrue(waitUntil([&]{ return _pService->listSubscribers().empty(); }, 5000));
+			assertTrue(testable.waitForWorkerThread());
+		}
 
 		std::array<char, 256> buffer{};
 		int flags = 0;
 		ws.receiveFrame(buffer.data(), static_cast<int>(buffer.size()), flags);
 		assertEqual(static_cast<int>(Poco::Net::WebSocket::FRAME_OP_CLOSE), flags & Poco::Net::WebSocket::FRAME_OP_BITMASK);
+		if (c.payloadUnread)
+		{
+			// The server has read the rest of the frame, so the connection ends without a reset.
+			assertEqual(0, ws.impl()->Poco::Net::SocketImpl::receiveBytes(
+				buffer.data(), static_cast<int>(buffer.size())));
+		}
 		assertTrue(waitUntil([&]{ return _pService->listSubscribers().empty(); }, 5000));
 		assertEqual(0, _pService->subscriberCount("com.example.invalid"));
 		assertEqual(0, _pService->subscriberCount(""));
@@ -2291,6 +2395,7 @@ void WebEventServiceTest::testListSubscribersThrowsOnTimeout()
 		socket.close();
 	}
 	catch (...) {}
+	assertEqual(1, local.stop());
 }
 
 
@@ -2432,6 +2537,43 @@ void WebEventServiceTest::testActivityIsStampedWhenReadable()
 		socket.close();
 	}
 	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testClientThatKeepsSendingIsNotRemoved()
+	/// A client whose next frame is always buffered is never in the poll set, yet counts as
+	/// heard from although it answers no PING.
+	/// Timing-dependent by nature: it sends for five seconds against the one-second sweep.
+{
+	const std::string subject("com.example.streaming");
+
+	WebEventServiceImpl::Config config = serviceConfig(2);
+	config.pingInterval = std::chrono::seconds(1);
+	LocalService local(config);
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	sendSubscribe(ws, subject);
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(subject) == 1; }, 5000));
+
+	// Dropped by the service, as client notifications are disabled; the
+	// client reads nothing, so its frames are the only activity it shows.
+	const std::string frame("NOTIFY com.example.other WebEvent/1.0\r\nx");
+	Poco::Stopwatch sw;
+	sw.start();
+	while (sw.elapsedSeconds() < 5 && local.pService->subscriberCount(subject) == 1)
+	{
+		sendText(ws, frame);
+	}
+	assertEqual(1, local.pService->subscriberCount(subject));
+
+	try
+	{
+		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
 }
 
 
@@ -2599,6 +2741,7 @@ void WebEventServiceTest::testSnapshotReturnsEmptyWhenStopped()
 	assertTrue(prompt);
 	assertTrue(!threw);
 	assertTrue(snapshot.empty());
+	assertEqual(1, local.stop());
 }
 
 
@@ -2714,6 +2857,116 @@ void WebEventServiceTest::testSendQueueBounded()
 	assertEquals(parentSubject + ".marker", marker.first);
 
 	local.pService->subscriptionRequestReceived -= delegate(&waiter, &SubscriptionWaiter::onSubscription);
+
+	try
+	{
+		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testKeepaliveSurvivesFullSendQueue()
+	/// A silent subscriber whose queue limit is exceeded is still pinged and removed.
+	/// Timing-dependent by nature: it waits for the keepalive sweeps.
+{
+	const std::string subject("com.example.full");
+
+	WebEventServiceImpl::Config config = serviceConfig(1, 2, false);
+	config.pingInterval = std::chrono::seconds(1);
+	LocalService local(config);
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	sendSubscribe(ws, subject);
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(subject) == 1; }, 5000));
+
+	ThreadBlock block(*local.pService);
+	assertTrue(block.parked());
+
+	// The sweep queues a PING once the subscriber has been idle for half a
+	// second; the two notifications after it exceed the limit of two.
+	TestableWebEventServiceImpl::SubscriberStats stats;
+	assertTrue(waitUntil([&]{ return local.pService->firstSubscriberStats(stats) && stats.pingPending; }, 5000));
+	local.pService->notify(subject + ".a", "a");
+	local.pService->notify(subject + ".b", "b");
+	assertTrue(local.pService->waitForMainThread());
+	assertTrue(local.pService->firstSubscriberStats(stats));
+	assertEqual(2, static_cast<int>(stats.pending));
+	assertEqual(1, static_cast<int>(stats.dropped));
+
+	// The client neither reads nor answers: once the PING has been sent, it
+	// is removed two seconds after it was last heard from.
+	block.release();
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(subject) == 0; }, 4000));
+
+	try
+	{
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testClientPingsQueueOnePong()
+	/// A client that sends PINGs and does not read cannot grow the queue: a queued PONG is replaced.
+{
+	const std::string subject("com.example.pong");
+	const int pingCount = 10;
+
+	LocalService local(2, 2);
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	ws.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(ws, subject);
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(subject) == 1; }, 5000));
+
+	TestableWebEventServiceImpl::Subscriber::Ptr pSubscriber;
+	assertTrue(local.pService->firstSubscriber(pSubscriber));
+	assertTrue(!pSubscriber.isNull());
+
+	{
+		// Holding the lock that a send takes keeps every PONG from leaving
+		// while the other worker reads the PINGs. One of them may have been
+		// taken off the queue already, waiting for the lock.
+		Poco::FastMutex::ScopedLock lock(pSubscriber->writeMutex);
+
+		for (int i = 0; i < pingCount; ++i)
+		{
+			const std::string payload = Poco::format("p%d", i);
+			ws.sendFrame(payload.data(), static_cast<int>(payload.size()),
+				static_cast<int>(Poco::Net::WebSocket::FRAME_FLAG_FIN)
+					| static_cast<int>(Poco::Net::WebSocket::FRAME_OP_PING));
+		}
+		TestableWebEventServiceImpl::SubscriberStats stats;
+		assertTrue(waitUntil([&]{ return local.pService->firstSubscriberStats(stats) && stats.enqueued == pingCount; },
+			5000));
+		assertTrue(stats.pending <= 1);
+		assertEqual(0, static_cast<int>(stats.dropped));
+	}
+
+	// At most the PONG that was in flight and the one queued arrive, the
+	// last one answering the last PING; then a later notification.
+	local.pService->notify(subject, "marker");
+	int pongs = 0;
+	std::string lastPong;
+	std::vector<char> buffer(2048);
+	while (true)
+	{
+		int flags = 0;
+		const int n = ws.receiveFrame(buffer.data(), static_cast<int>(buffer.size()), flags);
+		if ((flags & Poco::Net::WebSocket::FRAME_OP_BITMASK) != Poco::Net::WebSocket::FRAME_OP_PONG)
+		{
+			assertEquals(subject, parseNotificationFrame(std::string(buffer.data(), n)).first);
+			break;
+		}
+		++pongs;
+		lastPong.assign(buffer.data(), n);
+	}
+	assertTrue(pongs >= 1 && pongs <= 2);
+	assertEquals(Poco::format("p%d", pingCount - 1), lastPong);
 
 	try
 	{
@@ -3027,6 +3280,216 @@ void WebEventServiceTest::testTricklingCloseDoesNotHoldShutdown()
 }
 
 
+void WebEventServiceTest::testRemovedSubscriberDoesNotHoldWorkers()
+	/// A removed subscriber that reads a frame a few bytes at a time frees the sending and the
+	/// closing worker within the closing deadline plus one second.
+	/// Timing-dependent by nature: it waits for the deadline.
+{
+	const std::string slowSubject("com.example.slow");
+	const std::string otherSubject("com.example.other");
+	const std::string bigPayload(std::size_t{32}*1024*1024, 'x');
+
+	SubscriptionWaiter waiter;
+	LocalService local(2, 0);
+	local.pService->subscriptionRequestReceived += delegate(&waiter, &SubscriptionWaiter::onSubscription);
+
+	Poco::Net::WebSocket slow = connectWebSocket(local.port);
+	sendSubscribe(slow, slowSubject);
+	assertTrue(waiter.event.tryWait(2000));
+#if defined(POCO_OS_FAMILY_WINDOWS)
+	// See testSlowReaderIsRemovedAfterSendTimeout(). Before the other
+	// subscriber connects, so that the first subscriber is the slow one.
+	TestableWebEventServiceImpl::Subscriber::Ptr pSubscriber;
+	assertTrue(local.pService->firstSubscriber(pSubscriber));
+	pSubscriber->pWebSocket->setSendBufferSize(0);
+#endif
+
+	Poco::Net::WebSocket other = connectWebSocket(local.port);
+	other.setReceiveTimeout(Poco::Timespan(10, 0));
+	sendSubscribe(other, otherSubject);
+	assertTrue(waiter.event.tryWait(2000));
+	local.pService->subscriptionRequestReceived -= delegate(&waiter, &SubscriptionWaiter::onSubscription);
+
+	local.pService->notify(slowSubject, bigPayload);
+
+	// A few kilobytes every tenth of a second: far too slow for the frame,
+	// but progress for every send call, until the connection ends.
+	slow.setReceiveTimeout(Poco::Timespan(0, 100000));
+	std::atomic<bool> stopReading{false};
+	std::atomic<bool> reading{false};
+	std::thread reader([&]
+	{
+		while (!stopReading)
+		{
+			try
+			{
+				std::array<char, 4096> buffer{};
+				if (slow.impl()->Poco::Net::SocketImpl::receiveBytes(
+					buffer.data(), static_cast<int>(buffer.size())) <= 0) break;
+				reading = true;
+			}
+			catch (Poco::TimeoutException&)
+			{
+			}
+			catch (Poco::Exception&)
+			{
+				break;
+			}
+			Poco::Thread::sleep(100);
+		}
+	});
+
+	// The client closes the connection while the frame is being sent: one
+	// worker reads the CLOSE and removes the subscriber, then waits to send
+	// the server's CLOSE behind the frame.
+	bool removed = false;
+	try
+	{
+		if (waitUntil([&]{ return reading.load(); }, 5000))
+		{
+			slow.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+			removed = waitUntil([&]{ return local.pService->subscriberCount(slowSubject) == 0; }, 5000);
+		}
+	}
+	catch (Poco::Exception&)
+	{
+	}
+
+	Poco::Stopwatch sw;
+	sw.start();
+	local.pService->notify(otherSubject, "through");
+	bool delivered = false;
+	try
+	{
+		delivered = removed && receiveNotification(other).second == "through";
+	}
+	catch (Poco::Exception&)
+	{
+	}
+	const Poco::Timestamp::TimeDiff elapsed = sw.elapsed();
+	stopReading = true;
+	reader.join();
+
+	assertTrue(removed);
+	assertTrue(delivered);
+	assertTrue(elapsed < 4*Poco::Timespan::SECONDS);
+
+	try
+	{
+		other.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		other.close();
+		slow.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testStopClosesSocketsOfQueuedShutdowns()
+	/// A shutdown still queued at stop() never runs, yet stop() closes its socket.
+{
+	SubscriptionWaiter waiter;
+	LocalService local(1, 0);
+	local.pService->subscriptionRequestReceived += delegate(&waiter, &SubscriptionWaiter::onSubscription);
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	sendSubscribe(ws, "com.example.queued");
+	assertTrue(waiter.event.tryWait(2000));
+	local.pService->subscriptionRequestReceived -= delegate(&waiter, &SubscriptionWaiter::onSubscription);
+
+	// The only worker is parked, so the shutdown stays queued.
+	ThreadBlock block(*local.pService);
+	assertTrue(block.parked());
+	poco_socket_t fd = POCO_INVALID_SOCKET;
+	{
+		TestableWebEventServiceImpl::Subscriber::Ptr pSubscriber;
+		assertTrue(local.pService->firstSubscriber(pSubscriber));
+		assertTrue(!pSubscriber.isNull());
+		fd = pSubscriber->pWebSocket->impl()->sockfd();
+		local.pService->shutdown(pSubscriber, Poco::Net::WebSocket::WS_NORMAL_CLOSE, "", false);
+	}
+
+	Poco::Thread stopper;
+	stopper.startFunc([&]{ local.pService->stop(); });
+	assertTrue(waitUntil([&]{ return local.pService->stopped(); }, 5000));
+	block.release();
+	assertTrue(stopper.tryJoin(5000));
+
+	// The system no longer knows the descriptor as a socket.
+	std::array<char, sizeof(int)> type{};
+	poco_socklen_t length = static_cast<poco_socklen_t>(type.size());
+	assertTrue(::getsockopt(fd, SOL_SOCKET, SO_TYPE, type.data(), &length) != 0);
+
+	try
+	{
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+#if defined(OSP_WEBEVENT_ENABLE_TLS)
+
+
+void WebEventServiceTest::testStopDoesNotWaitForTlsPeers()
+	/// A TLS close would wait about a second for each peer that does not read.
+	/// Timing-dependent by nature: it measures how long stop() takes.
+{
+	const std::size_t subscriberCount = 5;
+	LocalService local(serviceConfig(2), secureServerSocket());
+
+	std::vector<Poco::Net::WebSocket> sockets;
+	sockets.reserve(subscriberCount);
+	for (std::size_t i = 0; i < subscriberCount; ++i)
+	{
+		sockets.push_back(connectSecureWebSocket(local.port));
+	}
+	assertTrue(waitUntil([&]{ return local.pService->listSubscribers().size() == subscriberCount; }, 5000));
+
+	Poco::Stopwatch sw;
+	sw.start();
+	local.pService->stop();
+	assertTrue(sw.elapsed() < Poco::Timespan::SECONDS);
+
+	for (auto& socket: sockets)
+	{
+		try
+		{
+			socket.close();
+		}
+		catch (...) {}
+	}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testFramesInOneTlsRecordAreAllRead()
+	/// The TLS layer reads the record whole, so the socket does not become readable for the later frames.
+{
+	LocalService local(serviceConfig(1), secureServerSocket());
+
+	Poco::Net::HTTPSClientSession session("127.0.0.1", local.port, tlsClientContext());
+	Poco::Net::StreamSocket raw = upgradeRawWebSocket(session);
+	const std::string frames = maskedTextFrame("SUBSCRIBE com.example.first WebEvent/1.0\r\n") +
+		maskedTextFrame("SUBSCRIBE com.example.second WebEvent/1.0\r\n");
+	raw.sendBytes(frames.data(), static_cast<int>(frames.size()));
+
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount("com.example.first") == 1; }, 5000));
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount("com.example.second") == 1; }, 2000));
+
+	try
+	{
+		raw.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+#endif
+
+
 void WebEventServiceTest::testNotifyUserDeliversOnlyToUser()
 {
 	const std::string subject("com.example.parent.child.leaf");
@@ -3184,16 +3647,25 @@ CppUnit::Test* WebEventServiceTest::suite()
 	CppUnit_addTest(pSuite, WebEventServiceTest, testListSubscribersThrowsOnTimeout);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testKeepaliveReapsSilentSubscribers);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testActivityIsStampedWhenReadable);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testClientThatKeepsSendingIsNotRemoved);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testKeepaliveSweepRunsUnderQueueLoad);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testUnsentPingDoesNotReap);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testSnapshotReturnsEmptyWhenStopped);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testSendQueueCoalescing);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testSendQueueBounded);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testKeepaliveSurvivesFullSendQueue);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testClientPingsQueueOnePong);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testPendingSendsAfterDisconnect);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testSlowConsumerDoesNotStallOthers);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testSlowReaderIsRemovedAfterSendTimeout);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testTricklingSenderIsRemovedAfterReceiveTimeout);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testTricklingCloseDoesNotHoldShutdown);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testRemovedSubscriberDoesNotHoldWorkers);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testStopClosesSocketsOfQueuedShutdowns);
+#if defined(OSP_WEBEVENT_ENABLE_TLS)
+	CppUnit_addTest(pSuite, WebEventServiceTest, testStopDoesNotWaitForTlsPeers);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testFramesInOneTlsRecordAreAllRead);
+#endif
 	CppUnit_addTest(pSuite, WebEventServiceTest, testNotifyUserDeliversOnlyToUser);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testConcurrentApiAccess);
 

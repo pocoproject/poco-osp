@@ -49,11 +49,12 @@ class OSPWeb_API WebFilterExtensionPoint: public ExtensionPoint
 	/// A library named by the library attribute stays loaded as long as a filter
 	/// factory or a filter created from it exists.
 	///
-	/// The following attributes can be specified for "osp.web.server.directory":
+	/// The following attributes can be specified for "osp.web.server.filter":
 	///    * mediaType:   The media type this filter applies to. Every resource having
 	///                   this media type will be passed to the filter.
-	///    * class: the class name of the request handler factory.
-	///    * library: the name of the shared library containing the request handler factory.
+	///    * class: the class name of the filter factory. Factory classes of different bundles
+	///      must have different fully qualified names (see WebServerExtensionPoint).
+	///    * library: the name of the shared library containing the filter factory.
 	///
 	/// Any additional attributes are passed to the factory's createFilter() method.
 {

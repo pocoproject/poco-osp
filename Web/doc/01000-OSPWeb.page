@@ -72,7 +72,8 @@ The following attributes are supported for static resources:
   - <[permission]>: Specify the required access permission for this resource.
     If permission is a single asterisk ("*"), no specific permission is required, but
     credentials must be present and valid. If permission is two asterisks ("**"), credentials
-    are optional, but if present, must be valid.
+    are optional, but if present, must be valid. A comma-separated list of permissions is
+    granted to a user who has any one of them.
   - <[authMethods]>: Specify the enabled authentication methods. A comma-separated list
     of method names (<[basic]>, <[session]>, <[bearer]>). If not specified the globally
     enabled authentication methods are used.
@@ -80,11 +81,15 @@ The following attributes are supported for static resources:
   - <[redirectOn401]>: Specify a location the client is redirected to in case of an
     authentication failure (401 status). This only applies to <[GET]> requests and can
     be used to redirect to a login page rather than showing a generic 401 error.
-    The request URI is passed to the location in the <[redirect]> query parameter, unless
-    the request is for that location.
-    A user logged in through a session who lacks the permission is redirected to "/" instead;
+    The path and query of the request are passed to the location in the <[redirect]> query
+    parameter, unless the request is for that location or already has a <[redirect]> parameter.
+    A user logged in through a session who lacks the permission is redirected to "/" instead
+    (or gets 403 Forbidden if the request is for "/");
     a user authenticated with HTTP Basic credentials or a bearer token gets 403 Forbidden.
     If not specified, the <[osp.web.redirectOn401]> configuration property is used.
+    Requests for request handlers are not redirected.
+  - <[exactMatch]>: If <[true]>, only a request for the path itself matches; otherwise (default)
+    also a request for a path below it.
   - <[hidden]>: If <[true]>, path is not included by WebServerDispatcher::listVirtualPaths().
   - <[resource]>:  Specify a directory within the bundle where the HTML, image and other files are located.
   - <[index]>: Specify the name of the default document (defaults to "index.html").
@@ -108,8 +113,24 @@ If resource caching has been enabled in the OSP Web configuration (see below), r
 in memory. This can significantly speed up the server, at the cost of increased memory usage. Resource directories
 can be excluded from caching by setting the <[cache]> attribute in the extension point to <[false]>.
 
-A request whose path contains a dot segment ("." or "..", also in percent-encoded form) is answered
-with 400 Bad Request.
+The files of a resource directory can be replaced at run time by files in the persistent directory of the bundle.
+The bundle property <[web.static.resource]> lists such resource directories (as given in the <[resource]>
+attribute, separated by commas, compared without regard to case). For a listed directory, a file is served
+from the same path below the persistent directory of the bundle if it exists there, and from the bundle
+otherwise. If the bundle property <[web.static.strict]> is <[true]>, a file of a listed directory that is not
+found or cannot be read in the persistent directory is not served from the bundle.
+
+The <[path]> attributes of mappings are compared with request paths by the lower-case form of each
+character and in Unicode normalization form C; two mappings whose paths differ only in case or normalization
+form conflict. Backslashes in a request path are replaced with slashes, and dots at the end of the path
+are removed. A request whose path contains a dot segment
+("." or "..", also in percent-encoded form), a control character (also in percent-encoded form), another
+segment that ends with a dot, or a segment that ends with a space is answered with 400 Bad Request. So is a
+request for a resource whose path contains a colon, or, on Windows, a tilde followed by a digit (a short file
+name); request handlers receive such paths.
+A file of a bundle directory or of the persistent directory is served only under its name as stored on
+disk, byte for byte, also where the file system opens it under another spelling (another case or
+normalization form, a short file name).
 
 
 !!! Registering Request Handlers
@@ -147,7 +168,8 @@ The <[extensions.xml]> file contains the extension for both the <[osp.web.server
     </extensions>
 ----
 
-The following attributes are supported for request handlers:
+The following attributes are supported for request handlers. The attributes other than <[pattern]>,
+<[methods]>, <[class]> and <[library]> can be specified for resource directories as well:
   - <[path]>: The URI on the server to which the resource or handler is mapped.
   - <[pattern]>: A regular expression for matching requests to the handler.
   - <[description]>: User-readable description of resource or handler.
@@ -156,11 +178,14 @@ The following attributes are supported for request handlers:
   - <[permission]>: Specify the required access permission for this resource.
     If permission is a single asterisk ("*"), no specific permission is required, but
     credentials must be present and valid. If permission is two asterisks ("**"), credentials
-    are optional, but if present, must be valid.
+    are optional, but if present, must be valid. A comma-separated list of permissions is
+    granted to a user who has any one of them.
   - <[authMethods]>: Specify the enabled authentication methods. A comma-separated list
     of method names (<[basic]>, <[session]>, <[bearer]>). If not specified the globally
     enabled authentication methods are used.
   - <[session]>: Specify the name of the application for session-based authentication.
+  - <[exactMatch]>: If <[true]>, only a request for the path itself matches; otherwise (default)
+    also a request for a path below it.
   - <[hidden]>: If <[true]>, path is not included by WebServerDispatcher::listVirtualPaths().
   - <[methods]>: Only allow specific HTTP request methods.
   - <[class]>: The class name of the request handler factory.
@@ -177,7 +202,9 @@ The following attributes are supported for request handlers:
     If "**", every origin is allowed: the response's "Access-Control-Allow-Origin" header
     is set to the value of the request's "Origin" header, with credentials if <[allowCredentials]>
     is "true". For a list, only a listed origin is sent back in the "Access-Control-Allow-Origin" header.
-    For "**" and lists, the response also carries a "Vary: Origin" header.
+    If CORS is enabled for the path (<[cors]> and <[osp.web.cors.enable]>), and the request is not
+    rejected before the CORS check with 400 or 403 (an invalid request path, a secure path requested
+    without HTTPS), for "**" and lists, the response carries a "Vary: Origin" header.
     With "**", the origin "null" (sent by sandboxed documents and local files) is allowed and
     sent back like any other origin.
     If empty or not specified, the globally configured allowed origin is used (see
@@ -186,9 +213,11 @@ The following attributes are supported for request handlers:
     allowed. The scheme of the request is that of the connection: behind a reverse proxy that
     terminates TLS it is "http", while browsers send an "https" origin, so the public origin of
     the proxy must be listed in <[allowOrigin]>. A <[GET]> or <[HEAD]> request from an origin that
-    is not allowed is answered without CORS headers; a CORS preflight (OPTIONS) request, or a request
-    with any other method, from such an origin is answered with 403 Forbidden and does not reach the
-    request handler.
+    is not allowed is answered without CORS headers. If CORS is enabled for the path (<[cors]> and
+    <[osp.web.cors.enable]>), and the request is not rejected before the CORS check with 400 or 403
+    (an invalid request path, a secure path requested without HTTPS), a CORS preflight (OPTIONS)
+    request, or a request with any other method, from an origin that is not allowed is answered
+    with 403 Forbidden and does not reach the request handler.
   - <[allowMethods]>: Allowed methods for CORS requests. Defaults to the value of the <[methods]> attribute,
     or "*" if <[methods]> is empty or not specified.
   - <[allowHeaders]>: A comma-separated list of header names. If not empty, a "Access-Control-Allow-Headers"
@@ -197,9 +226,18 @@ The following attributes are supported for request handlers:
     be added to the response. Defaults to "true".
   - <[responseFormat]>: Specify the default format for error responses. Can be "html" (default) or "json".
     A request with an "Accept" header containing "application/json" gets a JSON error response
-    also if the format is "html". 401 responses of request handlers are always JSON.
+    also if the format is "html". On a path with a request handler, the dispatcher answers a failed
+    authorization (401 or 403) in JSON.
     This is useful for implementing REST APIs.
     The error JSON format is compatible with that of Remoting NG REST transport.
+
+NOTE: The check whether an "Origin" header names the origin of the request itself takes the scheme from the
+connection. Behind a reverse proxy that terminates TLS and forwards the requests over HTTP, the "https" origin
+that browsers send never matches, with these consequences: BundleAdmin refuses its bundle actions and
+uploads, the WebEvent service refuses a WebSocket upgrade from an origin that is not listed in
+<[osp.web.event.allowedOrigins]>, and on a path with CORS enabled, a CORS preflight request or a request with a
+method other than <[GET]> and <[HEAD]> is refused unless the public origin of the proxy is allowed (see
+<[allowOrigin]>).
 
 Instead of the <[resource]> attribute used with the <[osp.web.server.directory]> extension point, the
 <[osp.web.server.requesthandler]> extension element uses the <[class]> and <[library]> attributes to
@@ -209,6 +247,20 @@ automatically finds and loads the class containing the request handler factory f
 For this to work, the shared library containing the request handler factory must provide a <*named*> manifest.
 The name of the manifest must be <[WebServer]>. This allows the same library to export a default (unnamed) manifest
 declaring the bundle activator, as well as a manifest declaring request handler factories.
+The factory class is created from the manifest of the library that the extension names. Request handler and
+filter factory classes of different bundles must have different fully qualified names (for example in a namespace
+of the bundle): with the default symbol visibility, the dynamic linker can bind the code of a class to a class with
+the same name in the library of another bundle.
+
+When a bundle stops, the libraries of its request handler and filter factories stay loaded until every web
+session that exists then, or that a request still running then has used, and every session that <[renew()]>
+creates from one of them, has ended: a session can hold values that these libraries have created. When the bundle
+is uninstalled, for example to install a new version, these sessions are removed and the libraries are released,
+so that the new version loads its own libraries. A request that is still running keeps the libraries loaded: a
+request in one of these sessions until it has ended and, if it renews the session, every session that
+<[renew()]> creates from it has ended; a request that uses a factory of the bundle until it has ended and every
+session that exists at that time, and every session that <[renew()]> creates from one of them, has ended.
+A stop and a start of the same version keep the sessions.
 
 The implementation of a request handler and its factory usually looks like the following example:
 
@@ -284,12 +336,22 @@ It's possible to enable only certain authentication methods, either globally, by
 a specific request handler.
 
 A request for a protected resource without valid credentials is answered with 401 Unauthorized
-(or redirected, see <[redirectOn401]>). A request with valid HTTP Basic credentials or a valid bearer
+(or redirected, see <[redirectOn401]>). On a path without a <[session]> attribute, the 401 response carries
+the challenge <[WWW-Authenticate: Bearer realm="<realm>"]> if the path accepts bearer tokens but not HTTP Basic
+credentials, and an HTTP Basic challenge otherwise. A request with valid HTTP Basic credentials or a valid bearer
 token whose user does not have the required permission is answered with 403 Forbidden. So is a request
 in the session of a logged-in user without the permission, unless it is redirected (see <[redirectOn401]>).
 If the auth service (<[osp.web.authServiceName]>) is not available, requests for protected
 resources are answered with 503 Service Unavailable. For the permission "**", only requests with
 credentials, or in the session of a logged-in user, get this answer; other requests are served.
+If the auth service reports the user of a session or a bearer token as not enabled (disabled or
+locked out, see Poco::OSP::Auth::AuthService::userEnabled()), the request is not authenticated.
+So an automatic lock-out after failed logins (see <[auth.maxFailures]> in the
+[[OSPAuth.html OSP Authorization and Authentication]] documentation) also refuses the user's sessions
+and bearer tokens until it ends. Accounts that must keep their access, such as the main administrator
+account, are listed in <[auth.neverLockOutUsers]>. The list does not apply to the lock-out after wrong
+second-factor codes (see Two-Factor Authentication in the
+[[OSPAuth.html OSP Authorization and Authentication]] documentation).
 A warning is logged when the web server starts while no auth service is configured. A notice is
 logged when the auth service is unregistered. When the web server starts before the auth service is
 registered, and when the auth service is registered, an information message is logged.
@@ -351,6 +413,12 @@ disabled by setting the <[osp.web.addAuthHeader]> configuration property to <[fa
 Copies of both headers sent by the client are removed from every request, so a request handler
 can rely on them.
 
+While the request handler of such a request is created and runs, the user name and the scope are
+also the Poco::OSP::Auth::RequestIdentity of the thread, independent of <[osp.web.addAuthHeader]>.
+Code that the request handler calls in the same thread, such as the RemotingNG authenticator and
+authorizer of the OSP Auth Remoting library, takes the identity from there: a request that has not
+passed the web server dispatcher has none.
+
 
 !!! Protection Against Cross-Site Request Forgery Attacks
 
@@ -359,9 +427,10 @@ To enable CSRF protection, the <[csrfProtection]> attribute must be set to <[tru
 in the <[osp.web.server.requesthandler]> extension point.
 If enabled, the web server will check whether the request contains a CSRF token header
 (default header name is "X-XSRF-TOKEN") with a valid CSRF token, if it is a mutating
-request (any request method other than `GET` or `HEAD`). The token will be
-checked using the Poco::OSP::Web::WebSessionManager service. Requests will be rejected
-if they do not contain a valid token.
+request (any request method other than `GET` or `HEAD`) authenticated by its session. The token will be
+checked using the Poco::OSP::Web::WebSessionManager service. A request without a valid token
+is answered as an unauthenticated request. Requests with HTTP Basic credentials or a bearer
+token are not checked.
 The name of the header containing the token can be set with the <[csrfTokenHeader]> attribute.
 CSRF protection should be enabled for all REST API or <*XMLHttpRequest*> handlers that
 use session-based authentication.
@@ -381,11 +450,23 @@ Range requests are answered without compression.
 For dynamically generated content, compression has to be implemented in the request handler. The easiest way to do this
 is to use the following code fragment to send the response:
 
+    // gzip with the quality value 0 ("gzip;q=0") means that the client refuses gzip.
+    bool compressResponse = false;
+    Poco::StringTokenizer codings(request.get("Accept-Encoding", ""), ",", Poco::StringTokenizer::TOK_TRIM | Poco::StringTokenizer::TOK_IGNORE_EMPTY);
+    for (const auto& element: codings)
+    {
+        std::string coding;
+        Poco::Net::NameValueCollection parameters;
+        Poco::Net::MessageHeader::splitParameters(element, coding, parameters);
+        double quality = 0;
+        if (Poco::icompare(coding, "gzip") == 0 && Poco::NumberParser::tryParseFloat(parameters.get("q", "1"), quality))
+            compressResponse = quality > 0;
+    }
     response.setChunkedTransferEncoding(true);
-    bool compressResponse(request.hasToken("Accept-Encoding", "gzip"));
+    response.add("Vary", "Accept-Encoding");
     if (compressResponse) response.set("Content-Encoding", "gzip");
     std::ostream& realResponseStream = response.send();
-    Poco::DeflatingOutputStream gzipStream(responseStream, Poco::DeflatingStreamBuf::STREAM_GZIP, 1);
+    Poco::DeflatingOutputStream gzipStream(realResponseStream, Poco::DeflatingStreamBuf::STREAM_GZIP, 1);
     std::ostream& responseStream = compressResponse ? gzipStream : realResponseStream;
 ----
 
@@ -420,9 +501,13 @@ and Poco::OSP::Web::WebSession classes.
 The web server can be configured by setting the following properties in the global application configuration file:
 
   - <[osp.web.server.host]>: The hostname or IP address where the (non-secure) server is listening. Defaults to "0.0.0.0" (wildcard address).
-  - <[osp.web.server.port]>: The TCP port where the (non-secure) server is listening. Defaults to 22080.
+  - <[osp.web.server.port]>: The TCP port where the (non-secure) server is listening,
+    from 1 to 65535; 0 does not start the server, and a value outside the range is logged as an error
+    and does not start the server. Defaults to 22080.
   - <[osp.web.server.secureHost]>: The hostname or IP address where the secure (HTTPS) server is listening. Defaults to "0.0.0.0" (wildcard address).
-  - <[osp.web.server.securePort]>: The TCP port where the secure (HTTPS) server is listening. Defaults to 22443.
+  - <[osp.web.server.securePort]>: The TCP port where the secure (HTTPS) server is listening,
+    from 1 to 65535; 0 does not start the server, and a value outside the range is logged as an error
+    and does not start the server. Defaults to 22443.
   - <[osp.web.server.maxQueued]>: The maximum number of queued requests (see Poco::Net::TCPServerParams). Defaults to 100.
   - <[osp.web.server.maxThreads]>: The maximum number of threads used by the server (see Poco::Net::TCPServerParams). Defaults to 8.
   - <[osp.web.server.keepAlive]>: Enable persistent connections (<[true]> or <[false]>). Defaults to <[true]>.
@@ -431,6 +516,8 @@ The web server can be configured by setting the following properties in the glob
   - <[osp.web.authServiceName]>: The name of the OSP authentication/authorization service to use. Defaults to "osp.auth".
   - <[osp.web.authMethods]>: Specify a comma-separated list of enabled authentication methods (<[basic]>, <[session]>, <[bearer]>).
     If not specified, all methods will be enabled.
+  - <[osp.web.redirectOn401]>: The location of the <[redirectOn401]> attribute for the mappings that do not
+    specify one. Defaults to empty (no redirect).
   - <[osp.web.tokenValidatorName]>: The name of the token validation service to use. Defaults to none (empty).
   - <[osp.web.compressResponses]>: Enable (default) or disable response content compression using gzip content encoding.
     Specify <[true]> to enable or <[false]> to disable compression.
@@ -466,7 +553,7 @@ The web server can be configured by setting the following properties in the glob
     to be used by the WebSessionManager. This can be used to persistently store session data on the server.
   - <[osp.web.hsts.enable]>: Enable HTTP Strict Transport Security (HSTS). If enabled, a <[Strict-Transport-Security]>
     header will be included with every response the HTTP server sends. Defaults to false.
-  - <[osp.web.hsts.maxAge]>: Specify the maximum age for HSTS. Defaults to 21772800 seconds or 36 weeks.
+  - <[osp.web.hsts.maxAge]>: Specify the maximum age for HSTS. Defaults to 63072000 seconds or two years.
   - <[osp.web.hsts.includeSubdomains]>: If set to true (default), the <[Strict-Transport-Security]> includes the
     <[includeSubdomains]> optional parameter.
   - <[osp.web.xssProtection.enable]>: If set to true, a <[X-XSS-Protection]> header will be included with
@@ -493,17 +580,24 @@ The web server can be configured by setting the following properties in the glob
     "**" allows requests with credentials from every origin, and a comma-separated list allows the
     listed origins only. Defaults to empty, which allows no cross-origin access.
   - <[osp.web.logFullRequest]>: If set to true, log all HTTP requests and responses with all HTTP headers.
-    The values of the <[Authorization]>, <[Proxy-Authorization]>, <[Cookie]> and <[Set-Cookie]> headers
-    and of the CSRF token headers of the mapped paths are logged as <[<redacted>]>.
+    The values of the <[Authorization]>, <[Proxy-Authorization]>, <[Cookie]> and <[Set-Cookie]> headers,
+    of the CSRF token headers of the mapped paths, and of every header field whose name is not an HTTP token are
+    logged as <[<redacted>]>; control characters are logged percent-encoded.
 
 
 !!! Request Logging
 
 The web server supports logging of HTTP requests. For that purpose, the logger "osp.web.access" is used.
 The log message text is the HTTP request, including method, path and version.
+Control characters in the request line and in the header values are percent-encoded.
 Additionally, the following log message properties are available for use in formatting:
 
-  - <[username]>: The username sent by the client if HTTP Basic Authentication is used, otherwise "-".
+  - <[username]>: For a request whose authorization the dispatcher checks (a path that requires a permission,
+    while the auth service is available), the name of the user that the request names, also if the request is
+    not authorized: with credentials of an authentication method that the path accepts (HTTP Basic: the account
+    name if the credentials are valid, otherwise the name the client sent; a bearer token that the token
+    validator accepts) or, for a request without credentials, with its session if the path accepts session
+    authentication. Otherwise, or if the request names no user, "-".
   - <[status]>: The HTTP response status code (e.g., 200).
   - <[client]>: The client IP address.
   - <[ffclient]>: The IP address in the first entry of the <*X-Forwarded-For*> request header, if it holds
@@ -512,6 +606,8 @@ Additionally, the following log message properties are available for use in form
   - <[size]>: The size of the response, from the response <*Content-Length*> header. If not set, "-".
   - <[referer]>: The content of the <*Referer*> HTTP request header, or an empty string if not set.
   - <[useragent]>: The content of the <*User-Agent*> HTTP request header, or an empty string if not set.
+  - <[host]>: The content of the <*Host*> HTTP request header, or an empty string if not set.
+  - <[duration]>: The time taken to handle the request, in seconds.
 
 This information can be used to enable logging in Common or Extended log format, by using appropriate logger and
 formatter configurations in the application's configuration file. For example, to write the access log to

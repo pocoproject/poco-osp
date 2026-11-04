@@ -110,6 +110,20 @@ void WebSessionTest::testClearKeepsCSRFTokenInStore()
 }
 
 
+void WebSessionTest::testCSRFTokenCheckNeedsSessionToken()
+{
+	WebSession session("id", "token", 1, SESSION_TIMEOUT_SECONDS, Poco::Net::IPAddress(), nullptr, _pBundle->context());
+	WebSession withoutToken("id2", "", 1, SESSION_TIMEOUT_SECONDS, Poco::Net::IPAddress(), nullptr,
+		_pBundle->context());
+
+	assertTrue (session.isCSRFToken("token"));
+	assertFalse (session.isCSRFToken("tokem"));
+	assertFalse (session.isCSRFToken("token2"));
+	assertFalse (session.isCSRFToken(""));
+	assertFalse (withoutToken.isCSRFToken(""));
+}
+
+
 void WebSessionTest::testSessionOutlivesBundleLoader()
 {
 	// Run under Valgrind or AddressSanitizer: a session that is destroyed after the bundle
@@ -161,6 +175,7 @@ CppUnit::Test* WebSessionTest::suite()
 	CppUnit_addTest(pSuite, WebSessionTest, testTimeoutUpdatesExpiration);
 	CppUnit_addTest(pSuite, WebSessionTest, testClearKeepsCSRFToken);
 	CppUnit_addTest(pSuite, WebSessionTest, testClearKeepsCSRFTokenInStore);
+	CppUnit_addTest(pSuite, WebSessionTest, testCSRFTokenCheckNeedsSessionToken);
 	CppUnit_addTest(pSuite, WebSessionTest, testSessionOutlivesBundleLoader);
 	CppUnit_addTest(pSuite, WebSessionTest, testVersionReadWhileAttributesChange);
 

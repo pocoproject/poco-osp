@@ -219,6 +219,52 @@ void WebSessionManager::forEachSession(const std::function<void(const std::strin
 }
 
 
+void WebSessionManager::retainUntilSessionsEnd(std::shared_ptr<const void> pObject)
+{
+	_pSessionRegistry->forEach([&pObject](WebSession& session)
+		{
+			session.retain(pObject);
+		});
+}
+
+
+void WebSessionManager::removeSessionsRetaining(const std::shared_ptr<const void>& pObject)
+{
+	// The sessions are removed after the registry is unlocked, because destroying
+	// a session removes it from the registry.
+	std::vector<std::string> sessionsToRemove;
+	_pSessionRegistry->forEach([&sessionsToRemove, &pObject](WebSession& session)
+		{
+			if (session.retains(pObject)) sessionsToRemove.push_back(session.id());
+		});
+
+	FastMutex::ScopedLock lock(_mutex);
+
+	for (const auto& id: sessionsToRemove)
+	{
+		removeImpl(id);
+	}
+}
+
+
+void WebSessionManager::clearCache()
+{
+	// The sessions are collected with get(): the cache's forEach() passes a reference to a
+	// session, which does not keep it alive past clear(). getAllKeys() and get() release the
+	// expired sessions under the mutex, as every lookup of the cache does.
+	std::vector<WebSession::Ptr> sessions;
+	{
+		FastMutex::ScopedLock lock(_mutex);
+
+		for (const auto& id: _cache.getAllKeys())
+		{
+			sessions.push_back(_cache.get(id));
+		}
+		_cache.clear();
+	}
+}
+
+
 void WebSessionManager::updateSessionTimeout(const std::string& appName, WebSession::Ptr pSession, int timeout, const Poco::Net::HTTPServerRequest& request)
 {
 	pSession->timeout(timeout);
@@ -240,7 +286,10 @@ WebSession::Ptr WebSessionManager::renew(const std::string& appName, const Poco:
 	WebSession::Attributes attrs = pSession->attributes();
 	attrs[WebSession::CSRF_TOKEN] = createToken(request);
 	WebSession::Ptr pNewSession(new WebSession(createToken(request), 1, pSession->timeout(), request.clientAddress().host(), _pStore, pSession->_pContext, Poco::Timestamp(), attrs));
+	// Registered first: a bundle that stops meanwhile then gives its objects either to the
+	// new session or to the old one before retainAll() copies them.
 	pNewSession->registerWith(_pSessionRegistry);
+	pNewSession->retainAll(*pSession);
 	_cache.add(pNewSession->id(), pNewSession);
 	if (_pStore != nullptr)
 	{
@@ -343,7 +392,8 @@ void WebSessionManager::onBundleStopping(const void*, BundleEvent& ev)
 {
 	// The attributes are destroyed after the registry is unlocked, so that destroying
 	// them can release sessions. The libraries of the bundle that can have created them
-	// are still loaded: the WebServerDispatcher releases them when the bundle has stopped.
+	// are still loaded: the WebServerDispatcher releases them when the bundle has stopped
+	// and the sessions that exist then have been destroyed.
 	std::vector<WebSession::Attributes> released;
 	_pSessionRegistry->forEach([&released, &ev](WebSession& session)
 		{
@@ -544,7 +594,8 @@ std::string WebSessionManager::createToken(const Poco::Net::HTTPServerRequest& r
 	Poco::RandomInputStream ris;
 	for (int i = 0; i < 32; i++)
 	{
-		char c = ris.get();
+		char c = 0;
+		ris.get(c);
 		sha1.update(c);
 	}
 	sha1.update(request.clientAddress().toString());

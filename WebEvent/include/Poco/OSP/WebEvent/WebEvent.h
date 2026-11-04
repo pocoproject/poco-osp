@@ -5,7 +5,7 @@
 // Package: WebEvent
 // Module:  WebEvent
 //
-// Basic definitions for the Poco OSP WebEvent library.
+// Basic definitions for the POCO OSP WebEvent library.
 // This file must be the first file included by every other OSP WebEvent
 // header file.
 //

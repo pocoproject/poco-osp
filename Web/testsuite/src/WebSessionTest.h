@@ -36,6 +36,7 @@ public:
 	void testTimeoutUpdatesExpiration();
 	void testClearKeepsCSRFToken();
 	void testClearKeepsCSRFTokenInStore();
+	void testCSRFTokenCheckNeedsSessionToken();
 	void testSessionOutlivesBundleLoader();
 	void testVersionReadWhileAttributesChange();
 

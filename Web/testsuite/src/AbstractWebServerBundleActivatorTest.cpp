@@ -177,6 +177,24 @@ void AbstractWebServerBundleActivatorTest::testPortZeroDisablesServer()
 }
 
 
+void AbstractWebServerBundleActivatorTest::testPortOutOfRangeDisablesServer()
+{
+	for (const char* properties: {"port = 65536\n", "port = -1\n"})
+	{
+		auto pBundle = std::make_unique<TemporaryBundle>(properties);
+		Poco::AutoPtr<WebServerDispatcher> pDispatcher = registerDispatcher(*pBundle);
+		const int capacity = pDispatcher->threadPool().capacity();
+		TestActivator activator(false);
+
+		activator.start(pBundle->context());
+
+		assertTrue (pBundle->registry().findByName("osp.web.server") == nullptr);
+		assertEqual (capacity, pDispatcher->threadPool().capacity());
+		activator.stop(pBundle->context());
+	}
+}
+
+
 void AbstractWebServerBundleActivatorTest::testWithoutDispatcher()
 {
 	auto pBundle = std::make_unique<TemporaryBundle>(SERVER_PROPERTIES);
@@ -198,6 +216,7 @@ CppUnit::Test* AbstractWebServerBundleActivatorTest::suite()
 	CppUnit_addTest(pSuite, AbstractWebServerBundleActivatorTest, testRestart);
 	CppUnit_addTest(pSuite, AbstractWebServerBundleActivatorTest, testSecureServerService);
 	CppUnit_addTest(pSuite, AbstractWebServerBundleActivatorTest, testPortZeroDisablesServer);
+	CppUnit_addTest(pSuite, AbstractWebServerBundleActivatorTest, testPortOutOfRangeDisablesServer);
 	CppUnit_addTest(pSuite, AbstractWebServerBundleActivatorTest, testWithoutDispatcher);
 
 	return pSuite;

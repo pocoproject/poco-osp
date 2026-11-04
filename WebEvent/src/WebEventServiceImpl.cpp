@@ -16,8 +16,10 @@
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/Net/HTTPResponse.h"
 #include "Poco/Net/HTTPServerResponse.h"
+#include "Poco/Net/NetException.h"
 #include "Poco/Net/PollSet.h"
 #include "Poco/Net/SocketDefs.h"
+#include "Poco/Util/AbstractConfiguration.h"
 #include "Poco/Buffer.h"
 #include "Poco/Bugcheck.h"
 #include "Poco/Debugger.h"
@@ -321,19 +323,21 @@ private:
 class WatchSocketNotification: public TaskNotification
 {
 public:
-	WatchSocketNotification(WebEventServiceImpl& service, const Poco::Net::Socket& socket):
+	WatchSocketNotification(WebEventServiceImpl& service, const Poco::Net::Socket& socket, bool buffered):
 		TaskNotification(service),
-		_socket(socket)
+		_socket(socket),
+		_buffered(buffered)
 	{
 	}
 
 	void execute() override
 	{
-		_service.watchSocketImpl(_socket);
+		_service.watchSocketImpl(_socket, _buffered);
 	}
 
 private:
 	Poco::Net::Socket _socket;
+	bool _buffered;
 };
 
 
@@ -383,6 +387,21 @@ public:
 };
 
 
+WebEventServiceImpl::Config WebEventServiceImpl::Config::fromConfiguration(
+	const Poco::Util::AbstractConfiguration& configuration)
+{
+	Config config;
+	config.workerCount = configuration.getInt("osp.web.event.workers", config.workerCount);
+	config.maxSockets = configuration.getInt("osp.web.event.maxWebSockets", config.maxSockets);
+	config.maxPendingFrames = configuration.getInt("osp.web.event.maxPendingFrames", config.maxPendingFrames);
+	config.pingInterval = std::chrono::seconds(configuration.getInt("osp.web.event.pingInterval",
+		static_cast<int>(config.pingInterval.count())));
+	config.clientNotify = configuration.getBool("osp.web.event.clientNotify", config.clientNotify);
+	config.maxSubjects = configuration.getInt("osp.web.event.maxSubjects", config.maxSubjects);
+	return config;
+}
+
+
 WebEventServiceImpl::WebEventServiceImpl(Poco::OSP::BundleContext::Ptr pContext):
 	WebEventServiceImpl(std::move(pContext), Config())
 {
@@ -393,8 +412,8 @@ WebEventServiceImpl::WebEventServiceImpl(Poco::OSP::BundleContext::Ptr pContext,
 	_pContext(pContext),
 	_maxSockets(config.maxSockets),
 	_maxPendingFrames(config.maxPendingFrames),
-	_pingInterval(static_cast<int>(config.pingInterval.count())),
-	_pollTimeout(std::chrono::duration_cast<std::chrono::microseconds>(config.pollTimeout).count()),
+	_pingInterval(config.pingInterval),
+	_pollTimeout(config.pollTimeout),
 	_clientNotify(config.clientNotify),
 	_maxSubjects(config.maxSubjects),
 	_socketCount(0),
@@ -405,6 +424,7 @@ WebEventServiceImpl::WebEventServiceImpl(Poco::OSP::BundleContext::Ptr pContext,
 	_stopped(false),
 	_logger(pContext != nullptr ? pContext->logger() : Poco::Logger::get("Poco.OSP.WebEvent"))
 {
+	_lastRejectionNotice.fill(Poco::Clock(0));
 	const int actualWorkerCount = std::min(config.workerCount > 0 ? config.workerCount : defaultWorkerCount(), MAX_WORKER_COUNT);
 	try
 	{
@@ -461,6 +481,13 @@ void WebEventServiceImpl::stop()
 	}
 	_mainQueue.clear();
 	_workerQueue.clear();
+	{
+		// The shutdowns still queued have gone with the queue, so no worker
+		// closes their sockets; the last reference does.
+		Poco::FastMutex::ScopedLock closingLock(_closingMutex);
+
+		_closingSockets.clear();
+	}
 }
 
 
@@ -669,7 +696,8 @@ void WebEventServiceImpl::runWorker()
 	{
 		try
 		{
-			Poco::Notification::Ptr pNf = _workerQueue.waitDequeueNotification(WEBEVENT_QUEUE_WAIT_MS);
+			Poco::Notification::Ptr pNf =
+				_workerQueue.waitDequeueNotification(static_cast<long>(WEBEVENT_QUEUE_WAIT.count()));
 			if (pNf != nullptr && !_stopped)
 			{
 				TaskNotification::Ptr pTaskNf = pNf.cast<TaskNotification>();
@@ -746,14 +774,14 @@ WebEventService::SubscriberInfoVec WebEventServiceImpl::listSubscribers()
 	enqueueMain(new ListSubscribersNotification(*this, pState));
 
 	Poco::Clock deadline;
-	while (!pState->done.tryWait(WEBEVENT_LIST_SUBSCRIBERS_POLL_MS))
+	while (!pState->done.tryWait(static_cast<long>(WEBEVENT_LIST_SUBSCRIBERS_POLL.count())))
 	{
 		// A stop between the check above and the event thread leaving its
 		// loop leaves this notification unexecuted. The documented answer
 		// for a stopped service is an empty list, arrived at now rather
 		// than at the end of a wait nothing can satisfy.
 		if (_stopped) return SubscriberInfoVec();
-		if (deadline.isElapsed(WEBEVENT_LIST_SUBSCRIBERS_TIMEOUT*Poco::Clock::resolution()))
+		if (deadline.isElapsed(Poco::Timespan(WEBEVENT_LIST_SUBSCRIBERS_TIMEOUT).totalMicroseconds()))
 		{
 			// Not an empty snapshot: the caller would read that as every
 			// user having gone away, when in truth the event thread has
@@ -775,14 +803,31 @@ void WebEventServiceImpl::enqueueSend(Subscriber::Ptr pSubscriber, const std::st
 
 		if (pSubscriber->closed) return;
 		++pSubscriber->enqueuedFrames;
-		auto itBySubject = subject.empty() ? pSubscriber->bySubject.end() : pSubscriber->bySubject.find(subject);
-		if (itBySubject != pSubscriber->bySubject.end())
+		auto itQueued = pSubscriber->pending.end();
+		if (!subject.empty())
+		{
+			const auto itBySubject = pSubscriber->bySubject.find(subject);
+			if (itBySubject != pSubscriber->bySubject.end()) itQueued = itBySubject->second;
+		}
+		else if ((flags & Poco::Net::WebSocket::FRAME_OP_BITMASK) == Poco::Net::WebSocket::FRAME_OP_PONG)
+		{
+			// RFC 6455, section 5.5.3: answering the most recent PING is
+			// enough, so a client that sends PINGs and does not read cannot
+			// grow the queue, which never drops a control frame.
+			itQueued = std::find_if(pSubscriber->pending.begin(), pSubscriber->pending.end(),
+				[](const Subscriber::PendingFrame& frame)
+				{
+					return (frame.flags & Poco::Net::WebSocket::FRAME_OP_BITMASK)
+						== Poco::Net::WebSocket::FRAME_OP_PONG;
+				});
+		}
+		if (itQueued != pSubscriber->pending.end())
 		{
 			// Latest value wins; move to the tail so frames still leave in
 			// the order the notifications were made.
-			itBySubject->second->pFrame = std::move(pFrame);
-			itBySubject->second->flags = flags;
-			pSubscriber->pending.splice(pSubscriber->pending.end(), pSubscriber->pending, itBySubject->second);
+			itQueued->pFrame = std::move(pFrame);
+			itQueued->flags = flags;
+			pSubscriber->pending.splice(pSubscriber->pending.end(), pSubscriber->pending, itQueued);
 		}
 		else
 		{
@@ -791,16 +836,29 @@ void WebEventServiceImpl::enqueueSend(Subscriber::Ptr pSubscriber, const std::st
 			{
 				pSubscriber->bySubject[subject] = std::prev(pSubscriber->pending.end());
 			}
+			auto itDropped = pSubscriber->pending.end();
 			if (_maxPendingFrames > 0 && pSubscriber->pending.size() > static_cast<std::size_t>(_maxPendingFrames))
 			{
-				const Subscriber::PendingFrame& front = pSubscriber->pending.front();
-				if (!front.subject.empty())
+				// The oldest data frame goes; control opcodes start at CLOSE. A dropped
+				// keepalive PING would stay pending for good, and the subscriber would be
+				// neither pinged nor removed again. At most one PING and one PONG are queued.
+				itDropped = std::find_if(pSubscriber->pending.begin(), pSubscriber->pending.end(),
+					[](const Subscriber::PendingFrame& frame)
+					{
+						return (frame.flags & Poco::Net::WebSocket::FRAME_OP_BITMASK)
+							< Poco::Net::WebSocket::FRAME_OP_CLOSE;
+					});
+			}
+			if (itDropped != pSubscriber->pending.end())
+			{
+				if (!itDropped->subject.empty())
 				{
-					pSubscriber->bySubject.erase(front.subject);
+					pSubscriber->bySubject.erase(itDropped->subject);
 				}
-				pSubscriber->pending.pop_front();
+				pSubscriber->pending.erase(itDropped);
 				dropped = ++pSubscriber->droppedFrames;
-				if (pSubscriber->lastDropWarning.isElapsed(WEBEVENT_DROP_WARNING_INTERVAL*Poco::Clock::resolution()))
+				if (pSubscriber->lastDropWarning.isElapsed(
+					Poco::Timespan(WEBEVENT_DROP_WARNING_INTERVAL).totalMicroseconds()))
 				{
 					warn = true;
 					pSubscriber->lastDropWarning.update();
@@ -831,8 +889,34 @@ void WebEventServiceImpl::receive(Subscriber::Ptr pSubscriber)
 }
 
 
+void WebEventServiceImpl::receiveNext(Subscriber::Ptr pSubscriber)
+{
+	// Over TLS, the next frames can already be in the TLS buffer, read with the
+	// record of the frame just handled; the socket does not become readable for them.
+	bool buffered = false;
+	{
+		Poco::FastMutex::ScopedLock lock(pSubscriber->readMutex);
+
+		buffered = pSubscriber->pWebSocket->available() > 0;
+	}
+	// Through the main thread either way, which stamps the keepalive.
+	enqueueMain(new WatchSocketNotification(*this, *pSubscriber->pWebSocket, buffered));
+}
+
+
 void WebEventServiceImpl::shutdown(Subscriber::Ptr pSubscriber, Poco::UInt16 statusCode, const std::string& statusMessage, bool passive)
 {
+	// A read or send restarts its timeout with every byte, and the stall check no
+	// longer covers a removed subscriber, so a client taking or sending a few bytes
+	// at a time would otherwise hold the workers. The watchdog of the main thread
+	// shuts the socket down at the deadline.
+	{
+		Poco::FastMutex::ScopedLock lock(_closingMutex);
+
+		Poco::Clock deadline;
+		deadline += Poco::Timespan(WEBEVENT_SHUTDOWN_TIMEOUT).totalMicroseconds();
+		_closingSockets.push_back(ClosingSocket{*pSubscriber->pWebSocket, deadline});
+	}
 	_workerQueue.enqueueNotification(new ShutdownNotification(*this, pSubscriber, statusCode, statusMessage, passive));
 }
 
@@ -937,7 +1021,7 @@ void WebEventServiceImpl::addSubscriberImpl(Poco::SharedPtr<Poco::Net::WebSocket
 	pSubscriber->page = page;
 	pSubscriber->clientAddress = clientAddress;
 	_socketMap[*pWS] = pSubscriber;
-	watchSocketImpl(*pWS);
+	watchSocketImpl(*pWS, false);
 	pWS->setMaxPayloadSize(WEBEVENT_MAX_FRAME_PAYLOAD);
 	// Bounds each send call only: a peer that keeps taking a few bytes
 	// restarts it. removeStalledSubscribersImpl() bounds the whole frame.
@@ -995,7 +1079,7 @@ void WebEventServiceImpl::subscribeImpl(Poco::SharedPtr<Poco::Net::WebSocket> pW
 	if (it != _socketMap.end())
 	{
 		const std::size_t newSubjects = static_cast<std::size_t>(std::count_if(subjectNames.begin(), subjectNames.end(),
-			[&](const std::string& subject) { return it->second->subjectNames.count(subject) == 0; }));
+			[&](const std::string& subject) { return !it->second->subjectNames.contains(subject); }));
 		if (_maxSubjects > 0 && it->second->subjectNames.size() + newSubjects > static_cast<std::size_t>(_maxSubjects))
 		{
 			logger().information(Poco::format("Removing WebSocket subscriber %s: a SUBSCRIBE message would take it beyond the limit of %d subjects.",
@@ -1005,7 +1089,7 @@ void WebEventServiceImpl::subscribeImpl(Poco::SharedPtr<Poco::Net::WebSocket> pW
 		}
 		for (std::set<std::string>::const_iterator itSub = subjectNames.begin(); itSub != subjectNames.end(); ++itSub)
 		{
-			if (it->second->subjectNames.find(*itSub) == it->second->subjectNames.end())
+			if (!it->second->subjectNames.contains(*itSub))
 			{
 				it->second->subjectNames.insert(*itSub);
 				{
@@ -1026,7 +1110,7 @@ void WebEventServiceImpl::unsubscribeImpl(Poco::SharedPtr<Poco::Net::WebSocket> 
 	if (it != _socketMap.end())
 	{
 		std::set<std::string> allSubjectNames;
-		if (subjectNames.find("*") != subjectNames.end())
+		if (subjectNames.contains("*"))
 		{
 			allSubjectNames = it->second->subjectNames;
 		}
@@ -1170,18 +1254,18 @@ void WebEventServiceImpl::receiveImpl(Subscriber::Ptr pSubscriber)
 		if (opcode == Poco::Net::WebSocket::FRAME_OP_PING)
 		{
 			// RFC 6455, section 5.5.2: answered with a PONG carrying the same
-			// payload. Through the send queue (empty subject: never coalesced)
-			// so it cannot interleave with a data frame being sent.
+			// payload. Through the send queue, so it cannot interleave with a
+			// data frame being sent.
 			enqueueSend(pSubscriber, std::string(), std::make_shared<const std::string>(buffer.begin(), static_cast<std::size_t>(n)),
 				static_cast<int>(Poco::Net::WebSocket::FRAME_FLAG_FIN) | static_cast<int>(Poco::Net::WebSocket::FRAME_OP_PONG));
-			enqueueMain(new WatchSocketNotification(*this, *pWS));
+			receiveNext(pSubscriber);
 			return;
 		}
 
 		if (opcode == Poco::Net::WebSocket::FRAME_OP_PONG)
 		{
 			logger().debug("Received unsolicited PONG frame - ignoring.");
-			enqueueMain(new WatchSocketNotification(*this, *pWS));
+			receiveNext(pSubscriber);
 			return;
 		}
 
@@ -1266,7 +1350,7 @@ void WebEventServiceImpl::receiveImpl(Subscriber::Ptr pSubscriber)
 						}
 					}
 				}
-				enqueueMain(new WatchSocketNotification(*this, *pWS));
+				receiveNext(pSubscriber);
 				return;
 			}
 		}
@@ -1303,7 +1387,7 @@ void WebEventServiceImpl::shutdownImpl(Subscriber::Ptr pSubscriber, Poco::UInt16
 	if (_stopped)
 	{
 		// no handshake on the way out; the client sees the connection drop
-		pWS->close();
+		closeImpl(*pWS);
 		return;
 	}
 
@@ -1322,7 +1406,18 @@ void WebEventServiceImpl::shutdownImpl(Subscriber::Ptr pSubscriber, Poco::UInt16
 	{
 		confirmShutdownImpl(*pSubscriber);
 	}
-	pWS->close();
+	closeImpl(*pWS);
+}
+
+
+void WebEventServiceImpl::closeImpl(Poco::Net::WebSocket& webSocket)
+{
+	{
+		Poco::FastMutex::ScopedLock lock(_closingMutex);
+
+		_closingSockets.remove_if([&](const ClosingSocket& closing) { return closing.socket == webSocket; });
+	}
+	webSocket.close();
 }
 
 
@@ -1330,7 +1425,13 @@ void WebEventServiceImpl::shutdownSocket(const Poco::Net::Socket& socket)
 {
 	try
 	{
-		socket.impl()->shutdown();
+		// Not a TLS shutdown, which waits for the alert of a peer that may never read.
+		// The WebSocket shares the descriptor of its stream socket.
+		socket.impl()->Poco::Net::SocketImpl::shutdown();
+#if defined(POCO_OS_FAMILY_WINDOWS)
+		// A shutdown does not end a blocking send on Windows; a cancelled send is repeated and then fails.
+		::CancelIoEx(reinterpret_cast<HANDLE>(socket.impl()->sockfd()), nullptr);
+#endif
 	}
 	catch (Poco::Exception& exc)
 	{
@@ -1341,55 +1442,78 @@ void WebEventServiceImpl::shutdownSocket(const Poco::Net::Socket& socket)
 
 void WebEventServiceImpl::confirmShutdownImpl(Subscriber& subscriber)
 {
-	// A read restarts its timeout with every byte, so a client sending its
-	// CLOSE slowly would hold this worker. The watchdog of the main thread
-	// shuts the socket down when the deadline has passed, which ends the
-	// read; the entry is removed before the socket is closed.
-	ClosingList::iterator itClosing;
-	{
-		Poco::FastMutex::ScopedLock lock(_closingMutex);
-
-		Poco::Clock deadline;
-		deadline += std::chrono::duration_cast<std::chrono::microseconds>(WEBEVENT_SHUTDOWN_TIMEOUT).count();
-		itClosing = _closingSockets.insert(_closingSockets.end(), ClosingSocket{*subscriber.pWebSocket, deadline});
-	}
-	// Once stopped, stopImpl() may have shut the listed sockets down before
-	// this one was added, and the watchdog runs no more.
+	// Once stopped, no watchdog ends the read at the deadline set by shutdown(),
+	// and stopImpl() may already have shut the listed sockets down.
 	if (!_stopped)
 	{
+		const Poco::Clock started;
+		const Poco::Timespan timeout(WEBEVENT_SHUTDOWN_TIMEOUT);
+		Poco::Buffer<char> buffer(WEBEVENT_MAX_FRAME_PAYLOAD);
+		bool frameRejected = false;
 		try
 		{
-			if (subscriber.pWebSocket->poll(Poco::Timespan(std::chrono::duration_cast<std::chrono::microseconds>(WEBEVENT_SHUTDOWN_TIMEOUT).count()), Poco::Net::Socket::SELECT_READ))
+			if (subscriber.pWebSocket->poll(timeout, Poco::Net::Socket::SELECT_READ))
 			{
-				Poco::Buffer<char> buffer(WEBEVENT_MAX_FRAME_PAYLOAD);
 				int flags = 0;
 				subscriber.pWebSocket->receiveFrame(buffer.begin(), static_cast<int>(buffer.size()), flags);
-				if ((flags & Poco::Net::WebSocket::FRAME_OP_BITMASK) == Poco::Net::WebSocket::FRAME_OP_CLOSE)
-				{
-					Poco::FastMutex::ScopedLock lock(_closingMutex);
-					_closingSockets.erase(itClosing);
-					return;
-				}
+				if ((flags & Poco::Net::WebSocket::FRAME_OP_BITMASK) == Poco::Net::WebSocket::FRAME_OP_CLOSE) return;
 			}
 			if (logger().debug()) logger().debug(Poco::format("WebSocket subscriber %s did not confirm the shutdown; the connection is closed.",
 				describe(subscriber)));
+		}
+		catch (Poco::Net::WebSocketException& exc)
+		{
+			if (logger().debug())
+			{
+				logger().debug(Poco::format(
+					"Frame from WebSocket subscriber %s rejected while waiting for the shutdown confirmation: %s",
+					describe(subscriber), exc.displayText()));
+			}
+			frameRejected = true;
 		}
 		catch (Poco::Exception& exc)
 		{
 			if (logger().debug()) logger().debug(Poco::format("Error while waiting for WebSocket subscriber %s to confirm the shutdown: %s",
 				describe(subscriber), exc.displayText()));
 		}
+		if (!frameRejected) return;
+
+		// The rest of the frame may be unread, and closing a socket with unread data resets
+		// the connection, which on Windows discards the CLOSE frame the client has not read.
+		try
+		{
+			// Raw TCP: the WebSocket would reject the same header again, and a TLS
+			// shutdown waits for the client.
+			Poco::Net::SocketImpl* pImpl = subscriber.pWebSocket->impl();
+			pImpl->Poco::Net::SocketImpl::shutdownSend();
+			int discarded = 0;
+			while (discarded < WEBEVENT_SHUTDOWN_DISCARD_LIMIT)
+			{
+				const Poco::Timespan remaining = timeout - started.elapsed();
+				if (remaining <= 0 || !subscriber.pWebSocket->poll(remaining, Poco::Net::Socket::SELECT_READ)) break;
+				const int n = pImpl->Poco::Net::SocketImpl::receiveBytes(buffer.begin(),
+					std::min(static_cast<int>(buffer.size()), WEBEVENT_SHUTDOWN_DISCARD_LIMIT - discarded), 0);
+				if (n <= 0) break;
+				discarded += n;
+			}
+		}
+		catch (Poco::Exception& exc)
+		{
+			if (logger().debug())
+			{
+				logger().debug(Poco::format("Error while discarding data from WebSocket subscriber %s: %s",
+					describe(subscriber), exc.displayText()));
+			}
+		}
 	}
-	Poco::FastMutex::ScopedLock lock(_closingMutex);
-	_closingSockets.erase(itClosing);
 }
 
 
 void WebEventServiceImpl::stopImpl()
 {
 	{
-		// Their workers wait for a confirmation that the watchdog would
-		// no longer cut short.
+		// Their workers may wait for a send, a receive or a confirmation
+		// that the watchdog would no longer cut short.
 		Poco::FastMutex::ScopedLock lock(_closingMutex);
 		for (auto& closing: _closingSockets)
 		{
@@ -1420,7 +1544,7 @@ void WebEventServiceImpl::stopImpl()
 }
 
 
-void WebEventServiceImpl::watchSocketImpl(const Poco::Net::Socket& socket)
+void WebEventServiceImpl::watchSocketImpl(const Poco::Net::Socket& socket, bool buffered)
 {
 	// Only a socket still subscribed is watched, and only once: the
 	// notification a completed receive posts can arrive after a failed
@@ -1431,6 +1555,11 @@ void WebEventServiceImpl::watchSocketImpl(const Poco::Net::Socket& socket)
 	// below, so the keepalive counts from here.
 	it->second->lastActive.update();
 	if (it->second->watched) return;
+	if (buffered)
+	{
+		receive(it->second);
+		return;
+	}
 	// Marked first: should the poll set fail to take a descriptor that has
 	// been closed, the scan in runMain() still finds it.
 	it->second->watched = true;
@@ -1440,7 +1569,7 @@ void WebEventServiceImpl::watchSocketImpl(const Poco::Net::Socket& socket)
 
 bool WebEventServiceImpl::stallCheckDueImpl() const
 {
-	return _lastStallCheck.isElapsed(std::chrono::duration_cast<std::chrono::microseconds>(WEBEVENT_STALL_CHECK_INTERVAL).count());
+	return _lastStallCheck.isElapsed(Poco::Timespan(WEBEVENT_STALL_CHECK_INTERVAL).totalMicroseconds());
 }
 
 
@@ -1495,7 +1624,8 @@ void WebEventServiceImpl::removeStalledSubscribersImpl()
 
 bool WebEventServiceImpl::pingSweepDueImpl() const
 {
-	return _pingInterval > 0 && _lastPingSweep.isElapsed(Poco::Timespan(_pingInterval, 0).totalMicroseconds());
+	return _pingInterval > std::chrono::seconds::zero()
+		&& _lastPingSweep.isElapsed(Poco::Timespan(_pingInterval).totalMicroseconds());
 }
 
 
@@ -1508,7 +1638,7 @@ void WebEventServiceImpl::pingIdleSubscribersImpl()
 	// 1x/2x the sweep period, a responsive socket's idle time peaks within
 	// jitter of the dead threshold and healthy connections get reaped.
 	// Half/double gives every live socket a full sweep period of margin.
-	const Poco::Clock::ClockDiff interval = Poco::Timespan(_pingInterval, 0).totalMicroseconds();
+	const Poco::Clock::ClockDiff interval = Poco::Timespan(_pingInterval).totalMicroseconds();
 	const Poco::Clock::ClockDiff pingIdle = interval/2;
 	const Poco::Clock::ClockDiff deadIdle = 2*interval;
 
@@ -1549,7 +1679,7 @@ void WebEventServiceImpl::pingIdleSubscribersImpl()
 	for (std::vector<Subscriber::Ptr>::const_iterator it = stale.begin(); it != stale.end(); ++it)
 	{
 		logger().information(Poco::format("Removing WebSocket subscriber %s: nothing received for at least %d seconds, although a keepalive PING was sent.",
-			describe(**it), 2*_pingInterval));
+			describe(**it), static_cast<int>(2*_pingInterval.count())));
 		// Closed without waiting to be answered. This subscriber has
 		// ignored pings for two intervals, so it will not confirm a close
 		// either, and that wait holds a worker for the shutdown timeout -
@@ -1659,7 +1789,7 @@ Poco::NotificationQueue& WebEventServiceImpl::workerQueue()
 
 int WebEventServiceImpl::defaultWorkerCount()
 {
-	int processors = Poco::Environment::processorCount();
+	int processors = static_cast<int>(Poco::Environment::processorCount());
 	if (processors <= 0) processors = 1;
 	return 2 * processors;
 }
@@ -1689,6 +1819,34 @@ void WebEventServiceImpl::preflightRequest(Poco::Net::HTTPServerRequest& request
 		if (_socketCount.compare_exchange_weak(count, count + 1)) return;
 	}
 	request.response().setStatusAndReason(Poco::Net::HTTPResponse::HTTP_SERVICE_UNAVAILABLE);
+	logRejectedUpgrade(Rejection::LIMIT,
+		Poco::format("WebSocket connection from %s rejected: the limit of %d WebSocket connections "
+			"(osp.web.event.maxWebSockets) is reached.",
+			request.clientAddress().toString(), _maxSockets));
+}
+
+
+void WebEventServiceImpl::logRejectedUpgrade(Rejection rejection, const std::string& message)
+{
+	bool notice = false;
+	{
+		Poco::FastMutex::ScopedLock lock(_rejectionLogMutex);
+
+		Poco::Clock& lastNotice = _lastRejectionNotice.at(static_cast<std::size_t>(rejection));
+		if (lastNotice.isElapsed(Poco::Timespan(WEBEVENT_REJECTION_NOTICE_INTERVAL).totalMicroseconds()))
+		{
+			lastNotice.update();
+			notice = true;
+		}
+	}
+	if (notice)
+	{
+		logger().notice(message);
+	}
+	else if (logger().debug())
+	{
+		logger().debug(message);
+	}
 }
 
 

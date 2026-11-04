@@ -6,7 +6,7 @@ POCO_SOURCES_AUTO(TEST_SRCS ${SRCS_G})
 file(GLOB_RECURSE HDRS_G "src/*.h")
 POCO_HEADERS_AUTO(TEST_SRCS ${HDRS_G})
 
-add_executable(OSPWeb-testrunner ${TEST_SRCS})
+poco_add_executable(OSPWeb-testrunner ${TEST_SRCS})
 if(ENABLE_TEST_DEPRECATED)
 	target_compile_definitions(OSPWeb-testrunner PRIVATE POCO_TEST_DEPRECATED)
 endif()
@@ -23,6 +23,8 @@ target_link_libraries(OSPWeb-testrunner PRIVATE Poco::OSPWeb Poco::OSP Poco::Zip
 # that a bundle's library stays loaded until the session attributes it created are destroyed.
 if(BUILD_SHARED_LIBS)
 	add_library(OSPWebTestLibrary MODULE library/TestLibrary.cpp)
+	# Hidden symbols, so that two loaded copies of the library do not use each other's code.
+	set_target_properties(OSPWebTestLibrary PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
 	target_link_libraries(OSPWebTestLibrary PRIVATE Poco::OSPWeb Poco::Foundation)
 	add_dependencies(OSPWeb-testrunner OSPWebTestLibrary)
 	target_include_directories(OSPWeb-testrunner PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)

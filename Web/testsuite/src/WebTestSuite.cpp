@@ -15,6 +15,7 @@
 #include "WebSessionManagerTest.h"
 #include "LibraryFactoryTest.h"
 #include "WebServerExtensionPointTest.h"
+#include "WebFilterExtensionPointTest.h"
 #include "AbstractWebServerBundleActivatorTest.h"
 #include "CppUnit/Test.h"
 #include "CppUnit/TestSuite.h"
@@ -30,6 +31,7 @@ CppUnit::Test* WebTestSuite::suite()
 	pSuite->addTest(WebSessionManagerTest::suite());
 	pSuite->addTest(LibraryFactoryTest::suite());
 	pSuite->addTest(WebServerExtensionPointTest::suite());
+	pSuite->addTest(WebFilterExtensionPointTest::suite());
 	pSuite->addTest(AbstractWebServerBundleActivatorTest::suite());
 
 	return pSuite;

@@ -34,6 +34,7 @@ public:
 	void testFilterFactoryWithoutFilter();
 #if defined(OSPWEB_TEST_LIBRARY)
 	void testLibraryStaysLoadedWhileReferenced();
+	void testObjectIsCreatedFromItsOwnLibrary();
 #endif
 
 	static CppUnit::Test* suite();

@@ -59,16 +59,7 @@ target_include_directories(${LIBNAME}
 )
 
 # Dynamic Library
-add_library(${TARGET} MODULE ${BUNDLE_SRCS})
-set_target_properties(${TARGET}
-	PROPERTIES
-	PREFIX ""
-)
-
-# On macOS, use .dylib instead of .so
-if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
-	set_target_properties(${TARGET} PROPERTIES SUFFIX ".dylib")
-endif()
+poco_osp_bundle_module(${TARGET} ${BUNDLE_SRCS})
 
 target_link_libraries(${TARGET} PRIVATE Poco::OSPWeb Poco::OSP Poco::Zip Poco::Net Poco::Util Poco::XML Poco::JSON Poco::Foundation)
 
@@ -78,13 +69,7 @@ poco_osp_bundle(${TARGET}-bundle
 	SPEC ${BUNDLE_SPEC}
 	CODE $<TARGET_FILE:${LIBNAME}> $<TARGET_FILE:${TARGET}>
 	DESTINATION ${POCO_OSP_BUNDLE_DIR}
-)
-
-install(
-	DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
-	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
-	COMPONENT    Bundles
-	FILES_MATCHING PATTERN "${TARGET}*.bndl"
+	INSTALL_COMPONENT Bundles
 )
 
 POCO_INSTALL(${LIBNAME})

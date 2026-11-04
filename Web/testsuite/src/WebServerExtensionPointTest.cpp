@@ -10,6 +10,7 @@
 
 #include "WebServerExtensionPointTest.h"
 #include "TemporaryBundle.h"
+#include "ServerRequestStub.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
 #include "CppUnit/TestCase.h"
@@ -19,12 +20,14 @@
 #include "Poco/OSP/OSPException.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/OSP/Bundle.h"
+#include "Poco/Net/HTTPRequestHandler.h"
 #include "Poco/DOM/Document.h"
 #include "Poco/DOM/Element.h"
 #include "Poco/AutoPtr.h"
 #include <map>
 #include <string>
 #include <memory>
+#include <tuple>
 
 
 using Poco::OSP::Web::WebServerDispatcher;
@@ -142,6 +145,50 @@ void WebServerExtensionPointTest::testInvalidAllowSpecialization()
 }
 
 
+#if defined(OSPWEB_TEST_LIBRARY)
+
+
+void WebServerExtensionPointTest::testRequestHandlerFactoryComesFromItsBundleLibrary()
+{
+	// Each bundle has its own copy of the library, which exports a class with the same name.
+	_pBundle->installLibrary("osp.web.test.first", OSPWEB_TEST_LIBRARY);
+	_pBundle->installLibrary("osp.web.test.second", OSPWEB_TEST_LIBRARY);
+	WebServerDispatcher::Config config;
+	config.pContext = _pBundle->context();
+	WebServerDispatcher dispatcher(config);
+	Poco::AutoPtr<WebServerExtensionPoint> pExtensionPoint(new WebServerExtensionPoint(_pBundle->context(),
+		&dispatcher));
+	Poco::AutoPtr<Document> pDoc(new Document);
+	for (const auto& [path, library, pBundle]: {std::make_tuple("/first", "osp.web.test.first", _pBundle->bundle()),
+		std::make_tuple("/second", "osp.web.test.second", _pBundle->zipBundle())})
+	{
+		Poco::AutoPtr<Element> pElem(pDoc->createElement("extension"));
+		pElem->setAttribute("point", WebServerExtensionPoint::EXTPOINT_HANDLER);
+		pElem->setAttribute("path", path);
+		pElem->setAttribute("class", "LibraryInstanceRequestHandlerFactory");
+		pElem->setAttribute("library", library);
+		pExtensionPoint->handleExtension(pBundle, pElem);
+	}
+	WebServerDispatcher::PathMap mappings;
+	dispatcher.virtualPathMappings(mappings);
+	const auto libraryInstance = [&mappings](const std::string& path)
+		// Returns the answer of a handler of the path, which identifies the copy of the library.
+	{
+		ServerRequestStub request("127.0.0.1:50000", false);
+		std::unique_ptr<Poco::Net::HTTPRequestHandler> pHandler(
+			mappings.at(path).pFactory->createRequestHandler(request));
+		pHandler->handleRequest(request, request.response());
+		return request.response().body();
+	};
+
+	assertFalse (libraryInstance("/first/").empty());
+	assertTrue (libraryInstance("/first/") != libraryInstance("/second/"));
+}
+
+
+#endif // OSPWEB_TEST_LIBRARY
+
+
 void WebServerExtensionPointTest::testInvalidResponseFormat()
 {
 	try
@@ -163,6 +210,9 @@ CppUnit::Test* WebServerExtensionPointTest::suite()
 	CppUnit_addTest(pSuite, WebServerExtensionPointTest, testCommonAttributeDefaults);
 	CppUnit_addTest(pSuite, WebServerExtensionPointTest, testInvalidAllowSpecialization);
 	CppUnit_addTest(pSuite, WebServerExtensionPointTest, testInvalidResponseFormat);
+#if defined(OSPWEB_TEST_LIBRARY)
+	CppUnit_addTest(pSuite, WebServerExtensionPointTest, testRequestHandlerFactoryComesFromItsBundleLibrary);
+#endif
 
 	return pSuite;
 }

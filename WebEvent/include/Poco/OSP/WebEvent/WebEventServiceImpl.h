@@ -22,6 +22,7 @@
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/Net/WebSocket.h"
 #include "Poco/Net/PollSet.h"
+#include "Poco/Util/AbstractConfiguration.h"
 #include "Poco/NotificationQueue.h"
 #include "Poco/Thread.h"
 #include "Poco/RunnableAdapter.h"
@@ -31,8 +32,10 @@
 #include "Poco/AutoPtr.h"
 #include "Poco/SharedPtr.h"
 #include "Poco/Mutex.h"
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <vector>
 #include <set>
 #include <map>
@@ -82,7 +85,7 @@ public:
 
 	[[nodiscard]] static int defaultWorkerCount();
 
-	struct Config
+	struct OSPWebEvent_API Config
 		/// The settings of a WebEventServiceImpl.
 	{
 		int maxSockets = 0;
@@ -95,7 +98,9 @@ public:
 
 		int maxPendingFrames = DEFAULT_MAX_PENDING_FRAMES;
 			/// The largest number of outbound frames queued per subscriber;
-			/// 0 means unlimited.
+			/// 0 means unlimited. Beyond it, the oldest queued notification
+			/// is dropped. The keepalive PING and the PONG to the client's
+			/// latest PING count against it but are never dropped.
 
 		std::chrono::seconds pingInterval{60};
 			/// Every interval, subscribers that have not sent anything for at
@@ -119,6 +124,11 @@ public:
 			/// nothing arrives, before it looks again at the keepalive sweep
 			/// and the stalled sends and receives. Queued tasks wake it at
 			/// once.
+
+		[[nodiscard]] static Config fromConfiguration(const Poco::Util::AbstractConfiguration& configuration);
+			/// Returns the Config given by the osp.web.event properties workers,
+			/// maxWebSockets, maxPendingFrames, pingInterval (in seconds),
+			/// clientNotify and maxSubjects; a property not given keeps its default.
 	};
 
 	explicit WebEventServiceImpl(Poco::OSP::BundleContext::Ptr pContext = nullptr);
@@ -152,7 +162,8 @@ public:
 	[[nodiscard]] std::string resolveUser(const Poco::Net::HTTPServerRequest& request) const;
 		/// Invokes the installed user resolver for the given WebSocket
 		/// upgrade request; returns an empty string if no resolver is
-		/// installed or the resolver throws.
+		/// installed or the resolver throws a Poco::Exception or a
+		/// std::exception. Any other exception is passed on.
 
 	// Service
 	[[nodiscard]] const std::type_info& type() const override;
@@ -172,8 +183,8 @@ protected:
 		struct PendingFrame
 		{
 			std::string subject;
-				/// Published subject, used as coalescing key.
-				/// An empty subject is never coalesced (pong replies).
+				/// Published subject, used as coalescing key; empty for
+				/// control frames and system.pong replies, which it does not coalesce.
 			std::shared_ptr<const std::string> pFrame;
 				/// Complete NOTIFY frame, shared across subscribers.
 			int flags = Poco::Net::WebSocket::FRAME_TEXT;
@@ -188,8 +199,8 @@ protected:
 		std::string clientAddress;
 		Poco::Clock lastActive;
 			/// Main-thread only: refreshed whenever the socket is found
-			/// readable, and whenever it is re-armed for reading after a
-			/// received frame (see watchSocketImpl()). Monotonic, so that a
+			/// readable, and when a worker has handled a frame from it
+			/// (see watchSocketImpl()). Monotonic, so that a
 			/// correction of the system clock cannot mark every subscriber
 			/// dead at once, nor postpone the keepalive indefinitely.
 
@@ -229,15 +240,17 @@ protected:
 		Poco::FastMutex writeMutex;
 			/// Serializes socket writes: drainer sendFrame vs. shutdownImpl close frame.
 		Poco::FastMutex readMutex;
-			/// Serializes socket reads and close(): receiveImpl vs. the
-			/// confirmation read in shutdownImpl. Lock order is writeMutex
-			/// before readMutex; receiveImpl takes readMutex only.
+			/// Serializes socket reads and close(): receiveImpl and
+			/// receiveNext vs. the confirmation read in shutdownImpl. Lock
+			/// order is writeMutex before readMutex; receiveImpl and
+			/// receiveNext take readMutex only.
 	};
 	using SocketMap = std::map<Poco::Net::Socket, Subscriber::Ptr>;
 
 	void shutdown(Subscriber::Ptr pSubscriber, Poco::UInt16 statusCode, const std::string& statusMessage, bool passive);
 		/// Queues the shutdown of the subscriber's connection for a worker.
-		/// With passive, the client's confirmation is not waited for.
+		/// With passive, the client's confirmation is not waited for. A
+		/// connection not closed within WEBEVENT_SHUTDOWN_TIMEOUT is shut down.
 
 	void enqueueMain(const WebEventTaskNotification::Ptr& pTask);
 		/// Queues the task for the main thread and wakes the thread up.
@@ -260,6 +273,24 @@ private:
 		/// response status to 503 if none is free. A slot taken is handed
 		/// to addSubscriber() or given back with releaseSocketSlot().
 	void releaseSocketSlot();
+
+	enum class Rejection
+		/// Why an upgrade request is rejected.
+	{
+		ORIGIN,
+		LIMIT,
+		DELEGATE
+	};
+	static constexpr std::size_t REJECTION_REASON_COUNT = 3;
+		/// The number of Rejection values.
+	static_assert(static_cast<std::size_t>(Rejection::DELEGATE) + 1 == REJECTION_REASON_COUNT);
+
+	void logRejectedUpgrade(Rejection rejection, const std::string& message);
+		/// Logs the rejection of an upgrade request: at notice level at
+		/// most once every WEBEVENT_REJECTION_NOTICE_INTERVAL for each
+		/// reason, otherwise at debug level, so that a client that retries
+		/// in a loop does not fill the log.
+
 	void runMain();
 	void runWorker();
 	void addSubscriber(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::string& username = std::string(), const std::string& page = std::string(), const std::string& clientAddress = std::string());
@@ -268,6 +299,9 @@ private:
 	void unsubscribe(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::set<std::string>& subjectNames);
 	void enqueueSend(Subscriber::Ptr pSubscriber, const std::string& subject, std::shared_ptr<const std::string> pFrame, int flags = Poco::Net::WebSocket::FRAME_TEXT);
 	void receive(Subscriber::Ptr pSubscriber);
+	void receiveNext(Subscriber::Ptr pSubscriber);
+		/// Hands the subscriber's socket back to the main thread after a worker
+		/// has handled a frame, telling whether the next frame is already waiting.
 
 	void notifyImpl(const std::string& subjectName, const std::string& data);
 	void notifyUserImpl(const std::string& username, const std::string& subjectName, const std::string& data);
@@ -299,13 +333,23 @@ private:
 		/// Runs on the main thread once its loop has ended: closes out
 		/// every subscriber and clears the socket and subject maps.
 	void shutdownSocket(const Poco::Net::Socket& socket);
-		/// Shuts the socket down in both directions, which ends a send or
-		/// receive another thread is blocked in. An error is logged at
-		/// debug level only.
+		/// Shuts the socket's TCP connection down in both directions, ending a
+		/// send or receive another thread is blocked in; there is no TLS close.
+		/// An error is logged at debug level only.
 	void confirmShutdownImpl(Subscriber& subscriber);
 		/// Waits, for at most WEBEVENT_SHUTDOWN_TIMEOUT, for the client's
-		/// CLOSE frame. Runs on a worker, which holds both socket locks.
-	void watchSocketImpl(const Poco::Net::Socket& socket);
+		/// CLOSE frame. If a frame is rejected instead, shuts down the send
+		/// direction and discards what the client sends, up to
+		/// WEBEVENT_SHUTDOWN_DISCARD_LIMIT bytes, until the client closes its
+		/// side or the same deadline passes. Runs on a worker, which holds
+		/// both socket locks.
+	void closeImpl(Poco::Net::WebSocket& webSocket);
+		/// Takes the socket off the watchdog's list, then closes it. Runs on
+		/// a worker, which holds both socket locks.
+	void watchSocketImpl(const Poco::Net::Socket& socket, bool buffered);
+		/// If the socket is still subscribed, stamps its subscriber as heard from
+		/// and, unless the socket is already watched, hands it to a worker if
+		/// buffered (its next frame is already waiting), or adds it to the poll set.
 	void unwatchSocketImpl(const Poco::Net::Socket& socket);
 	void removeBadSocketsImpl();
 	void wakeUpMain();
@@ -317,10 +361,11 @@ private:
 	static const std::string SYSTEM_PING;
 	static const std::string SYSTEM_PONG;
 
-	static constexpr Poco::Clock::ClockDiff WEBEVENT_LIST_SUBSCRIBERS_TIMEOUT = 5;
-	static constexpr long WEBEVENT_LIST_SUBSCRIBERS_POLL_MS = 50;
-	static constexpr Poco::Clock::ClockDiff WEBEVENT_DROP_WARNING_INTERVAL = 5;
-	static constexpr long WEBEVENT_QUEUE_WAIT_MS = 1000;
+	static constexpr std::chrono::seconds WEBEVENT_LIST_SUBSCRIBERS_TIMEOUT{5};
+	static constexpr std::chrono::milliseconds WEBEVENT_LIST_SUBSCRIBERS_POLL{50};
+	static constexpr std::chrono::seconds WEBEVENT_DROP_WARNING_INTERVAL{5};
+	static constexpr std::chrono::milliseconds WEBEVENT_QUEUE_WAIT{1000};
+	static constexpr std::chrono::seconds WEBEVENT_REJECTION_NOTICE_INTERVAL{5};
 
 	static constexpr int WEBEVENT_MAX_FRAME_PAYLOAD = 4096;
 		/// Largest frame accepted from a client; a larger one is a
@@ -343,11 +388,18 @@ private:
 		/// every byte it sends.
 
 	static constexpr std::chrono::seconds WEBEVENT_SHUTDOWN_TIMEOUT{2};
-		/// Longest time a worker waits for a client to confirm the close of
-		/// its connection.
+		/// Longest time from the removal of a subscriber to the close of its
+		/// connection: for a send or receive still in flight, the CLOSE
+		/// frame and the client's confirmation.
+
+	static constexpr int WEBEVENT_SHUTDOWN_DISCARD_LIMIT = 1024 * 1024;
+		/// Most bytes discarded after a frame rejected during the shutdown,
+		/// so that the rest of the frame does not reset the connection
+		/// before the client has read the CLOSE frame.
 
 	struct ClosingSocket
-		/// A socket whose worker waits for the client's CLOSE confirmation.
+		/// The socket of a removed subscriber, until a worker closes it or
+		/// the service stops.
 	{
 		Poco::Net::Socket socket;
 		Poco::Clock deadline;
@@ -365,7 +417,7 @@ private:
 	Poco::OSP::BundleContext::Ptr _pContext;
 	int _maxSockets;
 	int _maxPendingFrames;
-	int _pingInterval;
+	std::chrono::seconds _pingInterval;
 	Poco::Timespan _pollTimeout;
 	bool _clientNotify;
 	int _maxSubjects;
@@ -396,6 +448,10 @@ private:
 	ThreadVec _workerThreads;
 	Poco::RunnableAdapter<WebEventServiceImpl> _mainRunnable;
 	Poco::RunnableAdapter<WebEventServiceImpl> _workerRunnable;
+	std::array<Poco::Clock, REJECTION_REASON_COUNT> _lastRejectionNotice;
+		/// When a rejection was last logged at notice level, by Rejection;
+		/// Clock(0) before the first one.
+	Poco::FastMutex _rejectionLogMutex;
 	UserResolver _userResolver;
 	mutable Poco::FastMutex _userResolverMutex;
 	std::atomic<bool> _stopped;

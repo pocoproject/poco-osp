@@ -229,8 +229,10 @@ public:
 
 	void stop(BundleContext::Ptr pContext) override
 	{
-		_pContext = nullptr;
+		// Releasing the listener waits for a callback that runs in another thread,
+		// and the callbacks use the context.
 		_pStoreListener = nullptr;
+		_pContext = nullptr;
 		if (_pWebServerDispatcherSvc != nullptr)
 		{
 			Poco::AutoPtr<WebServerDispatcher> pDispatcher = _pWebServerDispatcherSvc->castedInstance<WebServerDispatcher>();
@@ -239,6 +241,8 @@ public:
 		pContext->registry().unregisterService(_pWebSessionManagerSvc);
 		pContext->registry().unregisterService(_pWebServerDispatcherSvc);
 		pContext->registry().unregisterService(_pMediaTypeMapperSvc);
+		// Cached sessions can retain objects that hold the manager.
+		_pWebSessionManager->clearCache();
 		_pWebSessionManager = nullptr;
 		_pWebSessionManagerSvc = nullptr;
 		_pWebServerDispatcherSvc = nullptr;

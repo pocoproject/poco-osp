@@ -19,7 +19,6 @@
 #include "Poco/OSP/Web/WebRequestHandlerFactory.h"
 #include "Poco/AutoPtr.h"
 #include "Poco/ClassLibrary.h"
-#include <chrono>
 
 
 using Poco::OSP::Web::WebRequestHandlerFactory;
@@ -43,19 +42,15 @@ public:
 	{
 		return new WebEventRequestHandler(_pWebEventServiceImpl, _pAllowedOrigins);
 	}
-	
+
 protected:
 	void initImpl() override
 	{
-		ServiceRef::Ptr pWebEventServiceRef = context()->registry().findByName(WebEventService::SERVICE_NAME);
-		if (pWebEventServiceRef != nullptr)
-		{
-			 _pWebEventServiceImpl = pWebEventServiceRef->castedInstance<WebEventServiceImpl>();
-		}
+		_pWebEventServiceImpl = Poco::OSP::ServiceFinder::find<WebEventServiceImpl>(context());
 		Poco::OSP::PreferencesService::Ptr pPrefs = Poco::OSP::ServiceFinder::find<Poco::OSP::PreferencesService>(context());
 		_pAllowedOrigins = WebEventRequestHandler::parseAllowedOrigins(pPrefs->configuration()->getString("osp.web.event.allowedOrigins", ""));
 	}
-	
+
 private:
 	WebEventServiceImpl::Ptr _pWebEventServiceImpl;
 	WebEventRequestHandler::OriginSetPtr _pAllowedOrigins;
@@ -69,25 +64,18 @@ class WebEventBundleActivator: public BundleActivator
 {
 public:
 	WebEventBundleActivator() = default;
-	
+
 	~WebEventBundleActivator() override = default;
-	
+
 	void start(BundleContext::Ptr pContext) override
 	{
 		Poco::OSP::PreferencesService::Ptr pPrefs = Poco::OSP::ServiceFinder::find<Poco::OSP::PreferencesService>(pContext);
 
-		WebEventServiceImpl::Config config;
-		config.workerCount = pPrefs->configuration()->getInt("osp.web.event.workers", WebEventServiceImpl::defaultWorkerCount());
-		config.maxSockets = pPrefs->configuration()->getInt("osp.web.event.maxWebSockets", config.maxSockets);
-		config.maxPendingFrames = pPrefs->configuration()->getInt("osp.web.event.maxPendingFrames", config.maxPendingFrames);
-		config.pingInterval = std::chrono::seconds(pPrefs->configuration()->getInt("osp.web.event.pingInterval", static_cast<int>(config.pingInterval.count())));
-		config.clientNotify = pPrefs->configuration()->getBool("osp.web.event.clientNotify", config.clientNotify);
-		config.maxSubjects = pPrefs->configuration()->getInt("osp.web.event.maxSubjects", config.maxSubjects);
-
-		_pWebEventService = new WebEventServiceImpl(pContext, config);
+		_pWebEventService = new WebEventServiceImpl(pContext,
+			WebEventServiceImpl::Config::fromConfiguration(*pPrefs->configuration()));
 		_pWebEventServiceRef = pContext->registry().registerService(WebEventService::SERVICE_NAME, _pWebEventService, Properties());
 	}
-		
+
 	void stop(BundleContext::Ptr pContext) override
 	{
 		pContext->registry().unregisterService(_pWebEventServiceRef);
@@ -97,7 +85,7 @@ public:
 		_pWebEventService->stop();
 		_pWebEventService.reset();
 	}
-	
+
 private:
 	ServiceRef::Ptr _pWebEventServiceRef;
 	WebEventServiceImpl::Ptr _pWebEventService;

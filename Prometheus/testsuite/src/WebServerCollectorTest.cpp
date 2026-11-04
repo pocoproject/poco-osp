@@ -52,7 +52,7 @@ namespace
 		WebServerStub& operator = (WebServerStub&&) = delete;
 
 		int currentThreads() const override { return 1; }
-		int totalConnections() const override { return 10; }
+		Poco::Int64 totalConnections() const override { return 10; }
 		int currentConnections() const override { return 2; }
 		int maxConcurrentConnections() const override { return 3; }
 		int queuedConnections() const override { return 0; }

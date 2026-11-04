@@ -22,6 +22,7 @@
 #include "Poco/OSP/Service.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/Net/HTTPServerParams.h"
+#include "Poco/Types.h"
 
 
 namespace Poco::OSP::Web {
@@ -42,7 +43,7 @@ public:
 	[[nodiscard]] virtual int currentThreads() const = 0;
 		/// Returns the number of currently used connection threads.
 
-	[[nodiscard]] virtual int totalConnections() const = 0;
+	[[nodiscard]] virtual Poco::Int64 totalConnections() const = 0;
 		/// Returns the total number of handled connections.
 		
 	[[nodiscard]] virtual int currentConnections() const = 0;

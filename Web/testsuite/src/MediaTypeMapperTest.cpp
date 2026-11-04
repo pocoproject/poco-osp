@@ -45,9 +45,9 @@ void MediaTypeMapperTest::testLoad()
 	MediaTypeMapper mapper;
 
 	mapper.load(istr);
-	poco_assert(mapper.find("atom") != mapper.end());
-	poco_assert(mapper.find("pdf") != mapper.end());
-	poco_assert(mapper.find("unknown") == mapper.end());
+	assertTrue (mapper.find("atom") != mapper.end());
+	assertTrue (mapper.find("pdf") != mapper.end());
+	assertTrue (mapper.find("unknown") == mapper.end());
 }
 
 

@@ -132,8 +132,8 @@ void WebServerExtensionPoint::handleRequestHandler(Bundle::ConstPtr pBundle, Poc
 		library = pBundle->symbolicName();
 
 	std::string libraryPath = _pContext->pathForLibrary(library);
-	LibraryRequestHandlerFactory::LibraryPtr pLibrary = std::make_shared<LibraryReference<WebRequestHandlerFactory>>(_pLoader, libraryPath, MANIFEST_NAME);
-	std::unique_ptr<WebRequestHandlerFactory> pFactory(_pLoader->create(className));
+	auto pLibrary = std::make_shared<LibraryReference<WebRequestHandlerFactory>>(_pLoader, libraryPath, MANIFEST_NAME);
+	std::unique_ptr<WebRequestHandlerFactory> pFactory(pLibrary->create(className));
 	pFactory->init(_pContext->contextForBundle(pBundle));
 	vPath.pFactory = Poco::makeShared<LibraryRequestHandlerFactory>(pLibrary, std::move(pFactory));
 

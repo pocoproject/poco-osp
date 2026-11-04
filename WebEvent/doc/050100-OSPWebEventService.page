@@ -106,7 +106,7 @@ sequence - typically a JSON or XML document.
 ----
 
 To receive notifications on a specific subject, use the 
-Poco::OSP::WebEvent::subjectNotified() member function, specifying
+Poco::OSP::WebEvent::WebEventService::subjectNotified() member function, specifying
 the subject name. The function will return a reference to a 
 Poco::BasicEvent object which can be used to register a delegate
 receiving the notification.
@@ -305,12 +305,11 @@ page the user visits can therefore try to connect to the WebEventService.
 The service checks the following before a connection is established:
 
   - The Origin header. An upgrade request whose Origin is neither the
-    request's own (the host and port of its Host header) nor one of the
-    origins listed in osp.web.event.allowedOrigins is rejected with status
-    403. The request's own origin has the scheme of the connection (https
-    for a secure one), and the host and port of the Host header. Requests
-    without an Origin header come from clients other than browsers and are
-    accepted.
+    request's own nor one of the origins listed in
+    osp.web.event.allowedOrigins is rejected with status 403. The request's
+    own origin has the scheme of the connection (https for a secure one),
+    and the host and port of the Host header. Requests without an Origin
+    header come from clients other than browsers and are accepted.
   - The number of connections, if osp.web.event.maxWebSockets is set.
 
 The service does not authenticate or authorize clients itself. An application
@@ -343,7 +342,7 @@ following guidelines should be observed:
     for data meant for one user only.
   - Use cryptographic hashes or tokens to refer to actual data. For example, when notifying
     a client that a specific data object on the server has been modified, and the client
-    needs to update it's representation of it, send a cryptographic hash identifying the object
+    needs to update its representation of it, send a cryptographic hash identifying the object
     in the event message. Only authorized clients already in possession of the hash can then
     associate the event with the object, and the event message is meaningless to everyone else.
 
@@ -367,8 +366,9 @@ Delivery to a subscriber that cannot keep up is lossy:
     ancestors) receives a single frame per notification.
   - The number of queued frames per subscriber is limited by the
     osp.web.event.maxPendingFrames configuration property. When the limit is
-    exceeded, the oldest queued frame for that subscriber is dropped and a warning
-    is logged.
+    exceeded, the oldest queued notification frame for that subscriber is dropped
+    and a warning is logged. The keepalive PING and the PONG that answers the
+    client's latest PING are never dropped; at most one of each is queued.
   - A subscriber to which a frame has not been sent completely within ten seconds
     is disconnected and removed, within about another second. The limit applies
     to the whole frame, so a client that reads a few bytes at a time cannot hold
@@ -383,8 +383,10 @@ In the other direction, a client that has started a frame and does not send
 it completely within ten seconds is disconnected and removed as well, within
 about another second.
 
-When the server closes a connection, a worker waits at most two seconds for the
-client to confirm the close, within about another second; then the connection is
+When a subscriber is removed, for whatever reason, its connection is closed within
+two seconds, within about another second. The limit applies to a frame still being
+sent to or received from the subscriber, the CLOSE frame of the server and the
+client's confirmation of the close together; when it is reached, the connection is
 closed without the confirmation.
 
 Server-side events (notificationSent, subjectNotified) are not affected by any of
@@ -419,10 +421,12 @@ at most 64. Defaults to two times the number of processor cores.
 
 !! osp.web.event.maxPendingFrames
 
-The maximum number of outbound notification frames queued per subscriber.
+The maximum number of outbound frames queued per subscriber.
 When a subscriber cannot keep up and the limit is exceeded, the oldest queued
-frame for that subscriber is dropped. Specify 0 for unlimited queueing (which
-can exhaust memory if clients stall).
+notification frame for that subscriber is dropped. The keepalive PING and the
+PONG that answers the client's latest PING, at most one of each, count against
+the limit but are never dropped, so with a limit of 1 two frames can be queued.
+Specify 0 for unlimited queueing (which can exhaust memory if clients stall).
 Defaults to 256.
 
 

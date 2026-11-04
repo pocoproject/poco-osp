@@ -61,16 +61,25 @@ public:
 	void testListSubscribersThrowsOnTimeout();
 	void testKeepaliveReapsSilentSubscribers();
 	void testActivityIsStampedWhenReadable();
+	void testClientThatKeepsSendingIsNotRemoved();
 	void testKeepaliveSweepRunsUnderQueueLoad();
 	void testUnsentPingDoesNotReap();
 	void testSnapshotReturnsEmptyWhenStopped();
 	void testSendQueueCoalescing();
 	void testSendQueueBounded();
+	void testKeepaliveSurvivesFullSendQueue();
+	void testClientPingsQueueOnePong();
 	void testPendingSendsAfterDisconnect();
 	void testSlowConsumerDoesNotStallOthers();
 	void testSlowReaderIsRemovedAfterSendTimeout();
 	void testTricklingSenderIsRemovedAfterReceiveTimeout();
 	void testTricklingCloseDoesNotHoldShutdown();
+	void testRemovedSubscriberDoesNotHoldWorkers();
+	void testStopClosesSocketsOfQueuedShutdowns();
+#if defined(OSP_WEBEVENT_ENABLE_TLS)
+	void testStopDoesNotWaitForTlsPeers();
+	void testFramesInOneTlsRecordAreAllRead();
+#endif
 	void testNotifyUserDeliversOnlyToUser();
 	void testConcurrentApiAccess();
 

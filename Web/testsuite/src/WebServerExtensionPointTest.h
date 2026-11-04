@@ -36,6 +36,9 @@ public:
 	void testCommonAttributeDefaults();
 	void testInvalidAllowSpecialization();
 	void testInvalidResponseFormat();
+#if defined(OSPWEB_TEST_LIBRARY)
+	void testRequestHandlerFactoryComesFromItsBundleLibrary();
+#endif
 
 	static CppUnit::Test* suite();
 

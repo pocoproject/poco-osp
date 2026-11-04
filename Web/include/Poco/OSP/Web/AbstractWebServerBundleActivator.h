@@ -62,7 +62,8 @@ class OSPWeb_API AbstractWebServerBundleActivator: public BundleActivator
 	/// The bundle properties host, port (HTTP) or securePort (HTTPS), maxQueued,
 	/// maxThreads, keepAlive, keepAliveTime and maxKeepAlive are the defaults;
 	/// without a preferences service, they are used alone.
-	/// A port of 0 disables the server.
+	/// A port of 0 disables the server; any other port outside 1 to 65535 is
+	/// logged as an error and the server is not started.
 {
 public:
 	AbstractWebServerBundleActivator() = delete;

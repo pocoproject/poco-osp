@@ -27,10 +27,12 @@
 #include "Poco/Net/HTTPServerRequest.h"
 #include "Poco/Message.h"
 #include <atomic>
+#include <map>
 #include <thread>
 #include <vector>
 #include <string>
 #include <memory>
+#include <utility>
 
 
 using Poco::OSP::Web::WebSession;
@@ -210,6 +212,45 @@ void WebSessionManagerTest::testRenewReplacesSession()
 	assertTrue (pManager->findById(pRenewed->id()) == pRenewed);
 	assertEqual (pRenewed->id(), responseCookie(loginRequest, "osp.web.session.app").getValue());
 	assertEqual (pRenewed->csrfToken(), responseCookie(loginRequest, CSRF_COOKIE).getValue());
+}
+
+
+void WebSessionManagerTest::testUpdateSessionTimeoutReplacesCookies()
+{
+	WebSessionManager::Ptr pManager(new WebSessionManager(_pBundle->context()));
+	pManager->setCSRFCookie(CSRF_COOKIE);
+	ServerRequestStub request(CLIENT_ADDRESS, false);
+	WebSession::Ptr pSession = pManager->create("app", request, SESSION_TIMEOUT_SECONDS, _pBundle->context());
+
+	ServerRequestStub nextRequest(CLIENT_ADDRESS, false);
+	pManager->updateSessionTimeout("app", pSession, 2*SESSION_TIMEOUT_SECONDS, nextRequest);
+
+	assertEqual (2*SESSION_TIMEOUT_SECONDS, pSession->timeout());
+	const HTTPCookie sessionCookie = responseCookie(nextRequest, "osp.web.session.app");
+	assertEqual (pSession->id(), sessionCookie.getValue());
+	// The cookie states its expiration as a date, which the parser turns back into seconds.
+	assertTrue (sessionCookie.getMaxAge() > SESSION_TIMEOUT_SECONDS);
+	assertEqual (pSession->csrfToken(), responseCookie(nextRequest, CSRF_COOKIE).getValue());
+}
+
+
+void WebSessionManagerTest::testForEachSessionVisitsCachedSessions()
+{
+	WebSessionManager::Ptr pManager(new WebSessionManager(_pBundle->context()));
+	ServerRequestStub request(CLIENT_ADDRESS, false);
+	WebSession::Ptr pFirst = pManager->create("app", request, SESSION_TIMEOUT_SECONDS, _pBundle->context());
+	WebSession::Ptr pSecond = pManager->create("app", request, SESSION_TIMEOUT_SECONDS, _pBundle->context());
+	WebSession::Ptr pRemoved = pManager->create("app", request, SESSION_TIMEOUT_SECONDS, _pBundle->context());
+	pManager->remove(pRemoved);
+
+	std::map<std::string, std::string> visited;
+	pManager->forEachSession([&visited](const std::string& sessionId, const WebSession& session)
+		{
+			visited[sessionId] = session.id();
+		});
+
+	assertTrue ((visited == std::map<std::string, std::string>{{pFirst->id(), pFirst->id()},
+		{pSecond->id(), pSecond->id()}}));
 }
 
 
@@ -474,6 +515,42 @@ void WebSessionManagerTest::testReplacedAttributeReleasesSessionOutsideLock()
 }
 
 
+void WebSessionManagerTest::testClearCacheReleasesCachedSessions()
+{
+	// Run under AddressSanitizer: an object that a session retains can hold the manager.
+	WebSessionManager::Ptr pManager(new WebSessionManager(_pBundle->context()));
+	ServerRequestStub request(CLIENT_ADDRESS, false);
+	const std::string id = pManager->create("app", request, SESSION_TIMEOUT_SECONDS, _pBundle->context())->id();
+	auto pRetained = std::make_shared<const WebSessionManager::Ptr>(pManager);
+	const std::weak_ptr<const WebSessionManager::Ptr> pWeakRetained(pRetained);
+	pManager->retainUntilSessionsEnd(std::move(pRetained));
+
+	pManager->clearCache();
+
+	assertTrue (pWeakRetained.expired());
+	assertEqual (1, pManager->referenceCount());
+	assertTrue (pManager->findById(id) == nullptr);
+}
+
+
+void WebSessionManagerTest::testClearCacheKeepsStoredSessions()
+{
+	SessionStoreStub::Ptr pStore(new SessionStoreStub);
+	WebSessionManager::Ptr pManager(new WebSessionManager(_pBundle->context()));
+	pManager->setSessionStore(pStore);
+	ServerRequestStub request(CLIENT_ADDRESS, false);
+	WebSession::Ptr pCreated = pManager->create("app", request, SESSION_TIMEOUT_SECONDS, _pBundle->context());
+	pCreated->setValue<std::string>("username", "alice");
+
+	pManager->clearCache();
+
+	WebSession::Ptr pLoaded = pManager->findById(pCreated->id());
+	assertTrue (pLoaded != nullptr);
+	assertTrue (pLoaded != pCreated);
+	assertEqual (std::string("alice"), pLoaded->getValue<std::string>("username"));
+}
+
+
 CppUnit::Test* WebSessionManagerTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("WebSessionManagerTest");
@@ -488,6 +565,8 @@ CppUnit::Test* WebSessionManagerTest::suite()
 #endif
 	CppUnit_addTest(pSuite, WebSessionManagerTest, testAddressMismatchRemovesSession);
 	CppUnit_addTest(pSuite, WebSessionManagerTest, testRenewReplacesSession);
+	CppUnit_addTest(pSuite, WebSessionManagerTest, testUpdateSessionTimeoutReplacesCookies);
+	CppUnit_addTest(pSuite, WebSessionManagerTest, testForEachSessionVisitsCachedSessions);
 	CppUnit_addTest(pSuite, WebSessionManagerTest, testCSRFCookieCreatesMissingToken);
 	CppUnit_addTest(pSuite, WebSessionManagerTest, testRemoveForUserRemovesOnlyThatUser);
 	CppUnit_addTest(pSuite, WebSessionManagerTest, testRemoveForUserWhileAttributesChange);
@@ -498,6 +577,8 @@ CppUnit::Test* WebSessionManagerTest::suite()
 	CppUnit_addTest(pSuite, WebSessionManagerTest, testSessionOutlivesManagerAndBundleLoader);
 	CppUnit_addTest(pSuite, WebSessionManagerTest, testBundleStoppingWhileSessionsComeAndGo);
 	CppUnit_addTest(pSuite, WebSessionManagerTest, testReplacedAttributeReleasesSessionOutsideLock);
+	CppUnit_addTest(pSuite, WebSessionManagerTest, testClearCacheReleasesCachedSessions);
+	CppUnit_addTest(pSuite, WebSessionManagerTest, testClearCacheKeepsStoredSessions);
 
 	return pSuite;
 }

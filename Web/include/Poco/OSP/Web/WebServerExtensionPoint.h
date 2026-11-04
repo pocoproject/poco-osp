@@ -86,22 +86,16 @@ class OSPWeb_API WebServerExtensionPoint: public ExtensionPoint
 	///                   For "osp.web.server.directory" only: if a GET request would result in a
 	///                   401 (Unauthorized) response due to missing authentication (see authMethods,
 	///                   permission and session attributes), send a redirect (302) response to the
-	///                   specified location instead, with the request URI in the "redirect" query
-	///                   parameter unless the request is for that location. This can be used to
-	///                   redirect to the login page.
+	///                   specified location instead, with the path and query of the request in the
+	///                   "redirect" query parameter, unless the request is for that location or
+	///                   already has a "redirect" parameter. This can be used to redirect to the
+	///                   login page.
 	///                   A user logged in through a session who lacks the permission is redirected
 	///                   to "/" (or gets a 403 response if the request is for "/"); a user
 	///                   authenticated with HTTP Basic credentials or a bearer token gets 403.
 	///                   If not specified, the "osp.web.redirectOn401" configuration property is used.
 	///                   Requests for request handlers ("osp.web.server.requesthandler") are
 	///                   not redirected.
-	///
-	/// The following attributes can be specified for "osp.web.server.directory":
-	///    * resource:    Specify a directory within the bundle where the HTML, image
-	///                   and other files are located.
-	///    * index:       Specify the name of the default document (defaults to "index.html").
-	///    * cache:       If "true", files in this directory can be cached.
-	///                   Defaults to "true". Set to "false" to disable caching.
 	///    * allowSpecialization:
 	///                   Using the <[allowSpecialization]> attribute, a bundle can specify whether
 	///                   other bundles can register themselves for subdirectories of the directory
@@ -109,21 +103,15 @@ class OSPWeb_API WebServerExtensionPoint: public ExtensionPoint
 	///                   none: it is impossible to map resources or request handlers to subdirectories;
 	///                   owner: only this bundle can map resources or request handlers to subdirectories;
 	///                   all: any bundle can map resources or request handlers to subdirectories.
-	///
-	/// The following attributes can be specified for "osp.web.server.requesthandler":
-	///    * pattern:     A regular expression for matching requests to the handler.
-	///                   If specified, no path attribute should be specified.
-	///                   If both the pattern and path attributes are given, path is ignored.
-	///                   Paths containing a pattern are not included by WebServerDispatcher::listVirtualPaths().
-	///    * methods:     A comma-separated list of HTTP request methods ("GET", "POST", etc.") supported by the handler.
-	///                   If not specified, all methods are passed to the handler.
-	///    * class:       The class name of the request handler factory.
-	///    * library:     The name of the shared library containing the request handler factory.
 	///    * cors:        If "true", enable CORS (Cross-Origin Resource Sharing)
-	///    * allowOrigin: Specify the allowed origin for CORS requests. Can be "*" or empty (default) to allow all
-	///                   domains. If empty, the response's "Access-Control-Allow-Origin" header will be set
-	///                   to the value of the request's "Origin" header. If "*" or a specific domain,
-	///                   the response's "Access-Control-Allow-Origin" header will be set to that value.
+	///    * allowOrigin: Specify the allowed origins for CORS requests: "*" (every origin, without
+	///                   credentials), "**" (every origin, by sending back the request's "Origin" header)
+	///                   or a comma-separated list of origins. If empty (default), the configuration
+	///                   property "osp.web.cors.allowedOrigin" is used; if that is empty as well, no
+	///                   cross-origin access is allowed. If CORS is enabled for the path (the cors attribute
+	///                   and "osp.web.cors.enable"), a preflight request, or a request with a method other
+	///                   than GET and HEAD, from an origin that is not allowed is answered with 403 Forbidden,
+	///                   and for "**" and lists, the response carries a "Vary: Origin" header.
 	///    * allowMethods:
 	///                   Allowed methods for CORS requests. Defaults to the value of the methods attribute,
 	///                   or "*" if methods is empty.
@@ -139,8 +127,32 @@ class OSPWeb_API WebServerExtensionPoint: public ExtensionPoint
 	///    * responseFormat:
 	///                   Format of error responses. Can be "html" or "json". Defaults to "html".
 	///                   A request with an "Accept" header containing "application/json" gets a JSON
-	///                   error response also if the format is "html". 401 responses of request
-	///                   handlers are always JSON.
+	///                   error response also if the format is "html". On a path with a request
+	///                   handler, the 401 and 403 responses to a failed authorization are always
+	///                   JSON; the 403 response to a request without HTTPS on a secure path follows
+	///                   this format, and the 403 response to a CORS refusal has no body.
+	///
+	/// The following attributes can be specified for "osp.web.server.directory":
+	///    * resource:    Specify a directory within the bundle where the HTML, image
+	///                   and other files are located. Files in the bundle's persistent directory replace
+	///                   them if the bundle property "web.static.resource" (a comma-separated list, compared
+	///                   without regard to case) lists the directory; if the bundle property
+	///                   "web.static.strict" is "true", a listed directory is served only from there.
+	///    * index:       Specify the name of the default document (defaults to "index.html").
+	///    * cache:       If "true", files in this directory can be cached.
+	///                   Defaults to "true". Set to "false" to disable caching.
+	///
+	/// The following attributes can be specified for "osp.web.server.requesthandler":
+	///    * pattern:     A regular expression for matching requests to the handler.
+	///                   If specified, no path attribute should be specified.
+	///                   If both the pattern and path attributes are given, path is ignored.
+	///                   Paths containing a pattern are not included by WebServerDispatcher::listVirtualPaths().
+	///    * methods:     A comma-separated list of HTTP request methods ("GET", "POST", etc.") supported by the
+	///                   handler. If not specified, all methods are passed to the handler.
+	///    * class:       The class name of the request handler factory. Factory classes of different bundles
+	///                   must have different fully qualified names (for example in a namespace of the bundle),
+	///                   as the dynamic linker can bind a class to one with the same name in another bundle.
+	///    * library:     The name of the shared library containing the request handler factory.
 {
 public:
 	WebServerExtensionPoint() = delete;

@@ -18,9 +18,14 @@
 #include "Poco/OSP/Web/LibraryWebFilterFactory.h"
 #include "Poco/OSP/Web/WebFilter.h"
 #include "Poco/OSP/Web/WebFilterFactory.h"
+#include "Poco/OSP/Web/WebRequestHandlerFactory.h"
 #include "Poco/OSP/Bundle.h"
 #include "Poco/Net/HTTPRequestHandler.h"
 #include "Poco/Net/HTTPRequestHandlerFactory.h"
+#include "Poco/Exception.h"
+#include "Poco/File.h"
+#include "Poco/Path.h"
+#include "Poco/TemporaryFile.h"
 #if defined(OSPWEB_TEST_LIBRARY)
 #include "LibraryReference.h"
 #endif
@@ -28,16 +33,19 @@
 #include <sstream>
 #include <string>
 #include <istream>
+#include <vector>
 
 
 using Poco::OSP::Web::LibraryRequestHandlerFactory;
 using Poco::OSP::Web::LibraryWebFilterFactory;
 using Poco::OSP::Web::WebFilter;
 using Poco::OSP::Web::WebFilterFactory;
+using Poco::OSP::Web::WebRequestHandlerFactory;
 using Poco::Net::HTTPRequestHandler;
 using Poco::Net::HTTPRequestHandlerFactory;
 using Poco::Net::HTTPServerRequest;
 using Poco::Net::HTTPServerResponse;
+using namespace std::string_literals;
 
 
 namespace
@@ -204,6 +212,49 @@ void LibraryFactoryTest::testLibraryStaysLoadedWhileReferenced()
 }
 
 
+void LibraryFactoryTest::testObjectIsCreatedFromItsOwnLibrary()
+{
+	using Reference = Poco::OSP::Web::LibraryReference<WebRequestHandlerFactory>;
+	// Two bundles can each have a library that exports a class with the same name.
+	const Poco::TemporaryFile directory;
+	std::vector<std::string> paths;
+	for (const auto& name: {"first"s, "second"s})
+	{
+		const Poco::Path dir(Poco::Path::forDirectory(directory.path()).pushDirectory(name));
+		Poco::File(dir).createDirectories();
+		Poco::File(OSPWEB_TEST_LIBRARY).copyTo(dir.toString());
+		paths.push_back(Poco::Path(dir, Poco::Path(OSPWEB_TEST_LIBRARY).getFileName()).toString());
+	}
+	const auto libraryInstance = [](WebRequestHandlerFactory& factory)
+		// Returns the answer of a handler of the factory, which identifies the copy of the library.
+	{
+		ServerRequestStub request(CLIENT_ADDRESS, false);
+		std::unique_ptr<HTTPRequestHandler> pHandler(factory.createRequestHandler(request));
+		pHandler->handleRequest(request, request.response());
+		return request.response().body();
+	};
+	auto pLoader = std::make_shared<Reference::Loader>();
+	const Reference first(pLoader, paths.at(0), "WebServer"s);
+	const Reference second(pLoader, paths.at(1), "WebServer"s);
+
+	const std::unique_ptr<WebRequestHandlerFactory> pFirstFactory(
+		first.create("LibraryInstanceRequestHandlerFactory"s));
+	const std::unique_ptr<WebRequestHandlerFactory> pSecondFactory(
+		second.create("LibraryInstanceRequestHandlerFactory"s));
+
+	assertFalse (libraryInstance(*pFirstFactory).empty());
+	assertTrue (libraryInstance(*pFirstFactory) != libraryInstance(*pSecondFactory));
+	try
+	{
+		const std::unique_ptr<WebRequestHandlerFactory> pFactory(first.create("UnknownRequestHandlerFactory"s));
+		fail("a class that the library does not export must not be created");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+}
+
+
 #endif // OSPWEB_TEST_LIBRARY
 
 
@@ -217,6 +268,7 @@ CppUnit::Test* LibraryFactoryTest::suite()
 	CppUnit_addTest(pSuite, LibraryFactoryTest, testFilterFactoryWithoutFilter);
 #if defined(OSPWEB_TEST_LIBRARY)
 	CppUnit_addTest(pSuite, LibraryFactoryTest, testLibraryStaysLoadedWhileReferenced);
+	CppUnit_addTest(pSuite, LibraryFactoryTest, testObjectIsCreatedFromItsOwnLibrary);
 #endif
 
 	return pSuite;

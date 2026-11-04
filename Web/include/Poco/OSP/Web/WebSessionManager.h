@@ -165,6 +165,31 @@ public:
 		/// present in the in-memory cache are enumerated (the store interface
 		/// does not support enumerating all sessions).
 
+	void retainUntilSessionsEnd(std::shared_ptr<const void> pObject);
+		/// Keeps pObject until every session that exists now has been destroyed,
+		/// also the sessions that renew() creates from them, or releases it at
+		/// once if no session exists. The WebServerDispatcher keeps the libraries of a
+		/// stopped bundle loaded this way, as sessions can hold values that these libraries
+		/// have created (see WebServerDispatcher::onBundleUninstalling()).
+
+	void removeSessionsRetaining(const std::shared_ptr<const void>& pObject);
+		/// Removes every session that keeps pObject (see retainUntilSessionsEnd()),
+		/// like remove(). A session is destroyed, and releases pObject, when the
+		/// last request that uses it has ended.
+
+	void clearCache();
+		/// Removes every session from the in-memory session cache; the session
+		/// store keeps its sessions. Sessions that have not expired are released
+		/// after the mutex is unlocked, as destroying a session can call back
+		/// into this manager; expired sessions are released while the mutex is
+		/// held, as on every lookup of the cache.
+		///
+		/// A session can retain an object that holds this manager (see
+		/// retainUntilSessionsEnd()), so the cache can keep the manager alive.
+		/// The Web bundle calls clearCache() when it stops. Destroying a session
+		/// can release the last other reference to this manager, so the caller
+		/// must hold a reference to it.
+
 	void updateSessionTimeout(const std::string& appName, WebSession::Ptr pSession, int timeout, const Poco::Net::HTTPServerRequest& request);
 		/// Updates the session timeout for the given session and updates the
 		/// Set-Cookie header in the response for the given request.
@@ -203,7 +228,8 @@ protected:
 	void onBundleStopping(const void* pSender, BundleEvent& ev);
 		/// Clears the attributes of every session owned by the stopping bundle that
 		/// this manager has created or loaded and that still exists, also if it is
-		/// no longer cached (see WebSession::releaseAttributes()).
+		/// no longer cached (see WebSession::releaseAttributes()). Does not empty
+		/// the in-memory session cache (see clearCache()).
 
 	[[nodiscard]] WebSession::Ptr findImpl(const std::string& appName, const Poco::Net::HTTPServerRequest& request,
 		BundleContext::Ptr pContext);

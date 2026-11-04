@@ -30,6 +30,7 @@
 #include <atomic>
 #include <map>
 #include <memory>
+#include <vector>
 
 
 namespace Poco::OSP::Web {
@@ -171,6 +172,11 @@ public:
 	[[nodiscard]] std::string csrfToken() const;
 		/// Returns the CSRF synchronizer token for this session.
 
+	[[nodiscard]] bool isCSRFToken(const std::string& token) const;
+		/// Returns true if the session has a CSRF synchronizer token equal to the
+		/// given one. The comparison takes the same time for every token of the
+		/// same length.
+
 	// UniqueExpireCache support
 	[[nodiscard]] Poco::Timestamp getExpiration() const;
 		/// Return the time when the session will expire.
@@ -195,6 +201,18 @@ protected:
 		/// might no longer be available. Therefore all attributes must be removed
 		/// while their object's destructors are still available.
 
+	void retain(std::shared_ptr<const void> pObject);
+		/// Keeps pObject until the session has been destroyed, after its attributes.
+		/// Like releaseAttributes(), it may be called while the destructor of the session
+		/// waits to remove it from the registry.
+
+	void retainAll(const WebSession& session);
+		/// Keeps the objects that the given session keeps (see retain()), for a
+		/// session that gets the attributes of the given session.
+
+	[[nodiscard]] bool retains(const std::shared_ptr<const void>& pObject) const;
+		/// Returns true if the session keeps pObject (see retain()).
+
 	void updateVersion(Poco::Int64 version);
 		/// Updates the version if the new version is one higher than the current version.
 
@@ -214,6 +232,9 @@ private:
 	Poco::Timestamp      _created;
 	Poco::Timestamp      _expiration;
 	Poco::Net::IPAddress _clientAddress;
+	// Declared before _attrs, so that the attributes are destroyed first: the objects
+	// can keep the libraries loaded that the destructors of the attributes are in.
+	std::vector<std::shared_ptr<const void>> _retained;
 	Attributes           _attrs;
 	Poco::AutoPtr<WebSessionStore> _pStore;
 	std::shared_ptr<WebSessionRegistry> _pRegistry;
@@ -222,8 +243,7 @@ private:
 	mutable Poco::FastMutex _timeoutMutex;
 
 	friend class WebSessionManager;
-		// The manager creates, renews and registers the sessions: it calls registerWith()
-		// and releaseAttributes() and reads _pContext, none of which is public API.
+		// The manager creates, renews and registers the sessions through members that are not public API.
 };
 
 

@@ -5,7 +5,7 @@
 // Package: Web
 // Module:  Web
 //
-// Basic definitions for the Poco OSP Web library.
+// Basic definitions for the POCO OSP Web library.
 // This file must be the first file included by every other OSP Web
 // header file.
 //

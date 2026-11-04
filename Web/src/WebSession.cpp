@@ -19,7 +19,11 @@
 #include "Poco/Timespan.h"
 #include "Poco/Exception.h"
 #include "Poco/Any.h"
+#include "Poco/DigestEngine.h"
+#include <algorithm>
 #include <memory>
+#include <utility>
+#include <vector>
 
 
 namespace Poco::OSP::Web {
@@ -74,8 +78,7 @@ bool WebSession::has(const std::string& key) const
 {
 	Poco::FastMutex::ScopedLock lock(_mutex);
 
-	Attributes::const_iterator it = _attrs.find(key);
-	return it != _attrs.end();
+	return _attrs.contains(key);
 }
 
 
@@ -165,6 +168,15 @@ void WebSession::clear()
 }
 
 
+bool WebSession::isCSRFToken(const std::string& token) const
+{
+	const std::string expected = getValue<std::string>(CSRF_TOKEN, std::string());
+	return !expected.empty() && Poco::DigestEngine::constantTimeEquals(
+		Poco::DigestEngine::Digest(token.begin(), token.end()),
+		Poco::DigestEngine::Digest(expected.begin(), expected.end()));
+}
+
+
 void WebSession::clearImpl()
 {
 	_attrs.clear();
@@ -251,6 +263,36 @@ WebSession::Attributes WebSession::releaseAttributes(const Bundle::ConstPtr& pBu
 		attrs.swap(_attrs);
 	}
 	return attrs;
+}
+
+
+void WebSession::retain(std::shared_ptr<const void> pObject)
+{
+	Poco::FastMutex::ScopedLock lock(_mutex);
+
+	_retained.push_back(std::move(pObject));
+}
+
+
+void WebSession::retainAll(const WebSession& session)
+{
+	std::vector<std::shared_ptr<const void>> retained;
+	{
+		Poco::FastMutex::ScopedLock lock(session._mutex);
+
+		retained = session._retained;
+	}
+	Poco::FastMutex::ScopedLock lock(_mutex);
+
+	_retained.insert(_retained.end(), retained.begin(), retained.end());
+}
+
+
+bool WebSession::retains(const std::shared_ptr<const void>& pObject) const
+{
+	Poco::FastMutex::ScopedLock lock(_mutex);
+
+	return std::find(_retained.begin(), _retained.end(), pObject) != _retained.end();
 }
 
 

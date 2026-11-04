@@ -21,7 +21,6 @@
 #include "Poco/OSP/WebEvent/WebEvent.h"
 #include "Poco/OSP/WebEvent/WebEventServiceImpl.h"
 #include "Poco/Net/HTTPRequestHandler.h"
-#include "Poco/Net/WebSocket.h"
 #include <memory>
 #include <set>
 #include <string>
@@ -56,10 +55,10 @@ public:
 	[[nodiscard]] static OriginSetPtr parseAllowedOrigins(const std::string& list);
 		/// Returns the origins of a comma-separated list, trimmed and in
 		/// lower case, as the value of osp.web.event.allowedOrigins is given.
-		
+
 	~WebEventRequestHandler() override;
 		/// Destroys the WebEventRequestHandler.
-		
+
 	void handleRequest(Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response) override;
 		/// Checks the upgrade request, upgrades the connection and hands
 		/// it over to the WebEventServiceImpl.

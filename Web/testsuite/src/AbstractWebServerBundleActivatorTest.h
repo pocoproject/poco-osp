@@ -33,6 +33,7 @@ public:
 	void testRestart();
 	void testSecureServerService();
 	void testPortZeroDisablesServer();
+	void testPortOutOfRangeDisablesServer();
 	void testWithoutDispatcher();
 
 	static CppUnit::Test* suite();

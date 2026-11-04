@@ -19,7 +19,6 @@
 #include "Poco/Net/HTTPServerResponse.h"
 #include "Poco/Net/WebSocket.h"
 #include "Poco/Net/NetException.h"
-#include "Poco/Buffer.h"
 #include "Poco/Exception.h"
 #include "Poco/Format.h"
 #include "Poco/SharedPtr.h"
@@ -40,10 +39,10 @@ WebEventRequestHandler::WebEventRequestHandler(WebEventServiceImpl::Ptr pWebEven
 {
 }
 
-	
+
 WebEventRequestHandler::~WebEventRequestHandler() = default;
 
-	
+
 void WebEventRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response)
 {
 	if (originAllowed(request))
@@ -77,9 +76,11 @@ void WebEventRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request
 					}
 					else
 					{
-						_pWebEventServiceImpl->logger().notice(Poco::format("WebSocket connection from %s rejected by delegate (status=%d).",
-							request.clientAddress().toString(),
-							static_cast<int>(response.getStatus())));
+						_pWebEventServiceImpl->logRejectedUpgrade(WebEventServiceImpl::Rejection::DELEGATE,
+							Poco::format("WebSocket connection from %s rejected by a delegate "
+								"of the requestReceived event (status %d).",
+								request.clientAddress().toString(),
+								static_cast<int>(response.getStatus())));
 						response.setContentLength(0);
 						response.send();
 					}
@@ -93,9 +94,6 @@ void WebEventRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request
 			}
 			else
 			{
-				_pWebEventServiceImpl->logger().notice(Poco::format("WebSocket connection from %s rejected by preflight (status=%d).",
-					request.clientAddress().toString(),
-					static_cast<int>(response.getStatus())));
 				response.setContentLength(0);
 				response.send();
 			}
@@ -133,14 +131,17 @@ void WebEventRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request
 	}
 	else
 	{
-		_pWebEventServiceImpl->logger().notice(Poco::format("WebSocket connection from %s rejected: origin %s is not allowed.",
-			request.clientAddress().toString(),
-			request.get("Origin")));
+		_pWebEventServiceImpl->logRejectedUpgrade(WebEventServiceImpl::Rejection::ORIGIN,
+			Poco::format("WebSocket connection from %s rejected: origin %s is neither the server's own "
+				"nor listed in osp.web.event.allowedOrigins.",
+				request.clientAddress().toString(),
+				request.get("Origin")));
 		response.setStatusAndReason(Poco::Net::HTTPResponse::HTTP_FORBIDDEN);
 		response.setContentLength(0);
 		response.send();
 	}
 }
+
 
 std::string WebEventRequestHandler::resolvePage(const Poco::Net::HTTPServerRequest& request)
 {
@@ -185,7 +186,7 @@ bool WebEventRequestHandler::originAllowed(const Poco::Net::HTTPServerRequest& r
 	if (!request.has("Origin")) return true;
 
 	const std::string origin = Poco::toLower(request.get("Origin"));
-	if (_pAllowedOrigins != nullptr && _pAllowedOrigins->count(origin) > 0) return true;
+	if (_pAllowedOrigins != nullptr && _pAllowedOrigins->contains(origin)) return true;
 	return Poco::OSP::Web::WebServerDispatcher::isSameOrigin(request, origin);
 }
 

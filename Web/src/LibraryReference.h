@@ -21,6 +21,7 @@
 #include "Poco/OSP/Web/Web.h"
 #include "Poco/ClassLoader.h"
 #include "Poco/Bugcheck.h"
+#include "Poco/Exception.h"
 #include <memory>
 #include <string>
 
@@ -48,6 +49,13 @@ public:
 
 	~LibraryReference();
 		/// Releases the reference to the library.
+
+	[[nodiscard]] std::unique_ptr<Base> create(const std::string& className) const;
+		/// Creates an object of the class with the given name from the manifest
+		/// of this library. Classes of different libraries must have different
+		/// fully qualified names (see WebServerExtensionPoint).
+		///
+		/// Throws a Poco::NotFoundException if the library does not export the class.
 
 	LibraryReference(const LibraryReference&) = delete;
 	LibraryReference& operator = (const LibraryReference&) = delete;
@@ -81,6 +89,16 @@ LibraryReference<Base>::~LibraryReference()
 	{
 		poco_unexpected();
 	}
+}
+
+
+template <class Base>
+std::unique_ptr<Base> LibraryReference<Base>::create(const std::string& className) const
+{
+	const auto& manifest = _pLoader->manifestFor(_path);
+	const auto it = manifest.find(className);
+	if (it == manifest.end()) throw Poco::NotFoundException(className);
+	return std::unique_ptr<Base>(it->create());
 }
 
 

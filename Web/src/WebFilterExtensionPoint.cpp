@@ -97,11 +97,12 @@ void WebFilterExtensionPoint::handleFilter(Bundle::ConstPtr pBundle, Poco::XML::
 	}
 
 	std::string libraryPath = _pContext->pathForLibrary(library);
-	LibraryWebFilterFactory::LibraryPtr pLibrary = std::make_shared<LibraryReference<WebFilterFactory>>(_pLoader, libraryPath, MANIFEST_NAME);
-	std::unique_ptr<WebFilterFactory> pFactory(_pLoader->create(className));
+	auto pLibrary = std::make_shared<LibraryReference<WebFilterFactory>>(_pLoader, libraryPath, MANIFEST_NAME);
+	std::unique_ptr<WebFilterFactory> pFactory(pLibrary->create(className));
 	pFactory->init(_pContext->contextForBundle(pBundle));
 	
-	_pDispatcher->addFilter(mediaType, Poco::makeShared<LibraryWebFilterFactory>(pLibrary, std::move(pFactory)), args);
+	_pDispatcher->addFilter(mediaType, Poco::makeShared<LibraryWebFilterFactory>(pLibrary, std::move(pFactory)), args,
+		pBundle);
 	_bundleFilterMap.insert(BundleFilterMap::value_type(pBundle, mediaType));
 }
 

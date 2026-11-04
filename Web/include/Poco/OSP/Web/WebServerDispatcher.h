@@ -44,6 +44,7 @@
 #include "Poco/File.h"
 #include <vector>
 #include <map>
+#include <memory>
 #include <set>
 
 
@@ -229,7 +230,15 @@ public:
 		std::string corsAllowedOrigin;
 	};
 
-	using PathMap = std::map<std::string, VirtualPath>;
+	struct OSPWeb_API PathLess
+		/// Orders paths by the lower-case form of each character.
+	{
+		[[nodiscard]] bool operator () (const std::string& path1, const std::string& path2) const;
+			/// Returns true if path1 comes before path2.
+	};
+
+	using PathMap = std::map<std::string, VirtualPath, PathLess>;
+		/// The path mappings by normalized path (see normalizePath()).
 	using PathInfoMap = std::map<std::string, PathInfo>;
 	using PatternVec = std::vector<VirtualPath>;
 
@@ -266,8 +275,8 @@ public:
 		/// Adds the given VirtualPath to the path mapping table.
 		///
 		/// Throws a Poco::InvalidArgumentException if a mapping for the given path
-		/// already exists, or if a parent or child mapping does not allow the new
-		/// mapping (see SpecializationMode).
+		/// (in any case) already exists, or if a parent or child mapping does not
+		/// allow the new mapping (see SpecializationMode).
 
 	void removeVirtualPath(const std::string& virtualPath);
 		/// Removes the mapping of the given path, or every mapping of the given
@@ -293,6 +302,10 @@ public:
 		/// Handles the given request. Secure specifies whether the request has been
 		/// sent over a secure (HTTPS) connection.
 		///
+		/// For a path that requires a permission, the authorized user and scope are the
+		/// Poco::OSP::Auth::RequestIdentity of the thread while the request handler is
+		/// created and runs.
+		///
 		/// While the auth service is not available, a request for a path that requires
 		/// a permission is answered with 503 Service Unavailable. For the permission "**",
 		/// only a request with credentials, or in a session that names a user, gets this answer.
@@ -300,13 +313,18 @@ public:
 	[[nodiscard]] Poco::ThreadPool& threadPool();
 		/// Returns the thread pool for use by Poco::Net::HTTPServer.
 
-	void addFilter(const std::string& mediaType, WebFilterFactoryPtr pFilterFactory, const WebFilter::Args& args);
-		/// Adds a filter factory for the given media type.
+	void addFilter(const std::string& mediaType, WebFilterFactoryPtr pFilterFactory, const WebFilter::Args& args,
+		const Bundle::ConstPtr& pOwnerBundle);
+		/// Adds a filter factory of the given bundle for the given media type.
 		///
 		/// Throws a Poco::ExistsException if a filter already exists for the given mediaType.
 
 	void removeFilter(const std::string& mediaType);
-		/// Removes the filter for the given mediaType.
+		/// Removes the filter for the given mediaType. The filter factory, which can keep
+		/// a library loaded, is released when the web sessions that exist now have been
+		/// destroyed (see WebSessionManager::retainUntilSessionsEnd()). A request that still
+		/// uses it extends this to the sessions that exist when the request has destroyed
+		/// its filter. Uninstalling its bundle removes these sessions.
 
 	[[nodiscard]] static int parseAuthMethods(const std::string& methods);
 		/// Parses a comma-separated list of authentication method names and
@@ -365,11 +383,24 @@ protected:
 
 	void onBundleStopped(const void* pSender, BundleEvent& ev);
 		/// Releases the request handler factories of the mappings of the stopped bundle,
-		/// which can unload the libraries of the bundle.
+		/// which can unload the libraries of the bundle, when the web sessions that exist
+		/// now have been destroyed (see WebSessionManager::retainUntilSessionsEnd()).
+		/// A request that still uses such a factory extends this to the sessions that
+		/// exist when the request has ended.
+
+	void onBundleUninstalling(const void* pSender, BundleEvent& ev);
+		/// Removes the web sessions that keep factories of the bundle (see onBundleStopped()
+		/// and removeFilter()) and releases the factories before the libraries of the bundle
+		/// are removed from the code cache, so that a new version loads its own libraries.
+		/// A running request that uses a factory of the bundle keeps the libraries loaded until
+		/// it has ended and every web session that exists at that time has been destroyed
+		/// (see WebSessionManager::retainUntilSessionsEnd()).
 
 	[[nodiscard]] static std::string normalizePath(const std::string& path);
 		/// Creates normalized path for internal storage.
 		/// The normalized path always starts and ends with a slash.
+		/// A UTF-8 path is in Unicode normalization form C, as macOS file
+		/// systems open a resource under any normalization form of its path.
 
 	[[nodiscard]] const VirtualPath& mapPath(const std::string& path, const std::string& method) const;
 		/// Maps a URI to a VirtualPath.
@@ -384,8 +415,8 @@ protected:
 		/// if no matching resource exists.
 		///
 		/// If given, pSize receives the size of the resource and pLastModified
-		/// the time of its last modification (that of the bundle for resources
-		/// in the bundle).
+		/// the time of its last modification (that of the bundle file for
+		/// resources in a bundle file).
 
 	[[nodiscard]] std::istream* getCachedResource(Bundle::ConstPtr pBundle, const std::string& path, bool canCache, Poco::File::FileSize* pSize = nullptr) const;
 		/// Returns a resource stream for the given path, or a null pointer
@@ -393,15 +424,24 @@ protected:
 		/// and for the specific resource, attempts to cache the resource.
 
 	[[nodiscard]] static bool cleanPath(std::string& path);
-		/// Removes unnecessary characters (such as trailing dots)
-		/// from the path and checks for illegal or dangerous
-		/// characters. A path with a dot segment ("." or "..")
-		/// is not okay.
+		/// Replaces backslashes with slashes, removes the dots at the
+		/// end of the path and checks for illegal or dangerous
+		/// characters. A path with a control character, a dot segment
+		/// ("." or ".."), a segment that still ends with a dot or a
+		/// segment that ends with a space is not okay.
 		///
 		/// Returns true if the path is okay, false otherwise.
 
+	[[nodiscard]] static bool isResourcePath(const std::string& path);
+		/// Returns false if the cleaned path contains a ':' (an NTFS data stream or a
+		/// drive) or, on Windows, a '~' followed by a digit (an 8.3 short name).
+		/// handleRequest() answers a request for such a resource with 400 Bad Request;
+		/// the paths of request handlers are not checked.
+
 	[[nodiscard]] bool handleCORS(const Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response, const VirtualPath& vPath) const;
-		/// Handles CORS preflight requests and headers.
+		/// Handles CORS preflight requests and headers if CORS is enabled for the
+		/// path (its cors attribute and CONF_OPT_ENABLE_CORS, set from "osp.web.cors.enable");
+		/// otherwise returns true at once.
 		///
 		/// Returns false if the request has been answered. An Origin equal to the
 		/// origin of the request itself (see isSameOrigin()) is always allowed.
@@ -410,6 +450,9 @@ protected:
 		/// than GET and HEAD from an origin that is not allowed is answered with
 		/// 403 Forbidden; GET and HEAD requests from such an origin are handled
 		/// normally, without CORS headers.
+		///
+		/// If the allowed origin (see enableCORS()) is neither empty nor "*", the
+		/// response has a "Vary: Origin" header, whatever the Origin of the request.
 
 	[[nodiscard]] bool enableCORS(const Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response,
 		const VirtualPath& vPath) const;
@@ -422,8 +465,13 @@ protected:
 		/// origin; any other value is a comma-separated list of allowed origins.
 
 	[[nodiscard]] bool authorize(Poco::Net::HTTPServerRequest& request, const VirtualPath& vPath, std::string& username,
-		bool& authenticated) const;
+		std::string& scope, bool& authenticated) const;
 		/// Authorizes the request.
+		///
+		/// Sets username to the user that the request names (see the access log) and
+		/// scope to the scope that the token validator returns for a bearer token, or
+		/// leaves them empty. Both name an authenticated identity only if the method
+		/// returns true.
 		///
 		/// Sets authenticated to true if the request carries a valid, logged-in
 		/// identity (valid credentials, or a session for an existing user), even when
@@ -437,7 +485,8 @@ protected:
 		///
 		/// Sets authenticated to true when a valid session for an existing user
 		/// is present, regardless of whether the permission check succeeds,
-		/// but not if the request fails the CSRF check.
+		/// but not if the request fails the CSRF check, or if the auth service
+		/// reports the user as not enabled (see AuthService::userEnabled()).
 
 	[[nodiscard]] bool authorizeBasic(Poco::Net::HTTPServerRequest& request, const std::string& creds, const VirtualPath& vPath, std::string& username, bool& authenticated) const;
 		/// Authorizes the request using a HTTP Basic Authentication.
@@ -451,7 +500,8 @@ protected:
 		/// Authorizes the request using bearer token-based authentication.
 		///
 		/// Sets authenticated to true if the token is valid and names an existing
-		/// user, regardless of whether the permission check succeeds.
+		/// user that the auth service does not report as not enabled (see
+		/// authorizeSession()), regardless of whether the permission check succeeds.
 
 	[[nodiscard]] bool hasPermission(Poco::OSP::Auth::AuthService::Ptr pAuthService, const std::string& username,
 		const std::string& permission) const;
@@ -552,6 +602,9 @@ private:
 	void onSessionManagerRegistered(const ServiceRef::Ptr& pServiceRef);
 	void onSessionManagerUnregistered(const ServiceRef::Ptr& pServiceRef);
 
+	[[nodiscard]] const std::string& allowedOrigin(const VirtualPath& vPath) const;
+		/// Returns the allowed origin of the path, or the global one if the path has none.
+
 	[[nodiscard]] std::set<std::string, Poco::CILess> csrfTokenHeaders() const;
 		/// Returns the names of the CSRF token header fields of all paths that have
 		/// been added, for leaving their values out of logged requests.
@@ -565,9 +618,27 @@ private:
 	{
 		WebFilterFactoryPtr pFactory;
 		WebFilter::Args args;
+		Bundle::Ptr pOwnerBundle;
 	};
 	using FilterFactoryMap = std::map<std::string, WebFilterFactoryInfo>;
-	using ResourceCache = std::map<std::string, std::string>;
+	using ResourceCache = std::map<std::string, std::shared_ptr<const std::string>>;
+
+	[[nodiscard]] WebFilterPtr findFilterAndFactory(const std::string& mediaType, WebFilterFactoryInfo& factoryInfo);
+		/// Returns a WebFilter instance like findFilter(mediaType), and stores the
+		/// WebFilterFactory that has created it in factoryInfo.
+
+	void retainForSessions(const Bundle::ConstPtr& pBundle, const std::shared_ptr<const void>& pObject);
+		/// Keeps pObject, which keeps libraries of the given bundle loaded, until the web
+		/// sessions that exist now have been destroyed or onBundleUninstalling() removes them.
+		/// Without a registered WebSessionManager, pObject is released with the caller's reference.
+
+	void retainIfUnmapped(const VirtualPath& vPath);
+		/// After a request, calls retainForSessions() with the request handler factory of
+		/// vPath if its bundle has stopped meanwhile (not active, and no mapping has the factory).
+
+	void retainIfRemoved(const std::string& mediaType, const WebFilterFactoryInfo& factoryInfo);
+		/// After a request, calls retainForSessions() with the filter factory if it is no
+		/// longer the filter factory for the media type.
 
 	BundleContext::Ptr _pContext;
 	MediaTypeMapper::Ptr _pMediaTypeMapper;
@@ -577,6 +648,8 @@ private:
 	// libraries of the bundles loaded, because other bundleStopping delegates can still destroy objects
 	// that the libraries have created, such as the attributes of web sessions.
 	std::map<int, std::vector<RequestHandlerFactoryPtr>> _stoppingBundleFactories;
+	// The objects that retainForSessions() has given to web sessions, by bundle ID.
+	std::map<int, std::vector<std::weak_ptr<const void>>> _sessionRetainedObjects;
 	std::set<std::string, Poco::CILess> _csrfTokenHeaders;
 	std::string _authServiceName;
 	std::string _tokenValidatorName;
