@@ -9,36 +9,26 @@
 
 
 #include "Poco/Net/HTMLForm.h"
+#include "Poco/Net/HTTPRequest.h"
 #include "Poco/Net/HTTPRequestHandler.h"
 #include "Poco/Net/HTTPServerRequest.h"
 #include "Poco/Net/HTTPServerResponse.h"
-#include "Poco/Net/HTTPServerParams.h"
-#include "Poco/Net/IPAddress.h"
-#include "Poco/Net/NetworkInterface.h"
 #include "Poco/Net/NameValueCollection.h"
+#include "Poco/Net/Net.h"
 #include "Poco/OSP/Web/WebRequestHandlerFactory.h"
-#include "Poco/DateTime.h"
-#include "Poco/LocalDateTime.h"
-#include "Poco/DateTimeFormatter.h"
-#include "Poco/DateTimeFormat.h"
-#include "Poco/Environment.h"
-#include "Poco/Process.h"
 #include "Poco/ClassLibrary.h"
+#include "Poco/Exception.h"
 #include "Poco/URI.h"
 
 
 using Poco::Net::HTMLForm;
+using Poco::Net::HTTPRequest;
 using Poco::Net::HTTPRequestHandler;
 using Poco::Net::HTTPServerRequest;
 using Poco::Net::HTTPServerResponse;
 using Poco::Net::NameValueCollection;
+using Poco::Net::htmlize;
 using Poco::OSP::Web::WebRequestHandlerFactory;
-using Poco::Environment;
-using Poco::DateTime;
-using Poco::LocalDateTime;
-using Poco::DateTimeFormatter;
-using Poco::DateTimeFormat;
-using Poco::Process;
 using Poco::URI;
 
 
@@ -48,14 +38,26 @@ class EchoHandler: public HTTPRequestHandler
 public:
 	void handleRequest(HTTPServerRequest& request, HTTPServerResponse& response)
 	{
-		HTMLForm form(request, request.stream());
+		HTMLForm form;
+		URI requestURI;
+		try
+		{
+			form.load(request, request.stream());
+			requestURI = URI(request.getURI());
+		}
+		catch (Poco::SyntaxException&)
+		{
+			// A malformed percent escape in the URI or the form data is an error of the client.
+			response.setStatusAndReason(HTTPServerResponse::HTTP_BAD_REQUEST);
+			response.setContentLength(0);
+			response.send();
+			return;
+		}
 
 		response.setContentType("text/html");
 		response.setChunkedTransferEncoding(true);
         
 		std::ostream& ostr = response.send();
-        
-        URI requestURI(request.getURI());
         
 		ostr << "<html><head><title>Echo HTTP Headers and HTML Form Information</title>"
 		        "<link rel=\"stylesheet\" href=\"css/styles.css\" type=\"text/css\"/></head><body>"
@@ -68,15 +70,15 @@ public:
 		// echo the items available by method
 		ostr << "<h2>Request</h2>"
 		     << "<ul>"
-		     << "<li><b>Method:</b> " << request.getMethod() << "</li>"
-             << "<li><b>URI Path:</b> " << requestURI.getPath() << "</li>"
-             << "<li><b>URI Query:</b> " << requestURI.getQuery() << "</li>"
-             << "<li><b>HTTP Version:</b> " << request.getVersion() << "</li>"
-             << "<li><b>Host:</b> " << request.getHost() << "</li>"
-             << "<li><b>Content Type:</b> " << request.getContentType() << "</li>"
+		     << "<li><b>Method:</b> " << htmlize(request.getMethod()) << "</li>"
+             << "<li><b>URI Path:</b> " << htmlize(requestURI.getPath()) << "</li>"
+             << "<li><b>URI Query:</b> " << htmlize(requestURI.getQuery()) << "</li>"
+             << "<li><b>HTTP Version:</b> " << htmlize(request.getVersion()) << "</li>"
+             << "<li><b>Host:</b> " << htmlize(request.get(HTTPRequest::HOST, std::string())) << "</li>"
+             << "<li><b>Content Type:</b> " << htmlize(request.getContentType()) << "</li>"
              << "<li><b>Chunked:</b> " << (request.getChunkedTransferEncoding() ? "true" : "false") << "</li>"
              << "<li><b>Keep Alive:</b> " << (request.getKeepAlive() ? "true" : "false") << "</li>"
-             << "<li><b>Transfer Encoding:</b> " << request.getTransferEncoding() << "</li>"
+             << "<li><b>Transfer Encoding:</b> " << htmlize(request.getTransferEncoding()) << "</li>"
              << "<li><b>Client Address:</b> " << request.clientAddress().toString() << "</li>";
 
         if (request.hasContentLength())
@@ -91,7 +93,6 @@ public:
             ostr << "<hr>"
                     "<h2>Request Headers</h2><ul>\n";
 
-            NameValueCollection headers;
             NameValueCollection::ConstIterator itr(request.begin());
             NameValueCollection::ConstIterator itrEnd(request.end());
             
@@ -150,7 +151,6 @@ public:
             ostr << "<hr>"
                     "<h2>Response Headers</h2><ul>\n";
             
-            NameValueCollection headers;
             NameValueCollection::ConstIterator itr(response.begin());
             NameValueCollection::ConstIterator itrEnd(response.end());
             
@@ -162,26 +162,6 @@ public:
         }
         
 		ostr << "</div></body></html>";
-	}
-	
-protected:
-	static std::string htmlize(const std::string& str)
-	{
-		std::string::const_iterator it(str.begin());
-		std::string::const_iterator end(str.end());
-		std::string html;
-		for (; it != end; ++it)
-		{
-			switch (*it)
-			{
-			case '<': html += "&lt;"; break;
-			case '>': html += "&gt;"; break;
-			case '"': html += "&quot;"; break;
-			case '&': html += "&amp;"; break;
-			default:  html += *it; break;
-			}
-		}
-		return html;
 	}
 };
 

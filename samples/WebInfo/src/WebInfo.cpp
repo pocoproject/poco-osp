@@ -14,6 +14,7 @@
 #include "Poco/Net/HTTPServerParams.h"
 #include "Poco/Net/IPAddress.h"
 #include "Poco/Net/NetworkInterface.h"
+#include "Poco/Net/Net.h"
 #include "Poco/OSP/Web/WebRequestHandlerFactory.h"
 #include "Poco/DateTime.h"
 #include "Poco/LocalDateTime.h"
@@ -27,6 +28,7 @@
 using Poco::Net::HTTPRequestHandler;
 using Poco::Net::HTTPServerRequest;
 using Poco::Net::HTTPServerResponse;
+using Poco::Net::htmlize;
 using Poco::OSP::Web::WebRequestHandlerFactory;
 using Poco::Environment;
 using Poco::DateTime;
@@ -83,32 +85,12 @@ public:
 	}
 	
 protected:
-	std::string htmlize(const std::string& str)
-	{
-		std::string::const_iterator it(str.begin());
-		std::string::const_iterator end(str.end());
-		std::string html;
-		for (; it != end; ++it)
-		{
-			switch (*it)
-			{
-			case '<': html += "&lt;"; break;
-			case '>': html += "&gt;"; break;
-			case '"': html += "&quot;"; break;
-			case '&': html += "&amp;"; break;
-			default:  html += *it; break;
-			}
-		}
-		return html;
-	}
-	
 	std::string getHostAddresses()
 	{
 		std::string result;
-		Poco::Net::NetworkInterface::NetworkInterfaceList list = Poco::Net::NetworkInterface::list();
-		for (Poco::Net::NetworkInterface::NetworkInterfaceList::iterator it = list.begin(); it != list.end(); ++it)
+		for (const auto& networkInterface: Poco::Net::NetworkInterface::list())
 		{
-			const Poco::Net::IPAddress& addr = it->address();
+			const Poco::Net::IPAddress& addr = networkInterface.address();
 			if (addr.isUnicast() && !addr.isLoopback())
 			{
 				if (!result.empty())

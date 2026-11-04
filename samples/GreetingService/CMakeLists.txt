@@ -26,12 +26,6 @@ target_include_directories(${TARGET}
 	PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-# Copy Bundle Resources to build directory
-add_custom_command(TARGET ${TARGET}
-	POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/bundle ${CMAKE_CURRENT_BINARY_DIR}/bundle
-)
-
 # Build Bundle
 poco_osp_bundle(${TARGET}-bundle
 	DEPENDS ${TARGET}
@@ -43,6 +37,6 @@ poco_osp_bundle(${TARGET}-bundle
 install(
 	DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
 	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
-	COMPONENT    Bundles
+	COMPONENT    Samples
 	FILES_MATCHING PATTERN "${TARGET}*.bndl"
 )

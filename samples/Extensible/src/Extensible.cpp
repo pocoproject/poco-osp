@@ -51,7 +51,7 @@ private:
 
 class ExtensibleBundleActivator: public BundleActivator
 	/// The BundleActivator for the Extensible.
-	/// Registes the Extensible with the Service Registry.
+	/// Registers an extension point with the ExtensionPointService.
 {
 public:
 	ExtensibleBundleActivator()
@@ -65,7 +65,7 @@ public:
 	void start(BundleContext::Ptr pContext)
 	{
 		// find ExtensionPointService using the Service Registry
-		ServiceRef::Ptr pXPSRef = pContext->registry().findByName("osp.core.xp");
+		ServiceRef::Ptr pXPSRef = pContext->registry().findByName(ExtensionPointService::SERVICE_NAME);
 		if (pXPSRef)
 		{
 			// ExtensionPointService is available

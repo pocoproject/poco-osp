@@ -35,8 +35,7 @@ class BundleContainerApplication: public Application
 {
 public:
 	BundleContainerApplication():
-		_pOSP(new OSPSubsystem),
-		_showHelp(false)
+		_pOSP(new OSPSubsystem)
 	{
 		addSubsystem(_pOSP);
 	}
@@ -78,7 +77,6 @@ protected:
 
 	void handleHelp(const std::string& name, const std::string& value)
 	{
-		_showHelp = true;
 		displayHelp();
 		stopOptionsProcessing();
 		_pOSP->cancelInit();
@@ -86,7 +84,8 @@ protected:
 
 	void handleConfig(const std::string& name, const std::string& value)
 	{
-		loadConfiguration(value);
+		// Above the default configuration file that initialize() loads.
+		loadConfiguration(value, PRIO_APPLICATION);
 	}
 
 	void displayHelp()
@@ -94,21 +93,17 @@ protected:
 		HelpFormatter helpFormatter(options());
 		helpFormatter.setCommand(commandName());
 		helpFormatter.setUsage("OPTIONS");
-		helpFormatter.setHeader("A container for Open Service Platform bundles.");
+		helpFormatter.setHeader("Starts the Open Service Platform bundles, stops them again and exits.");
 		helpFormatter.format(std::cout);
 	}
 
 	int main(const std::vector<std::string>& args)
 	{
-		if (!_showHelp)
-		{
-		}
 		return Application::EXIT_OK;
 	}
 
 private:
 	OSPSubsystem* _pOSP;
-	bool _showHelp;
 };
 
 

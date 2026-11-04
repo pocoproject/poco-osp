@@ -29,6 +29,6 @@ poco_osp_bundle(${TARGET}-bundle
 install(
 	DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
 	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
-	COMPONENT    Bundles
+	COMPONENT    Samples
 	FILES_MATCHING PATTERN "${TARGET}*.bndl"
 )

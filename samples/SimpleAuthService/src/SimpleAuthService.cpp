@@ -19,7 +19,10 @@
 #include "Poco/AutoPtr.h"
 #include "Poco/StringTokenizer.h"
 #include "Poco/ClassLibrary.h"
+#include "Poco/DigestEngine.h"
+#include "Poco/SHA2Engine.h"
 #include <set>
+#include <string>
 
 
 using Poco::OSP::BundleActivator;
@@ -34,21 +37,26 @@ using Poco::StringTokenizer;
 
 
 class SimpleAuthService: public Poco::OSP::Auth::AuthService
-	/// A very simple implementation of AuthService.
+	/// A very simple implementation of AuthService, for testing on
+	/// this computer only. The SimpleAuth bundle
+	/// (com.appinf.osp.simple-auth) provides the same service with
+	/// hashed passwords in the configuration.
+	///
 	/// Only two users are known - "user" and "admin".
-	/// Any password is valid for "user". The password for "admin"
-	/// can be set in the global configuration file with the
-	/// "adminPassword" property. If no password
-	/// has been set in the global configuration file, a default
-	/// password (stored in the bundle's properties) is used.
+	/// Their passwords are set in the global configuration file with
+	/// the "adminPassword" and "userPassword" properties. Without
+	/// "adminPassword", the service is not registered. Without
+	/// "userPassword", "user" cannot log in.
 	/// The "admin" user has all permissions. The set of permissions
 	/// for "user" can be set in the global configuration file,
 	/// using the "userPermissions" property. The permissions are
-	/// specified as a comma-separated list.
+	/// specified as a comma-separated list; by default, "user" has
+	/// no permissions.
 {
 public:
-	SimpleAuthService(const std::string& adminPassword, const std::set<std::string>& userPermissions):
-		_adminPassword(adminPassword),
+	SimpleAuthService(const std::string& adminPassword, const std::string& userPassword, const std::set<std::string>& userPermissions):
+		_adminPasswordHash(hash(adminPassword)),
+		_userPasswordHash(userPassword.empty() ? Poco::DigestEngine::Digest() : hash(userPassword)),
 		_userPermissions(userPermissions)
 	{
 	}
@@ -60,7 +68,15 @@ public:
 	// AuthService
 	bool authenticate(const std::string& userName, const std::string& credentials) const
 	{
-		return userName == "user" || (userName == "admin" && credentials == _adminPassword);
+		if (userName == "admin")
+		{
+			return Poco::DigestEngine::constantTimeEquals(hash(credentials), _adminPasswordHash);
+		}
+		if (userName == "user")
+		{
+			return !_userPasswordHash.empty() && Poco::DigestEngine::constantTimeEquals(hash(credentials), _userPasswordHash);
+		}
+		return false;
 	}
 
 	bool authorize(const std::string& userName, const std::string& permission) const
@@ -91,14 +107,22 @@ public:
 	}
 
 private:
-	std::string _adminPassword;
+	[[nodiscard]] static Poco::DigestEngine::Digest hash(const std::string& password)
+	{
+		Poco::SHA2Engine256 sha256;
+		sha256.update(password);
+		return sha256.digest();
+	}
+
+	Poco::DigestEngine::Digest _adminPasswordHash;
+	Poco::DigestEngine::Digest _userPasswordHash;
 	std::set<std::string> _userPermissions;
 };
 
 
 class SimpleAuthServiceBundleActivator: public BundleActivator
 	/// The BundleActivator for the SimpleAuthService.
-	/// Registes the SimpleAuthService with the Service Registry.
+	/// Registers the SimpleAuthService with the Service Registry.
 {
 public:
 	SimpleAuthServiceBundleActivator()
@@ -111,17 +135,24 @@ public:
 
 	void start(BundleContext::Ptr pContext)
 	{
-		std::string adminPassword = pContext->thisBundle()->properties().getString("adminPassword", "admin");
-		std::string perms = pContext->thisBundle()->properties().getString("userPermissions", "admin");
+		std::string adminPassword = pContext->thisBundle()->properties().getString("adminPassword", "");
+		std::string userPassword = pContext->thisBundle()->properties().getString("userPassword", "");
+		std::string perms = pContext->thisBundle()->properties().getString("userPermissions", "");
 		std::set<std::string> userPermissions;
 
 		// Find Preferences service
 		ServiceRef::Ptr pPrefsRef = pContext->registry().findByName(PreferencesService::SERVICE_NAME);
 		AutoPtr<PreferencesService> pPrefs = pPrefsRef->castedInstance<PreferencesService>();
 
-		// Get admin password and user permissions from global config
+		// Get passwords and user permissions from global config
 		adminPassword = pPrefs->configuration()->getString("adminPassword", adminPassword);
+		userPassword = pPrefs->configuration()->getString("userPassword", userPassword);
 		perms = pPrefs->configuration()->getString("userPermissions", perms);
+		if (adminPassword.empty())
+		{
+			pContext->logger().error("The sample authentication service is not registered: no password is configured for the user admin (property adminPassword).");
+			return;
+		}
 		StringTokenizer tok(perms, ",;", StringTokenizer::TOK_TRIM | StringTokenizer::TOK_IGNORE_EMPTY);
 		for (StringTokenizer::Iterator it = tok.begin(); it != tok.end(); ++it)
 		{
@@ -129,15 +160,18 @@ public:
 		}
 
 		// Create an instance of the SimpleAuthService
-		AutoPtr<SimpleAuthService> pService = new SimpleAuthService(adminPassword, userPermissions);
+		AutoPtr<SimpleAuthService> pService = new SimpleAuthService(adminPassword, userPassword, userPermissions);
 		// Register the SimpleAuthService with the ServiceRegistry.
 		_pService = pContext->registry().registerService("osp.auth", pService, Properties());
 	}
 
 	void stop(BundleContext::Ptr pContext)
 	{
-		// Unregister the GreetingService
+		// Unregister the SimpleAuthService
 		pContext->registry().unregisterService(_pService);
+		// The activator is reused when the bundle starts again, and that
+		// start registers no service if adminPassword has been removed.
+		_pService.reset();
 	}
 
 private:

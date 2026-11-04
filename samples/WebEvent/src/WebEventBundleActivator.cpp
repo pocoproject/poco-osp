@@ -22,6 +22,7 @@
 #include "Poco/DateTimeFormatter.h"
 #include "Poco/DateTimeFormat.h"
 #include "Poco/Delegate.h"
+#include "Poco/UTF8String.h"
 #include "Poco/ClassLibrary.h"
 
 
@@ -57,10 +58,13 @@ public:
 	{
 		_pWebEventService->notificationSent -= Poco::delegate(this, &WebEventBundleActivator::onNotificationSent);
 		_pWebEventService->requestReceived -= Poco::delegate(this, &WebEventBundleActivator::onRequestReceived);
+		_pWebEventService->subjectNotified("sample.tenSecondsTimer") -= Poco::delegate(this, &WebEventBundleActivator::onSpecificNotificationSent);
+		_pWebEventService->subjectNotified("sample.client") -= Poco::delegate(this, &WebEventBundleActivator::onSpecificNotificationSent);
 
 		_timer.cancel(true);
 		_pWebEventService = 0;
-		_pContext = 0;
+		// Removing a delegate waits until a running call of it has returned, so no
+		// delegate uses _pContext after this point; start() assigns it again.
 	}
 	
 	void fire10SecondsEvent(Poco::Util::TimerTask&)
@@ -81,19 +85,19 @@ public:
 	void onNotificationSent(const Poco::OSP::WebEvent::WebEventService::NotificationEvent& ev)
 	{
 		std::string msg("Notification sent, subject=");
-		msg += ev.first;
+		msg += Poco::UTF8::escape(ev.first);
 		msg += ", data=";
-		msg += ev.second;
-		_pContext->logger().information(msg);
+		msg += Poco::UTF8::escape(ev.second);
+		_pContext->logger().debug(msg);
 	}
 
 	void onSpecificNotificationSent(const Poco::OSP::WebEvent::WebEventService::NotificationEvent& ev)
 	{
 		std::string msg("Specific Notification sent, subject=");
-		msg += ev.first;
+		msg += Poco::UTF8::escape(ev.first);
 		msg += ", data=";
-		msg += ev.second;
-		_pContext->logger().information(msg);
+		msg += Poco::UTF8::escape(ev.second);
+		_pContext->logger().debug(msg);
 	}
 	
 	void onRequestReceived(const Poco::Net::HTTPServerRequest*& pRequest)

@@ -6,8 +6,11 @@
       
       function log(msg, color)
       {
-        var div = document.getElementById("output");
-        div.innerHTML = div.innerHTML + "<pre style='color:" + color + "'>" + msg + "</pre>";
+        // msg can come from another client: show it as text, never as HTML
+        var pre = document.createElement("pre");
+        pre.style.color = color;
+        pre.textContent = msg;
+        document.getElementById("output").appendChild(pre);
       }
       
       function createEventWS()

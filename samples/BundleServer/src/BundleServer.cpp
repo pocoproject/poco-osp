@@ -11,6 +11,7 @@
 
 
 #include "Poco/Util/ServerApplication.h"
+#include "Poco/Util/Application.h"
 #include "Poco/Util/Option.h"
 #include "Poco/Util/OptionSet.h"
 #include "Poco/Util/HelpFormatter.h"
@@ -38,10 +39,10 @@ class BundleServerApplication: public ServerApplication
 public:
 	BundleServerApplication():
 		_errorHandler(*this),
+		_pPreviousErrorHandler(Poco::ErrorHandler::set(&_errorHandler)),
 		_pOSP(new OSPSubsystem),
 		_showHelp(false)
 	{
-		Poco::ErrorHandler::set(&_errorHandler);
 		addSubsystem(_pOSP);
 	}
 
@@ -50,6 +51,8 @@ public:
 		// wait until all threads have terminated
 		// before we completely shut down.
 		Poco::ThreadPool::defaultPool().joinAll();
+		// _errorHandler is destroyed with this object.
+		Poco::ErrorHandler::set(_pPreviousErrorHandler);
 	}
 
 	ServiceRegistry& serviceRegistry()
@@ -129,7 +132,8 @@ protected:
 
 	void handleConfig(const std::string& name, const std::string& value)
 	{
-		loadConfiguration(value);
+		// Above the default configuration file that initialize() loads.
+		loadConfiguration(value, PRIO_APPLICATION);
 	}
 
 	void displayHelp()
@@ -152,6 +156,7 @@ protected:
 
 private:
 	ErrorHandler _errorHandler;
+	Poco::ErrorHandler* _pPreviousErrorHandler;
 	OSPSubsystem* _pOSP;
 	bool _showHelp;
 };

@@ -1,5 +1,5 @@
 //
-// GreetingService.cpp
+// GreetingService.h
 //
 // Definition of the GreetingService class.
 //

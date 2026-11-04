@@ -12,6 +12,7 @@
 #include "Poco/Net/HTTPServerRequest.h"
 #include "Poco/Net/HTTPServerResponse.h"
 #include "Poco/Net/HTTPServerParams.h"
+#include "Poco/Net/Net.h"
 #include "Poco/OSP/Web/WebRequestHandlerFactory.h"
 #include "Poco/OSP/Web/WebServerDispatcher.h"
 #include "Poco/OSP/ServiceRegistry.h"
@@ -19,11 +20,13 @@
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/AutoPtr.h"
 #include "Poco/ClassLibrary.h"
+#include "Poco/URI.h"
 
 
 using Poco::Net::HTTPRequestHandler;
 using Poco::Net::HTTPServerRequest;
 using Poco::Net::HTTPServerResponse;
+using Poco::Net::htmlize;
 using Poco::OSP::Web::WebRequestHandlerFactory;
 using Poco::OSP::Web::WebServerDispatcher;
 using Poco::OSP::Service;
@@ -75,26 +78,6 @@ public:
 		ostr << "</P></DIV></BODY></HTML>";
 	}
 	
-protected:
-	std::string htmlize(const std::string& str)
-	{
-		std::string::const_iterator it(str.begin());
-		std::string::const_iterator end(str.end());
-		std::string html;
-		for (; it != end; ++it)
-		{
-			switch (*it)
-			{
-			case '<': html += "&lt;"; break;
-			case '>': html += "&gt;"; break;
-			case '"': html += "&quot;"; break;
-			case '&': html += "&amp;"; break;
-			default:  html += *it; break;
-			}
-		}
-		return html;
-	}
-	
 private:
 	AutoPtr<WebServerDispatcher> _pWebServerDispatcher;
 };
@@ -109,11 +92,12 @@ public:
 
 	HTTPRequestHandler* createRequestHandler(const HTTPServerRequest& request)
 	{
-		const std::string& path = request.getURI();
-		if (path == "/" || path == "/index.html")
+		const std::string path = Poco::URI(request.getURI()).getPath();
+		if (_pWebServerDispatcher != nullptr && (path == "/" || path == "/index.html"))
+		{
 			return new IndexHandler(_pWebServerDispatcher);
-		else
-			return 0;
+		}
+		return nullptr;
 	}
 	
 protected:
@@ -123,6 +107,10 @@ protected:
 		if (pWebServerDispatcherRef)
 		{
 			 _pWebServerDispatcher = pWebServerDispatcherRef->castedInstance<WebServerDispatcher>();
+		}
+		else
+		{
+			context()->logger().error("The WebServerDispatcher service is not available. The server index page is not served.");
 		}
 	}
 	

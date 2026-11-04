@@ -50,7 +50,7 @@ public:
 	void start(BundleContext::Ptr pContext)
 	{		
 		// find PreferencesService using the Service Registry
-		ServiceRef::Ptr pPrefsSvcRef = pContext->registry().findByName("osp.core.preferences");
+		ServiceRef::Ptr pPrefsSvcRef = pContext->registry().findByName(PreferencesService::SERVICE_NAME);
 		if (pPrefsSvcRef)
 		{
 			// PreferencesService is available
