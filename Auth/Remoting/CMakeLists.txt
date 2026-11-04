@@ -24,8 +24,6 @@ set_target_properties(OSPAuthRemoting
 target_link_libraries(OSPAuthRemoting
 	PUBLIC
 	Poco::OSP Poco::RemotingNG Poco::Foundation
-	PRIVATE
-	Poco::OSPAuth Poco::Net
 )
 target_include_directories(OSPAuthRemoting
 	PUBLIC
@@ -37,3 +35,7 @@ target_include_directories(OSPAuthRemoting
 
 POCO_INSTALL(OSPAuthRemoting)
 POCO_GENERATE_PACKAGE(OSPAuthRemoting)
+
+if(POCO_OSP_ENABLE_TESTS)
+	add_subdirectory(testsuite)
+endif()

@@ -24,15 +24,13 @@
 #include "Poco/OSP/Auth/PooledAuthAdminService.h"
 #if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 #include "Poco/OSP/Auth/LDAPClient.h"
-#include "Poco/Event.h"
 #include "Poco/Semaphore.h"
 #include "Poco/Timespan.h"
-#include <chrono>
-#include <functional>
 #include <map>
 #include <memory>
-#include <thread>
 #endif
+#include "Poco/AutoPtr.h"
+#include "Poco/Event.h"
 #include "Poco/NotificationCenter.h"
 #include "Poco/NObserver.h"
 #include "Poco/Delegate.h"
@@ -49,8 +47,13 @@
 #include "Poco/Message.h"
 #include "Poco/Mutex.h"
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cstddef>
+#include <functional>
+#include <set>
 #include <string>
+#include <thread>
 #include <utility>
 #include <new>
 #include <vector>
@@ -104,13 +107,14 @@ namespace
 	};
 
 
-	AuthAdminServiceImpl::AuthParams backendAuthParams()
-		/// Returns the parameters of the backends of a pool, which use auth.db.
+	AuthAdminServiceImpl::AuthParams backendAuthParams(const std::string& dbPath)
+		/// Returns the parameters of a service that uses the SQLite database at
+		/// dbPath with a fast password hash.
 	{
 		constexpr int PBKDF2_ITERATIONS = 1000;
 		AuthAdminServiceImpl::AuthParams authParams;
 		authParams.dbConnector = "SQLite";
-		authParams.dbConnectionString = "auth.db";
+		authParams.dbConnectionString = dbPath;
 		authParams.hashVersion = 2;
 		authParams.pbkdf2Iterations = PBKDF2_ITERATIONS;
 		return authParams;
@@ -118,9 +122,9 @@ namespace
 
 
 	std::vector<AuthAdminService::Ptr> createBackends(const Poco::Util::AbstractConfiguration& properties,
-		std::size_t count)
+		const std::string& dbPath, std::size_t count)
 	{
-		const AuthAdminServiceImpl::AuthParams authParams = backendAuthParams();
+		const AuthAdminServiceImpl::AuthParams authParams = backendAuthParams(dbPath);
 		AuthAdminServiceImpl::LDAPParams ldapParams;
 		std::vector<AuthAdminService::Ptr> backends;
 		for (std::size_t i = 0; i < count; i++)
@@ -255,7 +259,6 @@ namespace
 	};
 
 
-#if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 	constexpr std::chrono::seconds EVENT_WAIT{5};
 		/// The time a test waits for an event signalled by another thread.
 
@@ -268,6 +271,137 @@ namespace
 	}
 
 
+	constexpr std::chrono::seconds HOLD_WAIT{2 * EVENT_WAIT};
+		/// The longest time a test double holds a call for an event, so that
+		/// a test does not hang if the event is not set.
+
+
+	template <typename Service>
+	class HeldCheckService: public Service
+		/// Signals checkStarted when it checks a password against a stored hash, and then waits
+		/// for checkReleased, or for at most HOLD_WAIT.
+	{
+	public:
+		using Ptr = Poco::AutoPtr<HeldCheckService>;
+
+		template <typename... Args>
+		HeldCheckService(Poco::Event& checkStarted, Poco::Event& checkReleased, Args&&... args):
+			Service(std::forward<Args>(args)...),
+			_checkStarted(checkStarted),
+			_checkReleased(checkReleased)
+		{
+		}
+
+		HeldCheckService() = delete;
+		HeldCheckService(const HeldCheckService&) = delete;
+		HeldCheckService(HeldCheckService&&) = delete;
+		HeldCheckService& operator = (const HeldCheckService&) = delete;
+		HeldCheckService& operator = (HeldCheckService&&) = delete;
+		~HeldCheckService() override = default;
+
+		[[nodiscard]] bool holding() const
+			/// Returns true while a check is held.
+		{
+			return _holding;
+		}
+
+	protected:
+		typename Service::PasswordCheck checkPassword(const std::string& username, const std::string& credentials,
+			const std::string& storedHash, bool replace) const override
+		{
+			_holding = true;
+			_checkStarted.set();
+			static_cast<void>(_checkReleased.tryWait(static_cast<long>(std::chrono::milliseconds(HOLD_WAIT).count())));
+			_holding = false;
+			return Service::checkPassword(username, credentials, storedHash, replace);
+		}
+
+	private:
+		Poco::Event& _checkStarted;
+		Poco::Event& _checkReleased;
+		mutable std::atomic<bool> _holding{false};
+	};
+
+
+	using HeldCheckAuthAdminService = HeldCheckService<AuthAdminServiceImpl>;
+
+
+	class HeldHashAuthAdminService: public AuthAdminServiceImpl
+		/// Signals hashStarted when it computes a new password hash, and then waits for
+		/// hashReleased, or for at most HOLD_WAIT.
+	{
+	public:
+		using Ptr = Poco::AutoPtr<HeldHashAuthAdminService>;
+
+		HeldHashAuthAdminService(Poco::Event& hashStarted, Poco::Event& hashReleased,
+			const Poco::Util::AbstractConfiguration& properties, const AuthParams& authParams):
+			AuthAdminServiceImpl(properties, Poco::Logger::root(), authParams, LDAPParams()),
+			_hashStarted(hashStarted),
+			_hashReleased(hashReleased)
+		{
+		}
+
+		HeldHashAuthAdminService() = delete;
+		HeldHashAuthAdminService(const HeldHashAuthAdminService&) = delete;
+		HeldHashAuthAdminService(HeldHashAuthAdminService&&) = delete;
+		HeldHashAuthAdminService& operator = (const HeldHashAuthAdminService&) = delete;
+		HeldHashAuthAdminService& operator = (HeldHashAuthAdminService&&) = delete;
+		~HeldHashAuthAdminService() override = default;
+
+		[[nodiscard]] bool holding() const
+			/// Returns true while the computation of a hash is held.
+		{
+			return _holding;
+		}
+
+	protected:
+		[[nodiscard]] std::string saltAndHashCredentials(const std::string& username,
+			const std::string& credentials) const override
+		{
+			_holding = true;
+			_hashStarted.set();
+			static_cast<void>(_hashReleased.tryWait(static_cast<long>(std::chrono::milliseconds(HOLD_WAIT).count())));
+			_holding = false;
+			return AuthAdminServiceImpl::saltAndHashCredentials(username, credentials);
+		}
+
+	private:
+		Poco::Event& _hashStarted;
+		Poco::Event& _hashReleased;
+		mutable std::atomic<bool> _holding{false};
+	};
+
+
+	class BrokenSessionAuthAdminService: public AuthAdminServiceImpl
+		/// Can leave its database session disconnected with the transaction
+		/// flag set, as a rollback that fails on a lost connection does.
+	{
+	public:
+		using Ptr = Poco::AutoPtr<BrokenSessionAuthAdminService>;
+
+		BrokenSessionAuthAdminService(const Poco::Util::AbstractConfiguration& properties,
+			const AuthParams& authParams):
+			AuthAdminServiceImpl(properties, Poco::Logger::root(), authParams, LDAPParams())
+		{
+		}
+
+		BrokenSessionAuthAdminService() = delete;
+		BrokenSessionAuthAdminService(const BrokenSessionAuthAdminService&) = delete;
+		BrokenSessionAuthAdminService(BrokenSessionAuthAdminService&&) = delete;
+		BrokenSessionAuthAdminService& operator = (const BrokenSessionAuthAdminService&) = delete;
+		BrokenSessionAuthAdminService& operator = (BrokenSessionAuthAdminService&&) = delete;
+		~BrokenSessionAuthAdminService() override = default;
+
+		void breakSessionInTransaction() const
+		{
+			Poco::Data::Session& sess = session();
+			sess.begin();
+			sess.close();
+		}
+	};
+
+
+#if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 	struct Directory
 		/// Scripted answers of the LDAP server, shared by the clients of a test.
 	{
@@ -464,6 +598,9 @@ namespace
 	};
 
 
+	using HeldCheckLDAPAuthAdminService = HeldCheckService<LDAPAuthAdminService>;
+
+
 	class UnstorableLDAPAuthAdminService: public LDAPAuthAdminService
 		/// Fails with a database error when the full name of a user is stored.
 	{
@@ -494,6 +631,66 @@ namespace
 	};
 
 
+	class ConnectionLosingLDAPAuthAdminService: public LDAPAuthAdminService
+		/// Loses the connection to the database when it stores the password of a user.
+	{
+	public:
+		using Ptr = Poco::AutoPtr<ConnectionLosingLDAPAuthAdminService>;
+
+		ConnectionLosingLDAPAuthAdminService(const Poco::Util::AbstractConfiguration& properties,
+			const AuthParams& authParams, const LDAPParams& ldapParams, Directory& directory):
+			LDAPAuthAdminService(properties, authParams, ldapParams, directory)
+		{
+		}
+
+		ConnectionLosingLDAPAuthAdminService() = delete;
+		ConnectionLosingLDAPAuthAdminService(const ConnectionLosingLDAPAuthAdminService&) = delete;
+		ConnectionLosingLDAPAuthAdminService(ConnectionLosingLDAPAuthAdminService&&) = delete;
+		ConnectionLosingLDAPAuthAdminService& operator = (const ConnectionLosingLDAPAuthAdminService&) = delete;
+		ConnectionLosingLDAPAuthAdminService& operator = (ConnectionLosingLDAPAuthAdminService&&) = delete;
+		~ConnectionLosingLDAPAuthAdminService() override = default;
+
+	protected:
+		void createOrUpdateUserImpl(const std::string& username, const std::string& credentials) const override
+		{
+			session().close();
+			LDAPAuthAdminService::createOrUpdateUserImpl(username, credentials);
+		}
+	};
+
+
+	class SlowStoringLDAPAuthAdminService: public LDAPAuthAdminService
+		/// Stores the password of an LDAP user only after SESSION_TIMEOUT has elapsed.
+	{
+	public:
+		using Ptr = Poco::AutoPtr<SlowStoringLDAPAuthAdminService>;
+
+		static constexpr std::chrono::seconds SESSION_TIMEOUT{1};
+		static constexpr std::chrono::milliseconds TIMEOUT_MARGIN{100};
+
+		SlowStoringLDAPAuthAdminService(const Poco::Util::AbstractConfiguration& properties,
+			const AuthParams& authParams, const LDAPParams& ldapParams, Directory& directory):
+			LDAPAuthAdminService(properties, authParams, ldapParams, directory)
+		{
+		}
+
+		SlowStoringLDAPAuthAdminService() = delete;
+		SlowStoringLDAPAuthAdminService(const SlowStoringLDAPAuthAdminService&) = delete;
+		SlowStoringLDAPAuthAdminService(SlowStoringLDAPAuthAdminService&&) = delete;
+		SlowStoringLDAPAuthAdminService& operator = (const SlowStoringLDAPAuthAdminService&) = delete;
+		SlowStoringLDAPAuthAdminService& operator = (SlowStoringLDAPAuthAdminService&&) = delete;
+		~SlowStoringLDAPAuthAdminService() override = default;
+
+	protected:
+		void createOrUpdateUserImpl(const std::string& username, const std::string& credentials) const override
+		{
+			// The timeout counts whole seconds from the last use of the session; only waiting expires it.
+			std::this_thread::sleep_for(SESSION_TIMEOUT + TIMEOUT_MARGIN);
+			LDAPAuthAdminService::createOrUpdateUserImpl(username, credentials);
+		}
+	};
+
+
 	class UncheckableLDAPAuthAdminService: public LDAPAuthAdminService
 		/// Fails with a database error when an account is checked before the
 		/// bind of the user.
@@ -520,17 +717,6 @@ namespace
 			throw Poco::Data::DataException("cannot read the account", accountName);
 		}
 	};
-
-
-	AuthAdminServiceImpl::AuthParams ldapTestAuthParams()
-	{
-		AuthAdminServiceImpl::AuthParams authParams;
-		authParams.dbConnector = "SQLite";
-		authParams.dbConnectionString = "auth.db";
-		authParams.hashVersion = 2;
-		authParams.pbkdf2Iterations = 1000;
-		return authParams;
-	}
 
 
 	AuthAdminServiceImpl::LDAPParams ldapTestParams()
@@ -629,15 +815,22 @@ void AuthAdminServiceTest::testUsers()
 	std::set<std::string> users;
 	_pAAS->users(users);
 	assert (users.size() == 3);
-	assert (users.find("user1") != users.end());
-	assert (users.find("user2") != users.end());
-	assert (users.find("admin1") != users.end());
+	assert (users.contains("user1"));
+	assert (users.contains("user2"));
+	assert (users.contains("admin1"));
 
 	_pAAS->removeUser("admin1");
 	_pAAS->users(users);
 	assert (users.size() == 2);
-	assert (users.find("user1") != users.end());
-	assert (users.find("user2") != users.end());
+	assert (users.contains("user1"));
+	assert (users.contains("user2"));
+}
+
+
+void AuthAdminServiceTest::testDatabaseWithoutUsersIsReachable()
+{
+	assertTrue (AuthAdminServiceImpl::checkDatabaseConnectivity(*_pProperties, backendAuthParams(_dbPath),
+		Poco::Logger::root()));
 }
 
 
@@ -651,18 +844,18 @@ void AuthAdminServiceTest::testManyUsers()
 	std::set<std::string> users;
 	_pAAS->users(users, 0, 10);
 	assert (users.size() == 10);
-	assert (users.find("user00") != users.end());
-	assert (users.find("user09") != users.end());
+	assert (users.contains("user00"));
+	assert (users.contains("user09"));
 
 	_pAAS->users(users, 10, 10);
 	assert (users.size() == 10);
-	assert (users.find("user10") != users.end());
-	assert (users.find("user19") != users.end());
+	assert (users.contains("user10"));
+	assert (users.contains("user19"));
 
 	_pAAS->users(users, 90, 10);
 	assert (users.size() == 10);
-	assert (users.find("user90") != users.end());
-	assert (users.find("user99") != users.end());
+	assert (users.contains("user90"));
+	assert (users.contains("user99"));
 
 	_pAAS->users(users, 100, 10);
 	assert (users.size() == 0);
@@ -714,14 +907,14 @@ void AuthAdminServiceTest::testUsersWithPermission()
 	std::set<std::string> users;
 	_pAAS->usersWithPermission(users, "perm1");
 	assert (users.size() == 2);
-	assert (users.find("user1") != users.end());
-	assert (users.find("user3") != users.end());
+	assert (users.contains("user1"));
+	assert (users.contains("user3"));
 
 	users.clear();
 	_pAAS->usersWithPermission(users, "perm2");
 	assert (users.size() == 2);
-	assert (users.find("user2") != users.end());
-	assert (users.find("user4") != users.end());
+	assert (users.contains("user2"));
+	assert (users.contains("user4"));
 }
 
 
@@ -743,14 +936,14 @@ void AuthAdminServiceTest::testUsersWithRole()
 	std::set<std::string> users;
 	_pAAS->usersWithRole(users, "role1");
 	assert (users.size() == 2);
-	assert (users.find("user1") != users.end());
-	assert (users.find("user3") != users.end());
+	assert (users.contains("user1"));
+	assert (users.contains("user3"));
 
 	users.clear();
 	_pAAS->usersWithRole(users, "role2");
 	assert (users.size() == 2);
-	assert (users.find("user2") != users.end());
-	assert (users.find("user4") != users.end());
+	assert (users.contains("user2"));
+	assert (users.contains("user4"));
 }
 
 
@@ -769,14 +962,58 @@ void AuthAdminServiceTest::testUsersWithAttribute()
 	std::set<std::string> users;
 	_pAAS->usersWithAttribute(users, "attr", "value1");
 	assert (users.size() == 2);
-	assert (users.find("user1") != users.end());
-	assert (users.find("user3") != users.end());
+	assert (users.contains("user1"));
+	assert (users.contains("user3"));
 
 	users.clear();
 	_pAAS->usersWithAttribute(users, "attr", "value2");
 	assert (users.size() == 2);
-	assert (users.find("user2") != users.end());
-	assert (users.find("user4") != users.end());
+	assert (users.contains("user2"));
+	assert (users.contains("user4"));
+}
+
+
+void AuthAdminServiceTest::testUserQueriesReturnRequestedPage()
+{
+	AuthAdminServiceImpl::Ptr pAAS = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(),
+		backendAuthParams(_dbPath), AuthAdminServiceImpl::LDAPParams());
+	pAAS->addRole("role1");
+	constexpr int USER_COUNT = 5;
+	for (int i = 0; i < USER_COUNT; i++)
+	{
+		const std::string username = "user" + std::to_string(i);
+		pAAS->addUser(username, "pass");
+		pAAS->grantPermissionsToUser(username, {"perm1"});
+		pAAS->assignRoleToUser(username, "role1");
+		pAAS->setUserAttribute(username, "attr", "value");
+	}
+
+	const std::vector<std::function<int(std::set<std::string>&, int, int)>> queries = {
+		[&](std::set<std::string>& users, int first, int limit) { return pAAS->users(users, first, limit); },
+		[&](std::set<std::string>& users, int first, int limit)
+			{ return pAAS->usersWithName(users, "user*", first, limit); },
+		[&](std::set<std::string>& users, int first, int limit)
+			{ return pAAS->usersWithPermission(users, "perm1", first, limit); },
+		[&](std::set<std::string>& users, int first, int limit)
+			{ return pAAS->usersWithRole(users, "role1", first, limit); },
+		[&](std::set<std::string>& users, int first, int limit)
+			{ return pAAS->usersWithAttribute(users, "attr", "value", first, limit); }};
+	for (const auto& query: queries)
+	{
+		std::set<std::string> all;
+		assertEqual (USER_COUNT, query(all, 0, 0));
+		assertEqual (std::size_t{USER_COUNT}, all.size());
+
+		std::set<std::string> page;
+		assertEqual (USER_COUNT, query(page, 1, 2));
+		assertEqual (std::size_t{2}, page.size());
+		std::set<std::string> rest;
+		assertEqual (USER_COUNT, query(rest, 3, 0));
+		assertEqual (std::size_t{2}, rest.size());
+		std::set<std::string> beyond;
+		assertEqual (USER_COUNT, query(beyond, USER_COUNT, 0));
+		assertTrue (beyond.empty());
+	}
 }
 
 
@@ -788,14 +1025,27 @@ void AuthAdminServiceTest::testRoles()
 	std::set<std::string> roles;
 	_pAAS->roles(roles);
 	assert (roles.size() == 2);
-	assert (roles.find("user") != roles.end());
-	assert (roles.find("admin") != roles.end());
+	assert (roles.contains("user"));
+	assert (roles.contains("admin"));
 
 	_pAAS->removeRole("admin");
 	roles.clear();
 	_pAAS->roles(roles);
 	assert (roles.size() == 1);
-	assert (roles.find("user") != roles.end());
+	assert (roles.contains("user"));
+}
+
+
+void AuthAdminServiceTest::testRemoveRoleRevokesItsPermissions()
+{
+	_pAAS->addUser("user1", "pass1");
+	_pAAS->addRole("role1");
+	_pAAS->grantPermissionsToRole("role1", {"perm1"});
+	_pAAS->assignRoleToUser("user1", "role1");
+	assertTrue (_pAAS->authorize("user1", "perm1"));
+
+	_pAAS->removeRole("role1");
+	assertFalse (_pAAS->authorize("user1", "perm1"));
 }
 
 
@@ -831,44 +1081,69 @@ void AuthAdminServiceTest::testPermissions()
 	std::set<std::string> roles;
 	_pAAS->rolesForUser("user1", roles);
 	assert (roles.size() == 1);
-	assert (roles.find("user") != roles.end());
+	assert (roles.contains("user"));
 
 	roles.clear();
 	_pAAS->rolesForUser("admin1", roles);
 	assert (roles.size() == 2);
-	assert (roles.find("user") != roles.end());
-	assert (roles.find("admin") != roles.end());
+	assert (roles.contains("user"));
+	assert (roles.contains("admin"));
 
 	perms.clear();
 	_pAAS->effectivePermissionsForUser("user1", perms);
 	assert (perms.size() == 3);
-	assert (perms.find("perm1") != perms.end());
-	assert (perms.find("perm2") != perms.end());
-	assert (perms.find("perm3") != perms.end());
+	assert (perms.contains("perm1"));
+	assert (perms.contains("perm2"));
+	assert (perms.contains("perm3"));
 
 	perms.clear();
 	_pAAS->effectivePermissionsForUser("user2", perms);
 	assert (perms.size() == 2);
-	assert (perms.find("perm1") != perms.end());
-	assert (perms.find("perm2") != perms.end());
+	assert (perms.contains("perm1"));
+	assert (perms.contains("perm2"));
 
 	perms.clear();
 	_pAAS->effectivePermissionsForUser("admin1", perms);
 	assert (perms.size() == 3);
-	assert (perms.find("perm1") != perms.end());
-	assert (perms.find("perm2") != perms.end());
-	assert (perms.find("admin") != perms.end());
+	assert (perms.contains("perm1"));
+	assert (perms.contains("perm2"));
+	assert (perms.contains("admin"));
 
 	_pAAS->removeRoleFromUser("admin1", "user");
 	roles.clear();
 	_pAAS->rolesForUser("admin1", roles);
 	assert (roles.size() == 1);
-	assert (roles.find("admin") != roles.end());
+	assert (roles.contains("admin"));
 
 	perms.clear();
 	_pAAS->effectivePermissionsForUser("admin1", perms);
 	assert (perms.size() == 1);
-	assert (perms.find("admin") != perms.end());
+	assert (perms.contains("admin"));
+}
+
+
+void AuthAdminServiceTest::testReplacePermissionsOfUnknownNameThrows()
+{
+	const std::vector<std::set<std::string>> permissionSets = {{}, {"perm1"}};
+	for (const auto& permissions: permissionSets)
+	{
+		try
+		{
+			_pAAS->replacePermissionsForUser("nobody", permissions);
+			fail("replacing the permissions of an unknown user must throw");
+		}
+		catch (Poco::NotFoundException&)
+		{
+		}
+		try
+		{
+			_pAAS->replacePermissionsForRole("norole", permissions);
+			fail("replacing the permissions of an unknown role must throw");
+		}
+		catch (Poco::NotFoundException&)
+		{
+		}
+	}
 }
 
 
@@ -907,6 +1182,29 @@ void AuthAdminServiceTest::testAuthenticateNotification()
 	nc.removeObserver(
 		Poco::NObserver<AuthAdminServiceTest, Poco::OSP::Auth::AuthNotification>(*this, &AuthAdminServiceTest::handleNotification)
 	);
+}
+
+
+void AuthAdminServiceTest::testLoginNotificationIsNotLoggedAsInformation()
+{
+	CapturingChannel::Ptr pChannel = new CapturingChannel;
+	Poco::Logger& logger = Poco::Logger::get("AuthAdminServiceTest.notification");
+	logger.setChannel(pChannel);
+	logger.setLevel(Poco::Message::PRIO_INFORMATION);
+	AuthAdminServiceImpl::Ptr pAAS = new AuthAdminServiceImpl(*_pProperties, logger, backendAuthParams(_dbPath),
+		AuthAdminServiceImpl::LDAPParams());
+	pAAS->addUser("user1", "pass1");
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool authenticated = pAAS->authenticate("user1", "pass1");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+	logger.setChannel(nullptr);
+
+	assertTrue (authenticated);
+	assertEqual (1, _notificationCounter);
+	assertTrue (pChannel->messages().empty());
 }
 
 
@@ -958,9 +1256,9 @@ void AuthAdminServiceTest::testPasswordChangedBehindCacheIsAccepted()
 
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
-	authParams.hashVersion = 4;
-	authParams.pbkdf2Iterations = 50000;
+	authParams.dbConnectionString = _dbPath;
+	authParams.hashVersion = 3;
+	authParams.pbkdf2Iterations = 1;
 	authParams.credentialsSalt = "poco";
 	AuthAdminServiceImpl::LDAPParams ldapParams;
 	AuthAdminServiceImpl::Ptr pOther = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(), authParams,
@@ -972,11 +1270,114 @@ void AuthAdminServiceTest::testPasswordChangedBehindCacheIsAccepted()
 }
 
 
+void AuthAdminServiceTest::testAuthorizeProceedsWhilePasswordIsChecked()
+{
+	Poco::Event checkStarted;
+	Poco::Event checkReleased;
+	HeldCheckAuthAdminService::Ptr pAAS = new HeldCheckAuthAdminService(checkStarted, checkReleased, *_pProperties,
+		Poco::Logger::root(), backendAuthParams(_dbPath), AuthAdminServiceImpl::LDAPParams());
+	pAAS->addUser("user1", "pass1");
+	pAAS->grantPermissionsToUser("user1", {"perm1"});
+
+	std::thread login([&]() { static_cast<void>(pAAS->authenticate("nobody", "guess")); });
+	const bool checkHeld = tryWaitForEvent(checkStarted);
+	bool authorized = false;
+	bool returnedWhileHeld = false;
+	Poco::Event authorizeReturned;
+	std::thread authorizer([&]()
+	{
+		authorized = pAAS->authorize("user1", "perm1");
+		returnedWhileHeld = pAAS->holding();
+		authorizeReturned.set();
+	});
+	// The held call is released after authorize() returns, or after EVENT_WAIT.
+	static_cast<void>(tryWaitForEvent(authorizeReturned));
+	checkReleased.set();
+	login.join();
+	authorizer.join();
+
+	assertTrue (checkHeld);
+	assertTrue (returnedWhileHeld);
+	assertTrue (authorized);
+}
+
+
+void AuthAdminServiceTest::testPasswordChangedDuringCheckRefusesLogin()
+{
+	Poco::Event checkStarted;
+	Poco::Event checkReleased;
+	HeldCheckAuthAdminService::Ptr pAAS = new HeldCheckAuthAdminService(checkStarted, checkReleased, *_pProperties,
+		Poco::Logger::root(), backendAuthParams(_dbPath), AuthAdminServiceImpl::LDAPParams());
+	pAAS->addUser("user1", "pass1");
+
+	bool authenticated = true;
+	std::thread login([&]() { authenticated = pAAS->authenticate("user1", "pass1"); });
+	const bool checkHeld = tryWaitForEvent(checkStarted);
+	pAAS->changePassword("user1", "pass2");
+	checkReleased.set();
+	login.join();
+
+	assertTrue (checkHeld);
+	assertFalse (authenticated);
+	assertTrue (pAAS->authenticate("user1", "pass2"));
+}
+
+
+void AuthAdminServiceTest::testAuthorizeProceedsWhileNewPasswordIsHashed()
+{
+	_pAAS->addUser("user1", "pass1");
+	_pAAS->grantPermissionsToUser("user1", {"perm1"});
+	Poco::Event hashStarted;
+	Poco::Event hashReleased;
+	HeldHashAuthAdminService::Ptr pAAS = new HeldHashAuthAdminService(hashStarted, hashReleased, *_pProperties,
+		backendAuthParams(_dbPath));
+
+	const auto authorizeReturnsWhileHashIsHeld = [&](const std::function<void()>& hashingCall)
+	{
+		std::thread hashing(hashingCall);
+		const bool hashHeld = tryWaitForEvent(hashStarted);
+		bool authorized = false;
+		bool returnedWhileHeld = false;
+		Poco::Event authorizeReturned;
+		std::thread authorizer([&]()
+		{
+			authorized = pAAS->authorize("user1", "perm1");
+			returnedWhileHeld = pAAS->holding();
+			authorizeReturned.set();
+		});
+		// The held call is released after authorize() returns, or after EVENT_WAIT.
+		static_cast<void>(tryWaitForEvent(authorizeReturned));
+		hashReleased.set();
+		hashing.join();
+		authorizer.join();
+		return hashHeld && returnedWhileHeld && authorized;
+	};
+
+	assertTrue (authorizeReturnsWhileHashIsHeld([&]() { pAAS->addUser("user2", "pass2"); }));
+	assertTrue (authorizeReturnsWhileHashIsHeld([&]() { pAAS->changePassword("user1", "pass3"); }));
+	assertTrue (pAAS->authenticate("user2", "pass2"));
+	assertTrue (pAAS->authenticate("user1", "pass3"));
+}
+
+
+void AuthAdminServiceTest::testBrokenSessionWithOpenTransactionIsReplaced()
+{
+	BrokenSessionAuthAdminService::Ptr pAAS = new BrokenSessionAuthAdminService(*_pProperties,
+		backendAuthParams(_dbPath));
+	pAAS->addUser("user1", "pass1");
+
+	pAAS->breakSessionInTransaction();
+
+	assertTrue (pAAS->userExists("user1"));
+	assertTrue (pAAS->authenticate("user1", "pass1"));
+}
+
+
 void AuthAdminServiceTest::testLoginOfUserRemovedBeforeNotificationSucceeds()
 {
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.hashVersion = 2;
 	authParams.pbkdf2Iterations = 1000;
 	AuthAdminServiceImpl::LDAPParams ldapParams;
@@ -1008,7 +1409,7 @@ void AuthAdminServiceTest::testAuthenticateV1()
 {
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.cacheSize = 100;
 	authParams.cacheTimeout = 3600;
 	authParams.hashVersion = 1;
@@ -1036,7 +1437,7 @@ void AuthAdminServiceTest::testAuthenticateUpgradeFromV1ToV2()
 {
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.cacheSize = 100;
 	authParams.cacheTimeout = 3600;
 	authParams.hashVersion = 1;
@@ -1059,7 +1460,7 @@ void AuthAdminServiceTest::testAuthenticateUpgradeFromV1ToV2()
 	assert (!pAAS1->authenticate("admin2", "pass3"));
 
 	// check hashes are stored as V1 (MD5)
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	std::string hash;
 	session << "SELECT password FROM auth_user WHERE username = 'user1'", into(hash), now;
 	assert (hash == "49ecb36e877c78513407a5d36d9459a5");
@@ -1084,7 +1485,7 @@ void AuthAdminServiceTest::testAuthenticateUpgradeFromV1ToV3()
 {
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.cacheSize = 100;
 	authParams.cacheTimeout = 3600;
 	authParams.hashVersion = 1;
@@ -1107,7 +1508,7 @@ void AuthAdminServiceTest::testAuthenticateUpgradeFromV1ToV3()
 	assert (!pAAS1->authenticate("admin2", "pass3"));
 
 	// check hashes are stored as V1 (MD5)
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	std::string hash;
 	session << "SELECT password FROM auth_user WHERE username = 'user1'", into(hash), now;
 	assert (hash == "49ecb36e877c78513407a5d36d9459a5");
@@ -1139,7 +1540,7 @@ void AuthAdminServiceTest::testAuthenticateUpgradeFromV2ToV3()
 {
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.cacheSize = 100;
 	authParams.cacheTimeout = 3600;
 	authParams.hashVersion = 2;
@@ -1162,7 +1563,7 @@ void AuthAdminServiceTest::testAuthenticateUpgradeFromV2ToV3()
 	assert (!pAAS2->authenticate("admin2", "pass3"));
 
 	// check hashes are stored as V2
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 
 	std::string hash;
 	session << "SELECT password FROM auth_user WHERE username = 'user1'", into(hash), now;
@@ -1195,7 +1596,7 @@ void AuthAdminServiceTest::testAuthenticateUpgradeFromV3ToV4()
 {
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.cacheSize = 100;
 	authParams.cacheTimeout = 3600;
 	authParams.hashVersion = 3;
@@ -1218,24 +1619,27 @@ void AuthAdminServiceTest::testAuthenticateUpgradeFromV3ToV4()
 	assert (!pAAS3->authenticate("admin2", "pass3"));
 
 	// check hashes are stored as V3
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 
 	std::string hash;
 	session << "SELECT password FROM auth_user WHERE username = 'user1'", into(hash), now;
 	assert (hash.compare(0, 4, "v=3;") == 0);
 
-	assert (_pAAS->authenticate("user1", "pass1"));
-	assert (_pAAS->authenticate("user2", "pass2"));
-	assert (_pAAS->authenticate("admin1", "pass3"));
+	authParams.hashVersion = 4;
+	AuthAdminServiceImpl::Ptr pUpgrading = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(), authParams,
+		ldapParams);
 
-	assert (!_pAAS->authenticate("admin1", "pass1"));
-	assert (!_pAAS->authenticate("admin2", "pass3"));
+	assert (pUpgrading->authenticate("user1", "pass1"));
+	assert (pUpgrading->authenticate("user2", "pass2"));
+	assert (pUpgrading->authenticate("admin1", "pass3"));
+
+	assert (!pUpgrading->authenticate("admin1", "pass1"));
+	assert (!pUpgrading->authenticate("admin2", "pass3"));
 
 	// check hashes have been upgraded to V4
 	session << "SELECT password FROM auth_user WHERE username = 'user1'", into(hash), now;
 	assert (hash.compare(0, 4, "v=4;") == 0);
 
-	authParams.hashVersion = 4;
 	AuthAdminServiceImpl::Ptr pAAS4 = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(), authParams, ldapParams);
 
 	assert (pAAS4->authenticate("user1", "pass1"));
@@ -1251,7 +1655,7 @@ void AuthAdminServiceTest::testAuthenticateUpgradeFromV2ToV4()
 {
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.hashVersion = 2;
 	authParams.saltLength = 8;
 	authParams.pbkdf2Iterations = 10000;
@@ -1262,7 +1666,7 @@ void AuthAdminServiceTest::testAuthenticateUpgradeFromV2ToV4()
 		ldapParams);
 	pAAS2->addUser("user1", "pass1");
 
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	std::string hash;
 	session << "SELECT password FROM auth_user WHERE username = 'user1'", into(hash), now;
 	assertTrue (hash.compare(0, 4, "v=2;") == 0);
@@ -1284,7 +1688,7 @@ void AuthAdminServiceTest::testAuthenticateRaisesIterationCount()
 {
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.hashVersion = 4;
 	authParams.saltLength = 8;
 	authParams.pbkdf2Iterations = 50000;
@@ -1316,7 +1720,7 @@ void AuthAdminServiceTest::testAuthenticateRaisesIterationCount()
 void AuthAdminServiceTest::testIterationsOfEmptyPasswordHashAreZero()
 {
 	_pAAS->addUser("user1", "pass1");
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "UPDATE auth_user SET password = '' WHERE username = 'user1'", now;
 	_pAAS->uncacheUser("user1");
 
@@ -1329,7 +1733,7 @@ void AuthAdminServiceTest::testRandomSaltsKeepWhitespaceBytes()
 {
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.hashVersion = 3;
 	authParams.saltLength = 8;
 	authParams.pbkdf2Iterations = 1000;
@@ -1350,6 +1754,27 @@ void AuthAdminServiceTest::testRandomSaltsKeepWhitespaceBytes()
 		whitespaceFound = salt.find_first_of(" \t\n\v\f\r") != std::string::npos;
 	}
 	assertTrue (whitespaceFound);
+}
+
+
+void AuthAdminServiceTest::testInvalidHashSettingsAreRejected()
+{
+	const std::vector<std::pair<int, int>> invalid = {{0, 1000}, {5, 1000}, {4, 0}, {2, -1}};
+	for (const auto& [hashVersion, iterations]: invalid)
+	{
+		auto authParams = backendAuthParams(_dbPath);
+		authParams.hashVersion = hashVersion;
+		authParams.pbkdf2Iterations = iterations;
+		try
+		{
+			AuthAdminServiceImpl::Ptr pAAS = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(), authParams,
+				AuthAdminServiceImpl::LDAPParams());
+			fail("an invalid hash version or iteration count must be rejected");
+		}
+		catch (Poco::InvalidArgumentException&)
+		{
+		}
+	}
 }
 
 
@@ -1405,7 +1830,7 @@ void AuthAdminServiceTest::testLongCacheTimeoutKeepsCachedPermissions()
 {
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.hashVersion = 2;
 	authParams.pbkdf2Iterations = 1000;
 	// More milliseconds than an int can hold. The overflow is undefined behaviour:
@@ -1419,7 +1844,7 @@ void AuthAdminServiceTest::testLongCacheTimeoutKeepsCachedPermissions()
 	pAAS->grantPermissionsToUser("user1", {"perm1"});
 	assertTrue (pAAS->authorize("user1", "perm1"));
 
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "DELETE FROM auth_user_permissions WHERE username = 'user1'", now;
 	assertTrue (pAAS->authorize("user1", "perm1"));
 }
@@ -1440,16 +1865,16 @@ void AuthAdminServiceTest::testAttributes()
 
 	_pAAS->attributesForUser("user1", attrs);
 	assert (attrs.size() == 2);
-	assert (attrs.find("attr1") != attrs.end());
-	assert (attrs.find("attr2") != attrs.end());
+	assert (attrs.contains("attr1"));
+	assert (attrs.contains("attr2"));
 
 	_pAAS->setUserAttribute("user1", "attr3", "value3");
 
 	_pAAS->attributesForUser("user1", attrs);
 	assert (attrs.size() == 3);
-	assert (attrs.find("attr1") != attrs.end());
-	assert (attrs.find("attr2") != attrs.end());
-	assert (attrs.find("attr3") != attrs.end());
+	assert (attrs.contains("attr1"));
+	assert (attrs.contains("attr2"));
+	assert (attrs.contains("attr3"));
 
 	assert (_pAAS->getUserAttribute("user1", "attr1") == "value1");
 	assert (_pAAS->getUserAttribute("user1", "attr2") == "value2");
@@ -1467,13 +1892,13 @@ void AuthAdminServiceTest::testAttributes()
 	attrs.clear();
 	_pAAS->attributesForUser("user1", attrs);
 	assert (attrs.size() == 1);
-	assert (attrs.find("attr1") != attrs.end());
+	assert (attrs.contains("attr1"));
 
 	_pAAS->setUserAttribute("user2", "attr1", "value3");
 	attrs.clear();
 	_pAAS->attributesForUser("user2", attrs);
 	assert (attrs.size() == 1);
-	assert (attrs.find("attr1") != attrs.end());
+	assert (attrs.contains("attr1"));
 
 	assert (_pAAS->getUserAttribute("user2", "attr1") == "value3");
 	assert (_pAAS->getUserAttribute("user1", "attr1") == "value1");
@@ -1495,7 +1920,7 @@ void AuthAdminServiceTest::testAttributeWithAuthPrefixWithoutUnderscoreIsUserAtt
 
 	std::set<std::string> names;
 	_pAAS->attributesForUser("user1", names);
-	assertTrue (names.find("authority") != names.end());
+	assertTrue (names.contains("authority"));
 
 	_pAAS->replaceUserAttributes("user1", {{"attr1", "value1"}});
 	assertEqual ("", _pAAS->getUserAttribute("user1", "authority"));
@@ -1609,13 +2034,12 @@ void AuthAdminServiceTest::testLockOut()
 
 void AuthAdminServiceTest::testLockOutAfterLoginFailures()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
-	std::string hash;
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.cacheSize = 100;
 	authParams.cacheTimeout = 3600;
 	authParams.hashVersion = 2;
@@ -1665,12 +2089,12 @@ void AuthAdminServiceTest::testLockOutAfterLoginFailures()
 
 void AuthAdminServiceTest::testCachedLoginResetsFailureCount()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.cacheTimeout = 3600;
 	authParams.hashVersion = 2;
 	authParams.saltLength = 8;
@@ -1705,14 +2129,14 @@ void AuthAdminServiceTest::testMalformedLockOutTimeIsLoggedAndIgnored()
 
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.hashVersion = 2;
 	authParams.pbkdf2Iterations = 1000;
 	AuthAdminServiceImpl::LDAPParams ldapParams;
 	AuthAdminServiceImpl::Ptr pAAS = new AuthAdminServiceImpl(*_pProperties, logger, authParams, ldapParams);
 	pAAS->addUser("user1", "pass1");
 
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "INSERT INTO auth_user_attributes VALUES ('user1', 'auth_lockout', 'not a time')", now;
 
 	assertTrue (pAAS->authenticate("user1", "pass1"));
@@ -1725,12 +2149,12 @@ void AuthAdminServiceTest::testMalformedLockOutTimeIsLoggedAndIgnored()
 
 void AuthAdminServiceTest::testLockOutWithNullableFailureCount()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER", now;
 
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.hashVersion = 2;
 	authParams.pbkdf2Iterations = 1000;
 	authParams.maxFailures = 3;
@@ -1757,7 +2181,7 @@ void AuthAdminServiceTest::testMissingFailureCountColumnIsLogged()
 
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	AuthAdminServiceImpl::LDAPParams ldapParams;
@@ -1800,7 +2224,8 @@ void AuthAdminServiceTest::testPoolRevokePermissionClearsEveryBackend()
 {
 	constexpr std::size_t BACKEND_COUNT = 4;
 	constexpr int REPETITIONS = 20;
-	PooledAuthAdminService::Ptr pPool = new PooledAuthAdminService(createBackends(*_pProperties, BACKEND_COUNT));
+	PooledAuthAdminService::Ptr pPool = new PooledAuthAdminService(createBackends(*_pProperties, _dbPath,
+		BACKEND_COUNT));
 	pPool->addUser("user1", "pass1");
 	for (int i = 0; i < REPETITIONS; i++)
 	{
@@ -1816,7 +2241,7 @@ void AuthAdminServiceTest::testPoolRoutesUserNamesIgnoringCase()
 {
 	// The hash of a name modulo a power of two does not depend on the case of ASCII letters.
 	constexpr std::size_t BACKEND_COUNT = 3;
-	RoutingPool::Ptr pPool = new RoutingPool(createBackends(*_pProperties, BACKEND_COUNT));
+	RoutingPool::Ptr pPool = new RoutingPool(createBackends(*_pProperties, _dbPath, BACKEND_COUNT));
 	for (const std::string name: {"Bob", "ALICE", "Carol.Example", "dAvE"})
 	{
 		assertTrue (pPool->forUser(name) == pPool->forUser(Poco::toLower(name)));
@@ -1831,7 +2256,7 @@ void AuthAdminServiceTest::testPoolAuthenticatesAccountWithBackendOfUser()
 	std::vector<AuthAdminService::Ptr> poolBackends;
 	for (std::size_t i = 0; i < BACKEND_COUNT; i++)
 	{
-		backends.push_back(new AccountNameAuthAdminService(*_pProperties, backendAuthParams()));
+		backends.push_back(new AccountNameAuthAdminService(*_pProperties, backendAuthParams(_dbPath)));
 		poolBackends.push_back(backends.back());
 	}
 	RoutingPool::Ptr pPool = new RoutingPool(poolBackends);
@@ -1850,7 +2275,7 @@ void AuthAdminServiceTest::testPoolAuthenticatesAccountWithBackendOfUser()
 
 void AuthAdminServiceTest::testPoolForwardsValidateUserWithSender()
 {
-	PooledAuthAdminService::Ptr pPool = new PooledAuthAdminService(createBackends(*_pProperties, 2));
+	PooledAuthAdminService::Ptr pPool = new PooledAuthAdminService(createBackends(*_pProperties, _dbPath, 2));
 	ValidateUserRecorder recorder;
 	pPool->validateUser += Poco::delegate(&recorder, &ValidateUserRecorder::onValidateUser);
 	pPool->addUser("user1", "pass1");
@@ -1864,12 +2289,12 @@ void AuthAdminServiceTest::testPoolForwardsValidateUserWithSender()
 
 void AuthAdminServiceTest::testNeverLockOutUsersAreNotLockedOut()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.hashVersion = 2;
 	authParams.pbkdf2Iterations = 1000;
 	authParams.maxFailures = 2;
@@ -1928,9 +2353,9 @@ void AuthAdminServiceTest::testReset()
 	std::set<std::string> users;
 	_pAAS->users(users);
 	assert (users.size() == 3);
-	assert (users.find("user1") != users.end());
-	assert (users.find("user2") != users.end());
-	assert (users.find("admin1") != users.end());
+	assert (users.contains("user1"));
+	assert (users.contains("user2"));
+	assert (users.contains("admin1"));
 }
 
 
@@ -1957,7 +2382,7 @@ void AuthAdminServiceTest::testAdminOfShippedDatabaseIsLocalUserWithLDAP()
 	Poco::TemporaryFile dbFile;
 	createShippedDatabase(dbFile.path());
 	Directory directory;
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.dbConnectionString = dbFile.path();
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, ldapTestParams(), directory);
 
@@ -1972,8 +2397,8 @@ void AuthAdminServiceTest::testLDAPPasswordChangeUpdatesStoredHash()
 {
 	Directory directory;
 	directory.passwords[userDN("alice")] = "A";
-	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), ldapTestParams(),
-		directory);
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
 	assertTrue (pAAS->authenticate("alice", "A"));
 
 	{
@@ -1982,7 +2407,7 @@ void AuthAdminServiceTest::testLDAPPasswordChangeUpdatesStoredHash()
 	}
 	assertTrue (pAAS->authenticate("alice", "B"));
 
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	std::string storedHash;
 	session << "SELECT password FROM auth_user WHERE username = 'alice'", into(storedHash), now;
 	assertTrue (storedHash.find(";h=" + pAAS->getUserAttribute("alice", "$hash")) != std::string::npos);
@@ -2000,8 +2425,8 @@ void AuthAdminServiceTest::testLDAPPasswordChangeUpdatesStoredHash()
 void AuthAdminServiceTest::testLocalUserWithCapitalLettersIsNotLDAPUser()
 {
 	Directory directory;
-	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), ldapTestParams(),
-		directory);
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
 	pAAS->addUser("Operator", "pass1");
 
 	assertFalse (pAAS->isExternalUser("Operator"));
@@ -2016,8 +2441,8 @@ void AuthAdminServiceTest::testOtherCallsProceedDuringLDAPLogin()
 	Directory directory;
 	directory.passwords[userDN("alice")] = "A";
 	directory.holdBinds = true;
-	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), ldapTestParams(),
-		directory);
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
 	pAAS->addUser("bob", "pass1");
 
 	bool authenticated = false;
@@ -2049,8 +2474,8 @@ void AuthAdminServiceTest::testConcurrentLDAPLoginsOfOneUser()
 	directory.roles = {"dev"};
 	directory.groupPermissions = {{"dev", {"build"}}};
 	directory.holdBinds = true;
-	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), ldapTestParams(),
-		directory);
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
 
 	std::vector<int> results(2, 0);
 	std::thread first([&]() { results[0] = pAAS->authenticate("alice", "A") ? 1 : 0; });
@@ -2081,12 +2506,12 @@ void AuthAdminServiceTest::testConcurrentLDAPLoginsOfOneUser()
 
 void AuthAdminServiceTest::testLDAPRoundTripsOfOneUserAreSequential()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
 	directory.passwords[userDN("alice")] = "A";
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 5;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, ldapTestParams(), directory);
@@ -2099,7 +2524,7 @@ void AuthAdminServiceTest::testLDAPRoundTripsOfOneUserAreSequential()
 		directory.binds = 0;
 		directory.onBind = [&]()
 		{
-			Poco::Data::Session reader("SQLite", "auth.db");
+			Poco::Data::Session reader("SQLite", _dbPath);
 			int failures = 0;
 			reader << "SELECT auth_failures FROM auth_user WHERE username = 'alice'", into(failures), now;
 			Poco::FastMutex::ScopedLock lock(directory.mutex);
@@ -2129,12 +2554,12 @@ void AuthAdminServiceTest::testLDAPRoundTripsOfOneUserAreSequential()
 
 void AuthAdminServiceTest::testConcurrentLDAPAttemptsAreLimitedByFailureCount()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
 	directory.passwords[userDN("alice")] = "A";
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, ldapTestParams(), directory);
@@ -2176,8 +2601,8 @@ void AuthAdminServiceTest::testLDAPSuccessDoesNotOverwriteAccountCreatedMeanwhil
 {
 	Directory directory;
 	directory.passwords[userDN("alice")] = "A";
-	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), ldapTestParams(),
-		directory);
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
 	assertTrue (pAAS->authenticate("alice", "A"));
 	pAAS->uncacheUser("alice");
 	{
@@ -2204,8 +2629,8 @@ void AuthAdminServiceTest::testLDAPRejectionKeepsPasswordOfAccountCreatedMeanwhi
 {
 	Directory directory;
 	directory.passwords[userDN("alice")] = "A";
-	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), ldapTestParams(),
-		directory);
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
 	assertTrue (pAAS->authenticate("alice", "A"));
 	{
 		Poco::FastMutex::ScopedLock lock(directory.mutex);
@@ -2228,13 +2653,13 @@ void AuthAdminServiceTest::testLDAPRejectionKeepsPasswordOfAccountCreatedMeanwhi
 
 void AuthAdminServiceTest::testLockOutDuringLDAPLoginDiscardsLDAPAnswer()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
 	directory.passwords[userDN("alice")] = "A";
 	directory.fullName = "Alice Example";
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, ldapTestParams(), directory);
@@ -2277,8 +2702,8 @@ void AuthAdminServiceTest::testLDAPRoundTripsOfDifferentUsersRunInParallel()
 	directory.passwords[userDN("alice")] = "A";
 	directory.passwords[userDN("bob")] = "B";
 	directory.holdBinds = true;
-	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), ldapTestParams(),
-		directory);
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
 
 	std::vector<int> results(2, 0);
 	std::thread alice([&]() { results[0] = pAAS->authenticate("alice", "A") ? 1 : 0; });
@@ -2298,7 +2723,7 @@ void AuthAdminServiceTest::testLDAPRoundTripsOfDifferentUsersRunInParallel()
 
 void AuthAdminServiceTest::testLoginWaitingTooLongForOtherLDAPLoginIsRefused()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	CapturingChannel::Ptr pChannel = new CapturingChannel;
@@ -2308,7 +2733,7 @@ void AuthAdminServiceTest::testLoginWaitingTooLongForOtherLDAPLoginIsRefused()
 
 	Directory directory;
 	directory.passwords[userDN("alice")] = "A";
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	auto ldapParams = ldapTestParams();
@@ -2343,8 +2768,8 @@ void AuthAdminServiceTest::testLDAPDirectoryProblemKeepsLocalPassword()
 	directory.passwords[userDN("alice")] = "A";
 	directory.passwords["cn=service,dc=example,dc=com"] = "service secret";
 	directory.foundUserDN = userDN("alice");
-	LDAPAuthAdminService::Ptr pDN = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), ldapTestParams(),
-		directory);
+	LDAPAuthAdminService::Ptr pDN = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
 	assertTrue (pDN->authenticate("alice", "A"));
 
 	for (const auto& [params, searchFails]: directoryErrorBeforeUserBindCases(true))
@@ -2353,7 +2778,7 @@ void AuthAdminServiceTest::testLDAPDirectoryProblemKeepsLocalPassword()
 			Poco::FastMutex::ScopedLock lock(directory.mutex);
 			directory.searchFails = searchFails;
 		}
-		LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), params,
+		LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath), params,
 			directory);
 		assertFalse (pAAS->authenticate("alice", "wrong"));
 		assertTrue (pAAS->authenticate("alice", "A"));
@@ -2368,8 +2793,8 @@ void AuthAdminServiceTest::testLDAPDirectoryErrorWithoutLocalFallbackRefusesStor
 	directory.passwords[userDN("alice")] = "A";
 	directory.passwords["cn=service,dc=example,dc=com"] = "service secret";
 	directory.foundUserDN = userDN("alice");
-	LDAPAuthAdminService::Ptr pDN = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), ldapTestParams(),
-		directory);
+	LDAPAuthAdminService::Ptr pDN = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
 	assertTrue (pDN->authenticate("alice", "A"));
 	const std::string storedHash = pDN->getUserAttribute("alice", "$hash");
 
@@ -2379,7 +2804,7 @@ void AuthAdminServiceTest::testLDAPDirectoryErrorWithoutLocalFallbackRefusesStor
 			Poco::FastMutex::ScopedLock lock(directory.mutex);
 			directory.searchFails = searchFails;
 		}
-		LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), params,
+		LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath), params,
 			directory);
 		assertFalse (pAAS->authenticate("alice", "A"));
 		assertEqual (storedHash, pAAS->getUserAttribute("alice", "$hash"));
@@ -2389,14 +2814,14 @@ void AuthAdminServiceTest::testLDAPDirectoryErrorWithoutLocalFallbackRefusesStor
 
 void AuthAdminServiceTest::testLDAPDirectoryErrorBeforeUserBindCountsWrongPasswords()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
 	directory.passwords[userDN("alice")] = "A";
 	directory.passwords["cn=service,dc=example,dc=com"] = "service secret";
 	directory.foundUserDN = userDN("alice");
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pDN = new LDAPAuthAdminService(*_pProperties, authParams, ldapTestParams(), directory);
@@ -2422,12 +2847,12 @@ void AuthAdminServiceTest::testLDAPDirectoryErrorBeforeUserBindCountsWrongPasswo
 
 void AuthAdminServiceTest::testLDAPDirectoryErrorAfterAcceptedPasswordCountsNoFailure()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
 	directory.passwords[userDN("alice")] = "A";
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, ldapTestParams(), directory);
@@ -2452,12 +2877,12 @@ void AuthAdminServiceTest::testLDAPDirectoryErrorAfterAcceptedPasswordCountsNoFa
 
 void AuthAdminServiceTest::testRefusedLDAPBindCountsFailureAndKeepsPassword()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
 	directory.passwords[userDN("alice")] = "A";
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, ldapTestParams(), directory);
@@ -2483,12 +2908,12 @@ void AuthAdminServiceTest::testRefusedLDAPBindCountsFailureAndKeepsPassword()
 
 void AuthAdminServiceTest::testInaccessibleLDAPServerKeepsStoredPassword()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
 	directory.passwords[userDN("alice")] = "A";
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, ldapTestParams(), directory);
@@ -2515,8 +2940,8 @@ void AuthAdminServiceTest::testDatabaseErrorWhileStoringLDAPUserRollsBack()
 	Directory directory;
 	directory.passwords[userDN("alice")] = "A";
 	directory.fullName = "Alice Example";
-	UnstorableLDAPAuthAdminService::Ptr pAAS = new UnstorableLDAPAuthAdminService(*_pProperties, ldapTestAuthParams(),
-		ldapTestParams(), directory);
+	UnstorableLDAPAuthAdminService::Ptr pAAS = new UnstorableLDAPAuthAdminService(*_pProperties,
+		backendAuthParams(_dbPath), ldapTestParams(), directory);
 
 	try
 	{
@@ -2528,8 +2953,8 @@ void AuthAdminServiceTest::testDatabaseErrorWhileStoringLDAPUserRollsBack()
 	}
 	assertFalse (pAAS->userExists("alice"));
 
-	LDAPAuthAdminService::Ptr pStoring = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), ldapTestParams(),
-		directory);
+	LDAPAuthAdminService::Ptr pStoring = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
 	assertTrue (pStoring->authenticate("alice", "A"));
 	const std::string storedHash = pAAS->getUserAttribute("alice", "$hash");
 	{
@@ -2548,11 +2973,132 @@ void AuthAdminServiceTest::testDatabaseErrorWhileStoringLDAPUserRollsBack()
 }
 
 
+void AuthAdminServiceTest::testSessionTimeoutDuringLDAPLoginKeepsSession()
+{
+	Directory directory;
+	directory.passwords[userDN("alice")] = "A";
+	auto authParams = backendAuthParams(_dbPath);
+	authParams.dbSessionTimeout = static_cast<int>(SlowStoringLDAPAuthAdminService::SESSION_TIMEOUT.count());
+	SlowStoringLDAPAuthAdminService::Ptr pAAS = new SlowStoringLDAPAuthAdminService(*_pProperties, authParams,
+		ldapTestParams(), directory);
+
+	assertTrue (pAAS->authenticate("alice", "A"));
+	assertTrue (pAAS->userExists("alice"));
+	assertTrue (pAAS->isExternalUser("alice"));
+}
+
+
+void AuthAdminServiceTest::testLostDatabaseConnectionDuringLDAPLoginStoresNothing()
+{
+	Directory directory;
+	directory.passwords[userDN("alice")] = "A";
+	ConnectionLosingLDAPAuthAdminService::Ptr pAAS = new ConnectionLosingLDAPAuthAdminService(*_pProperties,
+		backendAuthParams(_dbPath), ldapTestParams(), directory);
+
+	try
+	{
+		[[maybe_unused]] const bool authenticated = pAAS->authenticate("alice", "A");
+		fail("a lost database connection while storing the LDAP user must be reported");
+	}
+	catch (Poco::Data::DataException&)
+	{
+	}
+	assertFalse (pAAS->userExists("alice"));
+}
+
+
+void AuthAdminServiceTest::testAuthorizeProceedsWhileLDAPLoginChecksPassword()
+{
+	Directory directory;
+	directory.passwords[userDN("alice")] = "A";
+	Poco::Event checkStarted;
+	Poco::Event checkReleased;
+	HeldCheckLDAPAuthAdminService::Ptr pAAS = new HeldCheckLDAPAuthAdminService(checkStarted, checkReleased,
+		*_pProperties, backendAuthParams(_dbPath), ldapTestParams(), directory);
+	pAAS->addUser("user1", "pass1");
+	pAAS->grantPermissionsToUser("user1", {"perm1"});
+
+	bool authenticated = false;
+	std::thread login([&]() { authenticated = pAAS->authenticate("alice", "A"); });
+	const bool checkHeld = tryWaitForEvent(checkStarted);
+	bool authorized = false;
+	bool returnedWhileHeld = false;
+	Poco::Event authorizeReturned;
+	std::thread authorizer([&]()
+	{
+		authorized = pAAS->authorize("user1", "perm1");
+		returnedWhileHeld = pAAS->holding();
+		authorizeReturned.set();
+	});
+	// The held call is released after authorize() returns, or after EVENT_WAIT.
+	static_cast<void>(tryWaitForEvent(authorizeReturned));
+	checkReleased.set();
+	login.join();
+	authorizer.join();
+
+	assertTrue (checkHeld);
+	assertTrue (returnedWhileHeld);
+	assertTrue (authorized);
+	assertTrue (authenticated);
+}
+
+
+void AuthAdminServiceTest::testPasswordChangedDuringLDAPLoginCheckRefusesLogin()
+{
+	Directory directory;
+	directory.passwords[userDN("alice")] = "A";
+	LDAPAuthAdminService::Ptr pOther = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
+	assertTrue (pOther->authenticate("alice", "A"));
+	Poco::Event checkStarted;
+	Poco::Event checkReleased;
+	HeldCheckLDAPAuthAdminService::Ptr pAAS = new HeldCheckLDAPAuthAdminService(checkStarted, checkReleased,
+		*_pProperties, backendAuthParams(_dbPath), ldapTestParams(), directory);
+
+	bool authenticated = true;
+	std::thread login([&]() { authenticated = pAAS->authenticate("alice", "A"); });
+	const bool checkHeld = tryWaitForEvent(checkStarted);
+	{
+		Poco::FastMutex::ScopedLock lock(directory.mutex);
+		directory.passwords[userDN("alice")] = "B";
+	}
+	const bool changedByOtherLogin = pOther->authenticate("alice", "B");
+	const std::string changedHash = pOther->getUserAttribute("alice", "$hash");
+	checkReleased.set();
+	login.join();
+
+	assertTrue (checkHeld);
+	assertTrue (changedByOtherLogin);
+	assertFalse (authenticated);
+	assertEqual (changedHash, pAAS->getUserAttribute("alice", "$hash"));
+}
+
+
+void AuthAdminServiceTest::testLDAPLoginUpdatesRolePermissionsOfOtherUsers()
+{
+	Directory directory;
+	directory.passwords[userDN("alice")] = "A";
+	directory.passwords[userDN("bob")] = "B";
+	directory.roles = {"dev"};
+	directory.groupPermissions = {{"dev", {"build"}}};
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
+	assertTrue (pAAS->authenticate("bob", "B"));
+	assertTrue (pAAS->authorize("bob", "build"));
+
+	directory.groupPermissions = {{"dev", {"deploy"}}};
+	assertTrue (pAAS->authenticate("alice", "A"));
+
+	assertFalse (pAAS->authorize("bob", "build"));
+	assertTrue (pAAS->authorize("bob", "deploy"));
+}
+
+
 void AuthAdminServiceTest::testLoginNamesOfDirectoryUserShareOneAccount()
 {
 	Directory directory;
 	addServiceAccountAndAlice(directory);
-	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(),
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
 		accountModeParams(true), directory);
 
 	std::string accountName;
@@ -2570,12 +3116,12 @@ void AuthAdminServiceTest::testLoginNamesOfDirectoryUserShareOneAccount()
 
 void AuthAdminServiceTest::testFailedLoginsThroughEveryNameLockOutAccount()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
 	addServiceAccountAndAlice(directory);
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, accountModeParams(true),
@@ -2593,12 +3139,12 @@ void AuthAdminServiceTest::testFailedLoginsThroughEveryNameLockOutAccount()
 
 void AuthAdminServiceTest::testLockedOutAccountIsNotTriedThroughOtherName()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
 	addServiceAccountAndAlice(directory);
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, accountModeParams(true),
@@ -2628,13 +3174,13 @@ void AuthAdminServiceTest::testLockedOutAccountIsNotTriedThroughOtherName()
 
 void AuthAdminServiceTest::testLockOutDuringLoginThroughOtherNameDiscardsLDAPAnswer()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
 	addServiceAccountAndAlice(directory);
 	directory.fullName = "Alice Example";
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, accountModeParams(true),
@@ -2671,7 +3217,7 @@ void AuthAdminServiceTest::testLockOutDuringLoginThroughOtherNameDiscardsLDAPAns
 
 void AuthAdminServiceTest::testUserBindModeStoresLoginUnderAccountName()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
@@ -2679,7 +3225,7 @@ void AuthAdminServiceTest::testUserBindModeStoresLoginUnderAccountName()
 	directory.accountName = "Alice";
 	directory.userPrincipalName = "alice@example.com";
 	directory.fullName = "Alice Example";
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, accountModeParams(false),
@@ -2709,7 +3255,7 @@ void AuthAdminServiceTest::testUserBindModeStoresLoginUnderAccountName()
 
 void AuthAdminServiceTest::testUserBindModeRefusesNameThatEntryDoesNotHave()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	// The directory accepts these names for other users than alice, and the
@@ -2723,7 +3269,7 @@ void AuthAdminServiceTest::testUserBindModeRefusesNameThatEntryDoesNotHave()
 	directory.userPrincipalName = "alice@example.com";
 	directory.principalName = "COMPANY\\alice";
 	directory.permissions = {"alice.perm"};
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, accountModeParams(false),
@@ -2791,7 +3337,7 @@ void AuthAdminServiceTest::testUserBindModeAcceptsDomainNameOfEntry()
 	directory.userPrincipalName = "alice@example.com";
 	directory.principalName = "COMPANY\\alice";
 	directory.permissions = {"alice.perm"};
-	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(),
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
 		accountModeParams(false), directory);
 
 	std::string accountName;
@@ -2807,9 +3353,9 @@ void AuthAdminServiceTest::testOutageAfterSearchChecksStoredPasswordOfAccount()
 	Directory directory;
 	addServiceAccountAndAlice(directory);
 	directory.passwords[userDN("alice@example.com")] = "OLD";
-	LDAPAuthAdminService::Ptr pDN = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), ldapTestParams(),
-		directory);
-	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(),
+	LDAPAuthAdminService::Ptr pDN = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
 		accountModeParams(true), directory);
 	// An account stored under another name of alice, as by earlier versions.
 	assertTrue (pDN->authenticate("alice@example.com", "OLD"));
@@ -2844,10 +3390,10 @@ void AuthAdminServiceTest::testLoginWithoutAccountNameIsStoredUnderTypedName()
 	addServiceAccountAndAlice(directory);
 	directory.accountName.clear();
 	directory.passwords[userDN("bob")] = "B";
-	LDAPAuthAdminService::Ptr pService = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(),
+	LDAPAuthAdminService::Ptr pService = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
 		accountModeParams(true), directory);
-	LDAPAuthAdminService::Ptr pDN = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), ldapTestParams(),
-		directory);
+	LDAPAuthAdminService::Ptr pDN = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
 
 	std::string accountName;
 	assertTrue (pService->authenticateAccount("Alice@Example.com", "A", accountName));
@@ -2866,12 +3412,12 @@ void AuthAdminServiceTest::testLoginWithoutAccountNameIsStoredUnderTypedName()
 
 void AuthAdminServiceTest::testAuthenticateRefusesOtherNameThanAccountName()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
 	addServiceAccountAndAlice(directory);
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, accountModeParams(true),
@@ -2886,21 +3432,23 @@ void AuthAdminServiceTest::testAuthenticateRefusesOtherNameThanAccountName()
 	assertEqual (0, failures);
 	assertTrue (pAAS->authenticate("ALICE", "A"));
 
-	// The account name and the given name differ only in the case of a letter
-	// that is not ASCII: U+00C9 and U+00E9 (E with acute accent).
+	// The names differ only in the case of a letter that is not ASCII (U+00C9, U+00E9), whose case the
+	// stored account name keeps.
 	directory.accountName = "\xC3\x89mile";
-	assertTrue (pAAS->authenticate("\xC3\xA9mile", "A"));
+	assertFalse (pAAS->authenticate("\xC3\xA9mile", "A"));
+	assertTrue (pAAS->userExists("\xC3\x89mile"));
+	assertFalse (pAAS->userExists("\xC3\xA9mile"));
 }
 
 
 void AuthAdminServiceTest::testVerifyCredentialsRefusesOtherNameThanAccountName()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
 	addServiceAccountAndAlice(directory);
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, accountModeParams(true),
@@ -2915,10 +3463,12 @@ void AuthAdminServiceTest::testVerifyCredentialsRefusesOtherNameThanAccountName(
 	assertEqual (0, failures);
 	assertTrue (pAAS->verifyCredentials("ALICE", "A"));
 
-	// The account name and the given name differ only in the case of a letter
-	// that is not ASCII: U+00C9 and U+00E9 (E with acute accent).
+	// The names differ only in the case of a letter that is not ASCII (U+00C9, U+00E9), whose case the
+	// stored account name keeps.
 	directory.accountName = "\xC3\x89mile";
-	assertTrue (pAAS->verifyCredentials("\xC3\xA9mile", "A"));
+	assertFalse (pAAS->verifyCredentials("\xC3\xA9mile", "A"));
+	assertTrue (pAAS->userExists("\xC3\x89mile"));
+	assertFalse (pAAS->userExists("\xC3\xA9mile"));
 }
 
 
@@ -2926,8 +3476,8 @@ void AuthAdminServiceTest::testDatabaseErrorWhileCheckingAccountIsReported()
 {
 	Directory directory;
 	addServiceAccountAndAlice(directory);
-	UncheckableLDAPAuthAdminService::Ptr pAAS = new UncheckableLDAPAuthAdminService(*_pProperties, ldapTestAuthParams(),
-		accountModeParams(true), directory);
+	UncheckableLDAPAuthAdminService::Ptr pAAS = new UncheckableLDAPAuthAdminService(*_pProperties,
+		backendAuthParams(_dbPath), accountModeParams(true), directory);
 
 	try
 	{
@@ -2945,7 +3495,7 @@ void AuthAdminServiceTest::testAccountNameOfLocalUserIsRefused()
 {
 	Directory directory;
 	addServiceAccountAndAlice(directory);
-	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(),
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
 		accountModeParams(true), directory);
 	pAAS->addUser("alice", "local");
 	const std::string storedHash = pAAS->getUserAttribute("alice", "$hash");
@@ -2963,7 +3513,7 @@ void AuthAdminServiceTest::testLoginThroughOtherNameWaitsForLoginOfAccount()
 {
 	Directory directory;
 	addServiceAccountAndAlice(directory);
-	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(),
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
 		accountModeParams(true), directory);
 	assertTrue (pAAS->authenticate("alice", "A"));
 	pAAS->uncacheUser("alice");
@@ -3002,7 +3552,7 @@ void AuthAdminServiceTest::testLoginThroughOtherNameWaitsForLoginOfAccount()
 
 void AuthAdminServiceTest::testLoginThroughOtherNameWaitingTooLongIsRefused()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	CapturingChannel::Ptr pChannel = new CapturingChannel;
@@ -3012,7 +3562,7 @@ void AuthAdminServiceTest::testLoginThroughOtherNameWaitingTooLongIsRefused()
 
 	Directory directory;
 	addServiceAccountAndAlice(directory);
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	auto ldapParams = accountModeParams(true);
@@ -3054,12 +3604,12 @@ void AuthAdminServiceTest::testLoginThroughOtherNameWaitingTooLongIsRefused()
 
 void AuthAdminServiceTest::testConcurrentLoginsThroughNamesOfAccountAreLimitedByFailureCount()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
 	addServiceAccountAndAlice(directory);
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 1;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, accountModeParams(true),
@@ -3107,14 +3657,14 @@ void AuthAdminServiceTest::testConcurrentLoginsThroughNamesOfAccountAreLimitedBy
 
 void AuthAdminServiceTest::testEntryWithSeveralAccountNamesIsDirectoryError()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
 	addServiceAccountAndAlice(directory);
 	directory.passwords["company\\alice"] = "A";
 	directory.fullName = "Alice Example";
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	auto serviceParams = accountModeParams(true);
@@ -3152,8 +3702,8 @@ void AuthAdminServiceTest::testRejectedLDAPPasswordKeepsUserAndClearsLocalPasswo
 	Directory directory;
 	directory.passwords[userDN("alice")] = "A";
 	directory.fullName = "Alice Example";
-	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), ldapTestParams(),
-		directory);
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
 	assertTrue (pAAS->authenticate("alice", "A"));
 	pAAS->setUserAttribute("alice", "mail", "alice@example.com");
 	pAAS->setAuthAttribute("alice", "auth_tfa_secret", "secret");
@@ -3182,8 +3732,8 @@ void AuthAdminServiceTest::testRejectedLDAPLoginKeepsPasswordNotStoredByLDAP()
 {
 	_pAAS->addUser("bob", "local");
 	Directory directory;
-	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), ldapTestParams(),
-		directory);
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
 	assertTrue (pAAS->isExternalUser("bob"));
 	const std::string storedHash = pAAS->getUserAttribute("bob", "$hash");
 
@@ -3196,12 +3746,12 @@ void AuthAdminServiceTest::testRejectedLDAPLoginKeepsPasswordNotStoredByLDAP()
 
 void AuthAdminServiceTest::testRejectedLDAPPasswordsLockOutUser()
 {
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
 
 	Directory directory;
 	directory.passwords[userDN("alice")] = "A";
-	auto authParams = ldapTestAuthParams();
+	auto authParams = backendAuthParams(_dbPath);
 	authParams.maxFailures = 3;
 	authParams.lockOutTime = LOCK_OUT_SECONDS;
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, authParams, ldapTestParams(), directory);
@@ -3222,7 +3772,7 @@ void AuthAdminServiceTest::testUnreachableLDAPServerKeepsLocalPassword()
 	directory.passwords[userDN("alice")] = "A";
 	auto ldapParams = ldapTestParams();
 	ldapParams.localFallback = false;
-	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, ldapTestAuthParams(), ldapParams,
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath), ldapParams,
 		directory);
 	assertTrue (pAAS->authenticate("alice", "A"));
 	pAAS->uncacheUser("alice");
@@ -3279,8 +3829,8 @@ void AuthAdminServiceTest::testRoleMappings()
 	perms.clear();
 	_pAAS->effectivePermissionsForUser("ldapuser", perms);
 	assert (perms.size() == 1);
-	assert (perms.find("LDAP_Operators") != perms.end());
-	assert (perms.find("app.devices.read") == perms.end());
+	assert (perms.contains("LDAP_Operators"));
+	assert (!perms.contains("app.devices.read"));
 
 	// --- Test setRoleMapping: map external LDAP role to internal role ---
 	_pAAS->setRoleMapping("cn=ldap_operators,dc=example,dc=com", "operators");
@@ -3294,10 +3844,10 @@ void AuthAdminServiceTest::testRoleMappings()
 	perms.clear();
 	_pAAS->effectivePermissionsForUser("ldapuser", perms);
 	assert (perms.size() == 4);
-	assert (perms.find("LDAP_Operators") != perms.end());
-	assert (perms.find("app.devices.read") != perms.end());
-	assert (perms.find("app.devices.write") != perms.end());
-	assert (perms.find("hmi") != perms.end());
+	assert (perms.contains("LDAP_Operators"));
+	assert (perms.contains("app.devices.read"));
+	assert (perms.contains("app.devices.write"));
+	assert (perms.contains("hmi"));
 
 	// --- Test authorize works through the mapping ---
 	assert (_pAAS->authorize("ldapuser", "app.devices.read"));
@@ -3317,8 +3867,8 @@ void AuthAdminServiceTest::testRoleMappings()
 	perms.clear();
 	_pAAS->effectivePermissionsForUser("ldapuser", perms);
 	assert (perms.size() == 6); // LDAP_Operators + app.devices.read + app.devices.write + hmi + app.auth.admin + app.sql.admin
-	assert (perms.find("app.auth.admin") != perms.end());
-	assert (perms.find("app.sql.admin") != perms.end());
+	assert (perms.contains("app.auth.admin"));
+	assert (perms.contains("app.sql.admin"));
 
 	mappings.clear();
 	_pAAS->allRoleMappings(mappings);
@@ -3333,7 +3883,7 @@ void AuthAdminServiceTest::testRoleMappings()
 	// operators perms (app.devices.read, app.devices.write, hmi) should appear once even though
 	// two external roles map to operators. UNION in SQL deduplicates.
 	assert (perms.size() == 6); // still 6, not 9
-	assert (perms.find("app.devices.read") != perms.end());
+	assert (perms.contains("app.devices.read"));
 
 	// --- Test overwrite mapping: change operators -> admins ---
 	_pAAS->setRoleMapping("cn=ldap_operators,dc=example,dc=com", "admins");
@@ -3356,7 +3906,7 @@ void AuthAdminServiceTest::testRoleMappings()
 	mappings.clear();
 	_pAAS->allRoleMappings(mappings);
 	assert (mappings.size() == 1); // only ldap_viewers -> operators remains
-	assert (mappings.find("cn=ldap_viewers,dc=example,dc=com") != mappings.end());
+	assert (mappings.contains("cn=ldap_viewers,dc=example,dc=com"));
 
 	// --- Test that removing the external role cascades to remove the mapping ---
 	_pAAS->removeRole("cn=ldap_viewers,dc=example,dc=com");
@@ -3377,7 +3927,7 @@ void AuthAdminServiceTest::testInvalidateCachesClearsPermissionsByDefault()
 	_pAAS->grantPermissionsToUser("user1", {"perm1"});
 	assertTrue (_pAAS->authorize("user1", "perm1"));
 
-	Poco::Data::Session session("SQLite", "auth.db");
+	Poco::Data::Session session("SQLite", _dbPath);
 	session << "DELETE FROM auth_user_permissions WHERE username = 'user1'", now;
 	assertTrue (_pAAS->authorize("user1", "perm1"));
 
@@ -3418,13 +3968,8 @@ void AuthAdminServiceTest::setUp()
 		_firstRun = false;
 	}
 
-	Poco::File f("auth.db");
-	if (f.exists())
-	{
-		f.remove();
-	}
-
-	Poco::Data::Session session("SQLite", "auth.db");
+	_dbPath = Poco::TemporaryFile::tempName() + ".db";
+	Poco::Data::Session session("SQLite", _dbPath);
 	if (_testInlineAttributes)
 	{
 		session <<
@@ -3517,12 +4062,14 @@ void AuthAdminServiceTest::setUp()
 
 	AuthAdminServiceImpl::AuthParams authParams;
 	authParams.dbConnector = "SQLite";
-	authParams.dbConnectionString = "auth.db";
+	authParams.dbConnectionString = _dbPath;
 	authParams.cacheSize = 100;
 	authParams.cacheTimeout = 3600;
-	authParams.hashVersion = 4;
+	// The cheapest hash that stores its iteration count; version 4 needs at least 50000 iterations.
+	// Tests whose result depends on the hash version or iteration count set their own.
+	authParams.hashVersion = 3;
 	authParams.saltLength = 16;
-	authParams.pbkdf2Iterations = 50000;
+	authParams.pbkdf2Iterations = 1;
 	authParams.credentialsSalt = "poco";
 
 	AuthAdminServiceImpl::LDAPParams ldapParams;
@@ -3536,6 +4083,8 @@ void AuthAdminServiceTest::setUp()
 void AuthAdminServiceTest::tearDown()
 {
 	_pAAS = nullptr;
+	Poco::File dbFile(_dbPath);
+	if (dbFile.exists()) dbFile.remove();
 }
 
 
@@ -3544,17 +4093,26 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("AuthAdminServiceTest");
 
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testUsers);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testDatabaseWithoutUsersIsReachable);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testManyUsers);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testUsersWithNameMatchesSpecialCharacters);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testUsersWithPermission);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testUsersWithRole);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testUsersWithAttribute);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testUserQueriesReturnRequestedPage);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRoles);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRemoveRoleRevokesItsPermissions);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPermissions);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testReplacePermissionsOfUnknownNameThrows);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthenticate);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthenticateNotification);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLoginNotificationIsNotLoggedAsInformation);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLoginOfUserRemovedBeforeNotificationSucceeds);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPasswordChangedBehindCacheIsAccepted);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthorizeProceedsWhilePasswordIsChecked);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPasswordChangedDuringCheckRefusesLogin);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthorizeProceedsWhileNewPasswordIsHashed);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testBrokenSessionWithOpenTransactionIsReplaced);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testChangePasswordOfUnknownUserThrows);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testEmptyPasswordIsRejected);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthenticateV1);
@@ -3566,6 +4124,7 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthenticateRaisesIterationCount);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testIterationsOfEmptyPasswordHashAreZero);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRandomSaltsKeepWhitespaceBytes);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testInvalidHashSettingsAreRejected);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthorize);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLongCacheTimeoutKeepsCachedPermissions);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAttributes);
@@ -3611,6 +4170,11 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRefusedLDAPBindCountsFailureAndKeepsPassword);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testInaccessibleLDAPServerKeepsStoredPassword);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testDatabaseErrorWhileStoringLDAPUserRollsBack);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testSessionTimeoutDuringLDAPLoginKeepsSession);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLostDatabaseConnectionDuringLDAPLoginStoresNothing);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthorizeProceedsWhileLDAPLoginChecksPassword);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPasswordChangedDuringLDAPLoginCheckRefusesLogin);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLDAPLoginUpdatesRolePermissionsOfOtherUsers);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLoginNamesOfDirectoryUserShareOneAccount);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testFailedLoginsThroughEveryNameLockOutAccount);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLockedOutAccountIsNotTriedThroughOtherName);
@@ -3654,6 +4218,7 @@ CppUnit::Test* InlineAttributesAuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testUsersWithRole);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testUsersWithAttribute);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testRoles);
+	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testRemoveRoleRevokesItsPermissions);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testPermissions);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testAuthenticate);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testAuthenticateNotification);

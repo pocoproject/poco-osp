@@ -37,15 +37,7 @@
 #include <string>
 
 
-using Poco::OSP::BundleActivator;
-using Poco::OSP::BundleContext;
-using Poco::OSP::Bundle;
-using Poco::OSP::Properties;
-using Poco::OSP::Service;
-using Poco::OSP::ServiceRef;
-using Poco::OSP::PreferencesService;
-using Poco::AutoPtr;
-using Poco::StringTokenizer;
+namespace Poco::OSP::SimpleAuth {
 
 
 class SimpleAuthService: public Poco::OSP::Auth::AuthService
@@ -77,15 +69,9 @@ class SimpleAuthService: public Poco::OSP::Auth::AuthService
 {
 public:
 	SimpleAuthService(const std::string& adminName, const std::string& adminPasswordHash, const std::string& userName,
-		const std::string& userPasswordHash, const std::set<std::string>& userPermissions, const std::string& salt):
-		_adminName(adminName),
-		_adminPasswordHash(adminPasswordHash),
-		_userName(userName),
-		_userPasswordHash(userPasswordHash),
-		_userPermissions(userPermissions),
-		_salt(salt)
-	{
-	}
+		const std::string& userPasswordHash, const std::set<std::string>& userPermissions, const std::string& salt);
+		/// Creates the SimpleAuthService with the names, password hashes and
+		/// salt of the two users, and the permissions of the user.
 
 	~SimpleAuthService() override = default;
 
@@ -96,49 +82,28 @@ public:
 	SimpleAuthService& operator = (SimpleAuthService&&) = delete;
 
 	// AuthService
-	[[nodiscard]] bool authenticate(const std::string& userName, const std::string& credentials) const override
-	{
-		return (userName == _userName && checkCredentials(userName, credentials, _userPasswordHash))
-		    || (userName == _adminName && checkCredentials(userName, credentials, _adminPasswordHash));
-	}
+	[[nodiscard]] bool authenticate(const std::string& userName, const std::string& credentials) const override;
 
-	[[nodiscard]] bool authorize(const std::string& userName, const std::string& permission) const override
-	{
-		return userName == _adminName
-		    || (userName == _userName && _userPermissions.find(permission) != _userPermissions.end());
-	}
+	[[nodiscard]] bool authorize(const std::string& userName, const std::string& permission) const override;
 
 	[[nodiscard]] bool authorize(const std::string& userName, const std::string& roleOrScope,
 		const std::string& permission) const override;
 
-	[[nodiscard]] bool userExists(const std::string& userName) const override
-	{
-		return userName == _adminName || userName == _userName;
-	}
+	[[nodiscard]] bool userExists(const std::string& userName) const override;
 
 	// Service
-	[[nodiscard]] const std::type_info& type() const override
-	{
-		return typeid(SimpleAuthService);
-	}
+	[[nodiscard]] const std::type_info& type() const override;
 
-	[[nodiscard]] bool isA(const std::type_info& otherType) const override
-	{
-		std::string name(typeid(SimpleAuthService).name());
-		return name == otherType.name() || Poco::OSP::Auth::AuthService::isA(otherType);
-	}
+	[[nodiscard]] bool isA(const std::type_info& otherType) const override;
 
 protected:
 	[[nodiscard]] bool checkCredentials(const std::string& userName, const std::string& credentials,
 		const std::string& passwordHash) const;
+		/// Returns true if the credentials match the password hash, in the
+		/// version 4 format or as salted MD5.
 
-	[[nodiscard]] std::string hashCredentials(const std::string& credentials) const
-	{
-		Poco::MD5Engine md5;
-		md5.update(_salt);
-		md5.update(credentials);
-		return Poco::DigestEngine::digestToHex(md5.digest());
-	}
+	[[nodiscard]] std::string hashCredentials(const std::string& credentials) const;
+		/// Returns the salted MD5 hash of the credentials.
 
 	[[nodiscard]] std::string hashCredentialsV4(const std::string& userName, const std::string& credentials,
 		const std::string& passwordHash) const;
@@ -157,10 +122,56 @@ private:
 };
 
 
+inline SimpleAuthService::SimpleAuthService(const std::string& adminName, const std::string& adminPasswordHash,
+	const std::string& userName, const std::string& userPasswordHash, const std::set<std::string>& userPermissions,
+	const std::string& salt):
+	_adminName(adminName),
+	_adminPasswordHash(adminPasswordHash),
+	_userName(userName),
+	_userPasswordHash(userPasswordHash),
+	_userPermissions(userPermissions),
+	_salt(salt)
+{
+}
+
+
+inline bool SimpleAuthService::authenticate(const std::string& userName, const std::string& credentials) const
+{
+	return (userName == _userName && checkCredentials(userName, credentials, _userPasswordHash))
+	    || (userName == _adminName && checkCredentials(userName, credentials, _adminPasswordHash));
+}
+
+
+inline bool SimpleAuthService::authorize(const std::string& userName, const std::string& permission) const
+{
+	return userName == _adminName
+	    || (userName == _userName && _userPermissions.contains(permission));
+}
+
+
 inline bool SimpleAuthService::authorize(const std::string& userName, const std::string& roleOrScope,
 	const std::string& permission) const
 {
 	return roleOrScope.empty() && authorize(userName, permission);
+}
+
+
+inline bool SimpleAuthService::userExists(const std::string& userName) const
+{
+	return userName == _adminName || userName == _userName;
+}
+
+
+inline const std::type_info& SimpleAuthService::type() const
+{
+	return typeid(SimpleAuthService);
+}
+
+
+inline bool SimpleAuthService::isA(const std::type_info& otherType) const
+{
+	std::string name(typeid(SimpleAuthService).name());
+	return name == otherType.name() || Poco::OSP::Auth::AuthService::isA(otherType);
 }
 
 
@@ -171,6 +182,15 @@ inline bool SimpleAuthService::checkCredentials(const std::string& userName, con
 		hashCredentialsV4(userName, credentials, passwordHash) : hashCredentials(credentials);
 	return Poco::DigestEngine::constantTimeEquals(Poco::DigestEngine::Digest(hash.begin(), hash.end()),
 		Poco::DigestEngine::Digest(passwordHash.begin(), passwordHash.end()));
+}
+
+
+inline std::string SimpleAuthService::hashCredentials(const std::string& credentials) const
+{
+	Poco::MD5Engine md5;
+	md5.update(_salt);
+	md5.update(credentials);
+	return Poco::DigestEngine::digestToHex(md5.digest());
 }
 
 
@@ -223,54 +243,70 @@ public:
 	SimpleAuthBundleActivator& operator = (const SimpleAuthBundleActivator&) = delete;
 	SimpleAuthBundleActivator& operator = (SimpleAuthBundleActivator&&) = delete;
 
-	void start(BundleContext::Ptr pContext) override
-	{
-		ServiceRef::Ptr pPrefsRef = pContext->registry().findByName(PreferencesService::SERVICE_NAME);
-		if (pPrefsRef == nullptr)
-		{
-			pContext->logger().error("The preferences service is not available, so the simple authentication service "
-				"is not started.");
-			return;
-		}
-		AutoPtr<PreferencesService> pPrefs = pPrefsRef->castedInstance<PreferencesService>();
+	void start(BundleContext::Ptr pContext) override;
+		/// Registers the SimpleAuthService as "osp.auth" with the settings of
+		/// the preferences service, unless auth.simple.enable is false.
 
-		bool enable = pPrefs->configuration()->getBool("auth.simple.enable", true);
-		if (enable)
-		{
-			std::string adminName = pPrefs->configuration()->getString("auth.simple.admin.name", "admin");
-			std::string adminPasswordHash = pPrefs->configuration()->getString("auth.simple.admin.passwordHash", "");
-			std::string userName = pPrefs->configuration()->getString("auth.simple.user.name", "user");
-			std::string userPasswordHash = pPrefs->configuration()->getString("auth.simple.user.passwordHash", "");
-			std::string salt = pPrefs->configuration()->getString("auth.simple.salt", "");
-			std::string perms = pPrefs->configuration()->getString("auth.simple.user.permissions", "");
-			StringTokenizer tok(perms, ",;", StringTokenizer::TOK_TRIM | StringTokenizer::TOK_IGNORE_EMPTY);
-			std::set<std::string> userPermissions;
-			for (StringTokenizer::Iterator it = tok.begin(); it != tok.end(); ++it)
-			{
-				userPermissions.insert(*it);
-			}
-
-			AutoPtr<SimpleAuthService> pService = new SimpleAuthService(adminName, adminPasswordHash, userName,
-				userPasswordHash, userPermissions, salt);
-			_pService = pContext->registry().registerService("osp.auth", pService, Properties());
-		}
-		else
-		{
-			pContext->logger().information("Simple authentication service disabled.");
-		}
-	}
-
-	void stop(BundleContext::Ptr pContext) override
-	{
-		if (_pService != nullptr)
-		{
-			pContext->registry().unregisterService(_pService);
-		}
-	}
+	void stop(BundleContext::Ptr pContext) override;
+		/// Unregisters the SimpleAuthService, if start() has registered it.
 
 private:
 	ServiceRef::Ptr _pService;
 };
+
+
+inline void SimpleAuthBundleActivator::start(BundleContext::Ptr pContext)
+{
+	ServiceRef::Ptr pPrefsRef = pContext->registry().findByName(PreferencesService::SERVICE_NAME);
+	if (pPrefsRef == nullptr)
+	{
+		pContext->logger().error("The preferences service is not available, so the simple authentication service "
+			"is not started.");
+		return;
+	}
+	AutoPtr<PreferencesService> pPrefs = pPrefsRef->castedInstance<PreferencesService>();
+
+	bool enable = pPrefs->configuration()->getBool("auth.simple.enable", true);
+	if (enable)
+	{
+		std::string adminName = pPrefs->configuration()->getString("auth.simple.admin.name", "admin");
+		std::string adminPasswordHash = pPrefs->configuration()->getString("auth.simple.admin.passwordHash", "");
+		std::string userName = pPrefs->configuration()->getString("auth.simple.user.name", "user");
+		std::string userPasswordHash = pPrefs->configuration()->getString("auth.simple.user.passwordHash", "");
+		std::string salt = pPrefs->configuration()->getString("auth.simple.salt", "");
+		std::string perms = pPrefs->configuration()->getString("auth.simple.user.permissions", "");
+		StringTokenizer tok(perms, ",;", StringTokenizer::TOK_TRIM | StringTokenizer::TOK_IGNORE_EMPTY);
+		std::set<std::string> userPermissions;
+		for (StringTokenizer::Iterator it = tok.begin(); it != tok.end(); ++it)
+		{
+			userPermissions.insert(*it);
+		}
+
+		AutoPtr<SimpleAuthService> pService = new SimpleAuthService(adminName, adminPasswordHash, userName,
+			userPasswordHash, userPermissions, salt);
+		_pService = pContext->registry().registerService("osp.auth", pService, Properties());
+	}
+	else
+	{
+		pContext->logger().information("Simple authentication service disabled.");
+	}
+}
+
+
+inline void SimpleAuthBundleActivator::stop(BundleContext::Ptr pContext)
+{
+	if (_pService != nullptr)
+	{
+		// The loader keeps the activator for a later start(), which may not
+		// register the service.
+		const ServiceRef::Ptr pService = _pService;
+		_pService.reset();
+		pContext->registry().unregisterService(pService);
+	}
+}
+
+
+} // namespace Poco::OSP::SimpleAuth
 
 
 #endif // SimpleAuth_SimpleAuth_INCLUDED

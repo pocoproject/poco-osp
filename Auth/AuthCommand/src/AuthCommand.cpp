@@ -1,6 +1,10 @@
 //
 // AuthCommand.cpp
 //
+// Library: OSP/Auth
+// Package: Shell
+// Module:  AuthCommand
+//
 // Copyright (c) 2012, Applied Informatics Software Engineering GmbH.
 // All rights reserved.
 //
@@ -21,6 +25,7 @@
 #include "Poco/DateTimeFormat.h"
 #include "Poco/Exception.h"
 #include "Poco/Glob.h"
+#include "Poco/UTF8String.h"
 #include <map>
 #include <ostream>
 #include <set>
@@ -54,7 +59,7 @@ int AuthCommand::execute(Poco::OSP::Shell::Session& session, const std::vector<s
 				help(ostr);
 				return Poco::OSP::Shell::Command::STATUS_OK;
 			}
-			else if (args.size() > 1)
+			else
 			{
 				if (args[1] == "show")
 				{
@@ -104,7 +109,7 @@ int AuthCommand::execute(Poco::OSP::Shell::Session& session, const std::vector<s
 			help(ostr);
 			return Poco::OSP::Shell::Command::STATUS_USAGE;
 		}
-		else  return Poco::OSP::Shell::Command::STATUS_DENIED;
+		else return Poco::OSP::Shell::Command::STATUS_DENIED;
 	}
 	else return Poco::OSP::Shell::Command::STATUS_ERROR;
 }
@@ -147,7 +152,7 @@ void AuthCommand::help(std::ostream& ostr)
 		<< "  unset user <name> <attribute>...\n"
 		<< "    Removes the given attributes of a user.\n"
 		<< "  unlock <username>\n"
-		<< "    Unlocks a user after it has bee locked out due to too many failed login attempts.\n"
+		<< "    Unlocks a user after it has been locked out due to too many failed login attempts.\n"
 		<< "  help\n"
 		<< "    Display this help screen.\n"
 		<< std::endl;
@@ -193,7 +198,6 @@ int AuthCommand::show(Poco::OSP::Auth::AuthAdminService::Ptr pAuthAdminSvc, cons
 		ostr << "Bad command syntax." << std::endl;
 		return Poco::OSP::Shell::Command::STATUS_USAGE;
 	}
-	return Poco::OSP::Shell::Command::STATUS_OK;
 }
 
 
@@ -446,7 +450,8 @@ int AuthCommand::remove(Poco::OSP::Auth::AuthAdminService::Ptr pAuthAdminSvc, co
 	{
 		if (args[2] == "user")
 		{
-			if (args[3] != user)
+			// A database may compare user names without case.
+			if (Poco::UTF8::icompare(args[3], user) != 0)
 			{
 				pAuthAdminSvc->removeUser(args[3]);
 				return Poco::OSP::Shell::Command::STATUS_OK;

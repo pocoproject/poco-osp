@@ -112,7 +112,7 @@ const std::string TwoFactorServiceImpl::SALT("\x52\x71\x23\x03\x22\x49\x11\x24")
 const std::string TwoFactorServiceImpl::FORMAT_PREFIX("v=2;");
 
 
-TwoFactorServiceImpl::TwoFactorServiceImpl(const AuthAdminService::Ptr pAuthService, const Config& config,
+TwoFactorServiceImpl::TwoFactorServiceImpl(const AuthAdminService::Ptr& pAuthService, const Config& config,
 	Poco::Logger& logger):
 	_pAuthService(pAuthService),
 	_config(config),
@@ -124,7 +124,8 @@ TwoFactorServiceImpl::TwoFactorServiceImpl(const AuthAdminService::Ptr pAuthServ
 		throw Poco::InvalidArgumentException("auth.twofactor.codeDigits must be from 6 to 8",
 			std::to_string(_config.codeDigits));
 	}
-	if (_config.secretLengthBits < MIN_SECRET_LENGTH_BITS || _config.secretLengthBits % BITS_PER_BYTE != 0)
+	if (_config.secretLengthBits < SecretGenerator::MIN_SECRET_LENGTH_BITS ||
+		_config.secretLengthBits % SecretGenerator::BITS_PER_BYTE != 0)
 	{
 		throw Poco::InvalidArgumentException("auth.twofactor.secretLengthBits must be a multiple of 8 and at least 80",
 			std::to_string(_config.secretLengthBits));
@@ -147,7 +148,7 @@ TwoFactorServiceImpl::~TwoFactorServiceImpl()
 
 bool TwoFactorServiceImpl::is2FAEnabled(const std::string& username) const
 {
-	return _pAuthService->getUserAttribute(username, ATTR_SECRET) != "";
+	return authService()->getUserAttribute(username, ATTR_SECRET) != "";
 }
 
 
@@ -161,10 +162,11 @@ void TwoFactorServiceImpl::enable2FA(const std::string& username)
 
 void TwoFactorServiceImpl::disable2FA(const std::string& username)
 {
-	_pAuthService->removeAuthAttribute(username, ATTR_SECRET);
-	_pAuthService->removeAuthAttribute(username, ATTR_LAST_STEP);
-	_pAuthService->removeAuthAttribute(username, ATTR_FAILURES);
-	_pAuthService->removeAuthAttribute(username, ATTR_LAST_TOTP);
+	AuthAdminService::Ptr pAuthService = authService();
+	pAuthService->removeAuthAttribute(username, ATTR_SECRET);
+	pAuthService->removeAuthAttribute(username, ATTR_LAST_STEP);
+	pAuthService->removeAuthAttribute(username, ATTR_FAILURES);
+	pAuthService->removeAuthAttribute(username, ATTR_LAST_TOTP);
 }
 
 
@@ -173,7 +175,8 @@ TwoFactorService::ValidationResult TwoFactorServiceImpl::validateTOTP(const std:
 	// Serialised, so that two requests with the same code cannot both pass the check of the last step.
 	Poco::FastMutex::ScopedLock lock(_mutex);
 
-	if (_pAuthService->isUserLockedOut(username)) return VALIDATION_FAILED_CODE_INCORRECT;
+	AuthAdminService::Ptr pAuthService = authService();
+	if (pAuthService->isUserLockedOut(username)) return VALIDATION_FAILED_CODE_INCORRECT;
 
 	if (totp.length() != _config.codeDigits)
 	{
@@ -187,7 +190,7 @@ TwoFactorService::ValidationResult TwoFactorServiceImpl::validateTOTP(const std:
 
 	Poco::UInt64 lastStep = 0;
 	const bool hasLastStep =
-		Poco::NumberParser::tryParseUnsigned64(_pAuthService->getUserAttribute(username, ATTR_LAST_STEP), lastStep);
+		Poco::NumberParser::tryParseUnsigned64(pAuthService->getUserAttribute(username, ATTR_LAST_STEP), lastStep);
 	const Poco::DigestEngine::Digest given(totp.begin(), totp.end());
 	bool alreadyUsed = false;
 	for (Poco::UInt64 mv = movingFactor - 1; mv <= movingFactor + 1; mv++)
@@ -201,11 +204,11 @@ TwoFactorService::ValidationResult TwoFactorServiceImpl::validateTOTP(const std:
 			}
 			else
 			{
-				_pAuthService->setAuthAttribute(username, ATTR_LAST_STEP, std::to_string(mv));
-				_pAuthService->removeAuthAttribute(username, ATTR_LAST_TOTP);
-				_pAuthService->removeAuthAttribute(username, ATTR_FAILURES);
+				pAuthService->setAuthAttribute(username, ATTR_LAST_STEP, std::to_string(mv));
+				pAuthService->removeAuthAttribute(username, ATTR_LAST_TOTP);
+				pAuthService->removeAuthAttribute(username, ATTR_FAILURES);
 				// A secret in the format without version is not bound to the user.
-				if (_pAuthService->getUserAttribute(username, ATTR_SECRET).compare(0, FORMAT_PREFIX.size(),
+				if (pAuthService->getUserAttribute(username, ATTR_SECRET).compare(0, FORMAT_PREFIX.size(),
 					FORMAT_PREFIX) != 0)
 				{
 					storeSecret(username, secret);
@@ -225,22 +228,19 @@ void TwoFactorServiceImpl::recordFailure(const std::string& username)
 {
 	if (_config.maxFailures == 0) return;
 
+	AuthAdminService::Ptr pAuthService = authService();
 	Poco::UInt64 failures = 0;
-	if (!Poco::NumberParser::tryParseUnsigned64(_pAuthService->getUserAttribute(username, ATTR_FAILURES), failures))
+	if (!Poco::NumberParser::tryParseUnsigned64(pAuthService->getUserAttribute(username, ATTR_FAILURES), failures))
 	{
 		failures = 0;
 	}
 	++failures;
+	pAuthService->setAuthAttribute(username, ATTR_FAILURES, std::to_string(failures));
 	if (failures >= _config.maxFailures)
 	{
-		_pAuthService->lockOutUser(username, Poco::DateTime(now()) + _config.lockOutPeriod);
-		_pAuthService->removeAuthAttribute(username, ATTR_FAILURES);
+		pAuthService->lockOutUser(username, Poco::DateTime(now()) + _config.lockOutPeriod);
 		_logger.notice("Locked out user %s for %d seconds after %?u wrong two-factor authentication codes."s, username,
 			_config.lockOutPeriod.totalSeconds(), failures);
-	}
-	else
-	{
-		_pAuthService->setAuthAttribute(username, ATTR_FAILURES, std::to_string(failures));
 	}
 }
 
@@ -248,6 +248,12 @@ void TwoFactorServiceImpl::recordFailure(const std::string& username)
 Poco::Timestamp TwoFactorServiceImpl::now() const
 {
 	return Poco::Timestamp();
+}
+
+
+AuthAdminService::Ptr TwoFactorServiceImpl::authService() const
+{
+	return _pAuthService;
 }
 
 
@@ -278,13 +284,13 @@ bool TwoFactorServiceImpl::isA(const std::type_info& otherType) const
 
 void TwoFactorServiceImpl::storeSecret(const std::string& username, const std::string& secret)
 {
-	_pAuthService->setAuthAttribute(username, ATTR_SECRET, encryptSecret(username, secret));
+	authService()->setAuthAttribute(username, ATTR_SECRET, encryptSecret(username, secret));
 }
 
 
 std::string TwoFactorServiceImpl::loadSecret(const std::string& username) const
 {
-	std::string encrypted = _pAuthService->getUserAttribute(username, ATTR_SECRET);
+	std::string encrypted = authService()->getUserAttribute(username, ATTR_SECRET);
 	if (encrypted.empty()) throw Poco::IllegalStateException("User does not have TOTP secret", username);
 
 	if (encrypted.compare(0, FORMAT_PREFIX.size(), FORMAT_PREFIX) == 0)

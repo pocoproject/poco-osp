@@ -31,75 +31,36 @@ POCO_SOURCES_AUTO(BUNDLE_SRCS
 add_library(${LIBNAME} ${LIB_SRCS})
 add_library(Poco::OSPAuth ALIAS ${LIBNAME})
 
-# LDAP
-if(WIN32)
-	if(ENABLE_OSP_AUTH_LDAP)
-		target_sources(${LIBNAME} PRIVATE src/LDAPClient.cpp)
-		target_sources(${LIBNAME} PRIVATE include/Poco/OSP/Auth/LDAPClient.h)
+target_link_libraries(${LIBNAME}
+	PUBLIC
+	Poco::OSP Poco::Foundation
+)
+target_include_directories(${LIBNAME}
+	PUBLIC
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+		$<INSTALL_INTERFACE:include>
+	PRIVATE
+		${CMAKE_CURRENT_SOURCE_DIR}/src
+)
 
-		target_compile_definitions(${LIBNAME} PUBLIC
-			POCO_OSP_AUTH_ENABLE_LDAP
-			POCO_OS_FAMILY_WINDOWS
-		)
+# LDAP
+if(ENABLE_OSP_AUTH_LDAP)
+	if(WIN32)
+		target_link_libraries(${LIBNAME} PRIVATE wldap32)
 		message(STATUS "Building ${LIBNAME} with WinLDAP support")
-		target_link_libraries(${LIBNAME}
-			PUBLIC
-			Poco::OSP Poco::Foundation
-			PRIVATE
-			wldap32
-		)
+	elseif(APPLE)
+		message(FATAL_ERROR "ENABLE_OSP_AUTH_LDAP is not supported on macOS: the system LDAP library is deprecated "
+			"there and provides no pkg-config module.")
 	else()
-	  target_link_libraries(${LIBNAME}
-	  	PUBLIC
-	  	Poco::OSP Poco::Foundation
-  	)
-	endif()
-	target_include_directories(${LIBNAME}
-		PUBLIC
-			$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-			$<INSTALL_INTERFACE:include>
-		PRIVATE
-			${CMAKE_CURRENT_SOURCE_DIR}/src
-	)
-else()
-	if(ENABLE_OSP_AUTH_LDAP AND APPLE)
-		message(FATAL_ERROR "ENABLE_OSP_AUTH_LDAP is not supported on macOS: the LDAP headers are broken there.")
-	endif()
-	if(ENABLE_OSP_AUTH_LDAP)
 		find_package(PkgConfig REQUIRED)
 		pkg_check_modules(OPENLDAP REQUIRED IMPORTED_TARGET ldap)
-		target_sources(${LIBNAME} PRIVATE src/LDAPClient.cpp)
-		target_sources(${LIBNAME} PRIVATE include/Poco/OSP/Auth/LDAPClient.h)
-
-		target_compile_definitions(${LIBNAME} PUBLIC POCO_OSP_AUTH_ENABLE_LDAP)
-		target_link_libraries(${LIBNAME}
-			PUBLIC
-			Poco::OSP Poco::Foundation
-			PRIVATE
-			PkgConfig::OPENLDAP
-		)
-		target_include_directories(${LIBNAME}
-			PUBLIC
-				$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-				$<INSTALL_INTERFACE:include>
-			PRIVATE
-				${CMAKE_CURRENT_SOURCE_DIR}/src
-		)
+		target_link_libraries(${LIBNAME} PRIVATE PkgConfig::OPENLDAP)
 		message(STATUS "Building ${LIBNAME} with OpenLDAP support")
-	else()
-		target_link_libraries(${LIBNAME}
-			PUBLIC
-			Poco::OSP Poco::Foundation
-		)
-		target_include_directories(${LIBNAME}
-			PUBLIC
-				$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-				$<INSTALL_INTERFACE:include>
-			PRIVATE
-				${CMAKE_CURRENT_SOURCE_DIR}/src
-		)
-		message(STATUS "Building ${LIBNAME} without OpenLDAP support")
 	endif()
+	target_sources(${LIBNAME} PRIVATE src/LDAPClient.cpp)
+	target_compile_definitions(${LIBNAME} PUBLIC POCO_OSP_AUTH_ENABLE_LDAP)
+else()
+	message(STATUS "Building ${LIBNAME} without LDAP support")
 endif()
 
 set_target_properties(${LIBNAME}
@@ -110,16 +71,7 @@ set_target_properties(${LIBNAME}
 )
 
 # Dynamic Library
-add_library(${TARGET} MODULE ${BUNDLE_SRCS})
-set_target_properties(${TARGET}
-	PROPERTIES
-	PREFIX ""
-)
-
-# On macOS, use .dylib instead of .so
-if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
-	set_target_properties(${TARGET} PROPERTIES SUFFIX ".dylib")
-endif()
+poco_osp_bundle_module(${TARGET} ${BUNDLE_SRCS})
 
 target_link_libraries(${TARGET}
 	PRIVATE
@@ -132,13 +84,7 @@ poco_osp_bundle(${TARGET}-bundle
 	SPEC ${BUNDLE_SPEC}
 	CODE $<TARGET_FILE:${LIBNAME}> $<TARGET_FILE:${TARGET}>
 	DESTINATION ${POCO_OSP_BUNDLE_DIR}
-)
-
-install(
-	DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
-	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
-	COMPONENT    Bundles
-	FILES_MATCHING PATTERN "${TARGET}*.bndl"
+	INSTALL_COMPONENT Bundles
 )
 
 POCO_INSTALL(${LIBNAME})

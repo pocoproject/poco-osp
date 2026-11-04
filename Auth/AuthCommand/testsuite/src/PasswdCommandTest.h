@@ -45,6 +45,8 @@ public:
 	void testAdministratorChangesPasswords();
 	void testHelpHasNoPrompt();
 	void testHelpNamesAccountName();
+	void testUserNameAfterDoubleDashMayStartWithDash();
+	void testHelpOnlyForSingleHelpArgument();
 
 	static CppUnit::Test* suite();
 

@@ -31,19 +31,28 @@ public:
 	~AuthAdminServiceTest() override;
 
 	void testUsers();
+	void testDatabaseWithoutUsersIsReachable();
 	void testManyUsers();
 	void testUsersWithNameMatchesSpecialCharacters();
 	void testUsersWithPermission();
 	void testUsersWithRole();
 	void testUsersWithAttribute();
+	void testUserQueriesReturnRequestedPage();
 	void testRoles();
+	void testRemoveRoleRevokesItsPermissions();
 	void testPermissions();
+	void testReplacePermissionsOfUnknownNameThrows();
 	void testAuthenticate();
 	void testAuthenticateNotification();
+	void testLoginNotificationIsNotLoggedAsInformation();
 	void testLoginOfUserRemovedBeforeNotificationSucceeds();
 	void testChangePasswordOfUnknownUserThrows();
 	void testEmptyPasswordIsRejected();
 	void testPasswordChangedBehindCacheIsAccepted();
+	void testAuthorizeProceedsWhilePasswordIsChecked();
+	void testPasswordChangedDuringCheckRefusesLogin();
+	void testAuthorizeProceedsWhileNewPasswordIsHashed();
+	void testBrokenSessionWithOpenTransactionIsReplaced();
 	void testAuthenticateV1();
 	void testAuthenticateUpgradeFromV1ToV2();
 	void testAuthenticateUpgradeFromV1ToV3();
@@ -53,6 +62,7 @@ public:
 	void testAuthenticateRaisesIterationCount();
 	void testIterationsOfEmptyPasswordHashAreZero();
 	void testRandomSaltsKeepWhitespaceBytes();
+	void testInvalidHashSettingsAreRejected();
 	void testAuthorize();
 	void testLongCacheTimeoutKeepsCachedPermissions();
 	void testAttributes();
@@ -98,6 +108,11 @@ public:
 	void testRefusedLDAPBindCountsFailureAndKeepsPassword();
 	void testInaccessibleLDAPServerKeepsStoredPassword();
 	void testDatabaseErrorWhileStoringLDAPUserRollsBack();
+	void testSessionTimeoutDuringLDAPLoginKeepsSession();
+	void testLostDatabaseConnectionDuringLDAPLoginStoresNothing();
+	void testAuthorizeProceedsWhileLDAPLoginChecksPassword();
+	void testPasswordChangedDuringLDAPLoginCheckRefusesLogin();
+	void testLDAPLoginUpdatesRolePermissionsOfOtherUsers();
 	void testLoginNamesOfDirectoryUserShareOneAccount();
 	void testFailedLoginsThroughEveryNameLockOutAccount();
 	void testLockedOutAccountIsNotTriedThroughOtherName();
@@ -130,6 +145,8 @@ private:
 
 	Poco::AutoPtr<Poco::Util::PropertyFileConfiguration> _pProperties;
 	Poco::OSP::Auth::Data::AuthAdminServiceImpl::Ptr _pAAS;
+	std::string _dbPath;
+		/// The SQLite database of the test, with a unique name in the temporary directory.
 	std::string _testName;
 	bool _testInlineAttributes;
 	static bool _firstRun;

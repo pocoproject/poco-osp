@@ -30,6 +30,9 @@
 
 class PasswdCommand: public Poco::OSP::Shell::Command
 	/// This class implements the "passwd" command.
+	///
+	/// Arguments that start with '-' are not options: only a single
+	/// --help or -h shows the help, and a leading -- is skipped.
 {
 public:
 	explicit PasswdCommand(Poco::OSP::BundleContext::Ptr pContext);

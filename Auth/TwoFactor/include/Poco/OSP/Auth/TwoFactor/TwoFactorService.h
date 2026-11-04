@@ -36,6 +36,12 @@ class OSPAuthTwoFactor_API TwoFactorService: public Poco::OSP::Service
 	/// The username of each member is the account name of the user that
 	/// AuthService::authenticateAccount() returns, so that a user who can
 	/// log in with several names has one secret.
+	///
+	/// Note: only an application's own login handler checks the second
+	/// factor, by calling validateTOTP() after it has accepted the password.
+	/// HTTP Basic authentication, bearer tokens, the shell and the metrics
+	/// server accept a user without it; a web server mapping that must require
+	/// it allows only session authentication (authMethods="session").
 {
 public:
 	using Ptr = Poco::AutoPtr<TwoFactorService>;
@@ -59,10 +65,10 @@ public:
 		/// Disables two-factor authentication for the given
 		/// username and deletes the stored secret for the user.
 
-	virtual ValidationResult validateTOTP(const std::string& username, const std::string& totp) = 0;
+	[[nodiscard]] virtual ValidationResult validateTOTP(const std::string& username, const std::string& totp) = 0;
 		/// Validates the given time-based one-time password.
 
-	virtual std::string secret(const std::string& username) const = 0;
+	[[nodiscard]] virtual std::string secret(const std::string& username) const = 0;
 		/// Returns the base32-encoded secret for the given username.
 
 	[[nodiscard]] virtual std::string generateAuthenticatorURI(const std::string& username) const = 0;

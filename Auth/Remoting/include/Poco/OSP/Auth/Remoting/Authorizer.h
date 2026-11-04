@@ -33,14 +33,14 @@ class OSPAuthRemoting_API Authorizer: public Poco::RemotingNG::Authorizer
 	/// A RemotingNG Authorizer that delegates permission checks to the
 	/// OSP AuthService.
 	///
-	/// The authenticated username and optional scope are read from the
-	/// X-OSP-Authorized-User and X-OSP-Authorized-Scope HTTP headers set
-	/// by the OSP WebServerDispatcher after successful session, HTTP Basic
-	/// or Bearer JWT authentication. The authorization check is then
-	/// delegated to the AuthService registered under the service name
-	/// "osp.auth".
+	/// The authenticated user name and the optional scope are those of the
+	/// Poco::OSP::Auth::RequestIdentity of the current thread, which the OSP
+	/// WebServerDispatcher establishes after successful session, HTTP Basic or
+	/// Bearer token authentication. The authorization check is then delegated
+	/// to the AuthService registered under the service name "osp.auth".
 	///
-	/// When the X-OSP-Authorized-Scope header is present (Bearer JWT),
+	/// When the identity has a scope (that of a bearer token, the "scope" claim
+	/// for the JWT bundle),
 	/// the three-argument AuthService::authorize(user, scope, permission)
 	/// overload is used, which requires the permission to be granted by
 	/// both the user and the scope role.
@@ -62,9 +62,9 @@ public:
 		/// Destroys the Authorizer.
 
 	[[nodiscard]] bool authorize(const std::string& method, const std::string& permission) override;
-		/// Returns true if the user identified by X-OSP-Authorized-User is
-		/// granted the given permission by the OSP AuthService, false
-		/// otherwise.
+		/// Returns true if the user of the RequestIdentity of the current thread
+		/// is granted the given permission by the OSP AuthService. Returns false
+		/// if the thread has no identity or if the AuthService is not registered.
 
 private:
 	Poco::OSP::BundleContext::Ptr _pContext;

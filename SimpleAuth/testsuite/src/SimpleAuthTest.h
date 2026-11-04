@@ -27,7 +27,9 @@ public:
 	void testPBKDF2HashIsVerified();
 	void testMD5HashIsVerified();
 	void testScopedAuthorizationIsDenied();
+	void testServiceIsNotTakenForClassOfSameName();
 	void testMissingPreferencesServiceIsHandled();
+	void testRestartedActivatorRegistersAsConfigured();
 
 	void setUp() override;
 	void tearDown() override;

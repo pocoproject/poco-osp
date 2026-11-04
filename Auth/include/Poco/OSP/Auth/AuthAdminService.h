@@ -97,6 +97,7 @@ public:
 	static constexpr int INVALIDATE_ALL = INVALIDATE_CACHED_PASSWORDS | INVALIDATE_CACHED_PERMISSIONS;
 
 	enum UserFlags
+		/// The flags of a user in a ValidateUserEvent.
 	{
 		USER_LOCKED_OUT = 0x01,
 		USER_EXTERNAL   = 0x02
@@ -196,7 +197,7 @@ public:
 		///
 		/// Returns the total number of users with the given attribute.
 
-	[[nodiscard]] virtual bool userEnabled(const std::string& username) const = 0;
+	[[nodiscard]] bool userEnabled(const std::string& username) const override = 0;
 		/// Returns true if the user with the given username is enabled.
 		///
 		/// If the implementation has no concept of disabling user accounts,
@@ -317,6 +318,10 @@ public:
 		/// Throws a Poco::InvalidArgumentException if the name of the attribute
 		/// does not start with "auth_" in lower case.
 
+	[[nodiscard]] static bool isAuthAttribute(const std::string& attribute);
+		/// Returns true if the name of the attribute starts with "auth_", in
+		/// any case (see setAuthAttribute()).
+
 	virtual void replaceUserAttributes(const std::string& username, const std::map<std::string, std::string>& attributes) = 0;
 		/// Replaces the attributes of the given user.
 		/// Will also remove all other attributes.
@@ -383,6 +388,9 @@ public:
 	static const std::string USER_ATTR_SUCCESS_TIME;
 	static const std::string ROLE_ATTR_LDAP;
 
+protected:
+	static const std::string AUTH_ATTRIBUTE_PREFIX;
+		/// The prefix of the names of authentication attributes.
 };
 
 

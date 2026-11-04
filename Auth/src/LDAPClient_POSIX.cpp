@@ -5,7 +5,7 @@
 // Package: Auth
 // Module:  LDAPClient
 //
-// Definition of the LDAPClientImpl POSIX class using OpenLDAP.
+// Implementation of the LDAPClientImpl members that use OpenLDAP.
 //
 // Copyright (c) 2025, Applied Informatics Software Engineering GmbH.
 // All rights reserved.
@@ -16,18 +16,14 @@
 //
 
 
+#include "LDAPClientImpl.h"
 #include "Poco/Logger.h"
-#include "Poco/String.h"
-#include "Poco/UTF8String.h"
-#include "Poco/OSP/Auth/LDAPClient.h"
-
 #include <algorithm>
 #include <memory>
-#include <set>
 #include <string>
-#include <vector>
 #include <ldap.h>
 #include <sys/time.h>
+
 
 namespace {
 	[[nodiscard]] std::string ldapError(int err)
@@ -64,107 +60,13 @@ namespace {
 namespace Poco::OSP::Auth {
 
 
-class LDAPClientImpl
-{
-public:
-
-	using Roles = LDAPClient::Roles;
-	using Permissions = LDAPClient::Permissions;
-	using Attributes = LDAPClient::Attributes;
-	using AttributesNameMap = LDAPClient::AttributesNameMap;
-	using Mode = LDAPClient::Mode;
-	using Result = LDAPClient::Result;
-
-	struct AuthProperties {
-		std::string distinguishedName;
-		std::string fullName;
-		Roles roles;
-		Permissions permissions;
-		Attributes attributes;
-		std::vector<std::string> accountNames;
-			/// The values of sAMAccountName, if it is queried.
-		std::vector<std::string> userPrincipalNames;
-			/// The values of userPrincipalName, queried with sAMAccountName.
-		std::vector<std::string> principalNames;
-			/// The values of msDS-PrincipalName, queried with sAMAccountName.
-	};
-
-	LDAPClientImpl(Poco::Logger& logger);
-		/// Posix LDAPClient implementation.
-
-	~LDAPClientImpl();
-
-	[[nodiscard]] bool initialize(const std::string& url);
-
-	[[nodiscard]] bool setTimeLimit(int limit);
-
-	[[nodiscard]] Result bind(const std::string& bindDN, const std::string& credentials);
-
-	[[nodiscard]] bool isBound() const;
-
-	void unbind();
-
-	[[nodiscard]] bool setTimeout(const Poco::Timespan& timeout);
-		/// Sets the timeout for connecting and for the result of each operation.
-
-	void setRoleAttributeName(const std::string& name);
-	void setPermissionAttributeName(const std::string& name);
-	void setRolePermissionAttributeName(const std::string& name);
-	void setExtraAttributesMap(const AttributesNameMap& nameMap);
-
-	[[nodiscard]] bool find(const std::string& searchBase, const std::string& filter, bool subtree, bool queryRoles,
-		bool queryAccountName, AuthProperties& properties);
-
-	[[nodiscard]] int lastReturnCode() const;
-		/// Return code of the last LDAP operation.
-
-private:
-
-	[[nodiscard]] bool isExtraAttribute(const std::string& attr, std::string& canonicalAttr) const;
-
-	static const std::string DISPLAY_NAME_ATTR;
-	static const std::string ACCOUNT_NAME_ATTR;
-	static const std::string USER_PRINCIPAL_NAME_ATTR;
-	static const std::string PRINCIPAL_NAME_ATTR;
-	static constexpr long DEFAULT_TIMEOUT_SECONDS = 30;
-
-	Poco::Logger& _logger;
-	::LDAP* _ldap{nullptr};
-	bool _bindSuccessful{false};
-	int _rc{0};
-
-	Poco::Timespan _timeout {DEFAULT_TIMEOUT_SECONDS, 0};
-
-	std::string _roleAttributeName;
-	std::string _permissionAttributeName;
-	std::string _rolePermissionAttributeName;
-	AttributesNameMap _extraAttributesMap;
-};
-
-const std::string LDAPClientImpl::DISPLAY_NAME_ATTR {"displayName"s};
-const std::string LDAPClientImpl::ACCOUNT_NAME_ATTR {"sAMAccountName"s};
-const std::string LDAPClientImpl::USER_PRINCIPAL_NAME_ATTR {"userPrincipalName"s};
-const std::string LDAPClientImpl::PRINCIPAL_NAME_ATTR {"msDS-PrincipalName"s};
-
-
-LDAPClientImpl::LDAPClientImpl(Poco::Logger& logger) : _logger{logger}
-{
-}
-
-
-LDAPClientImpl::~LDAPClientImpl()
-{
-	unbind();
-}
-
-
 bool LDAPClientImpl::initialize(const std::string& uri)
 {
 	_rc = ::ldap_initialize(&_ldap, uri.c_str());
 
 	if (_rc != LDAP_SUCCESS)
 	{
-		_logger.error("Failed to initialize LDAP: %s", ldapError(_rc));
+		_logger.error("Cannot initialize the LDAP connection to %s: %s"s, uri, ldapError(_rc));
 		return false;
 	}
 
@@ -172,7 +74,7 @@ bool LDAPClientImpl::initialize(const std::string& uri)
 	_rc = ::ldap_set_option(_ldap, LDAP_OPT_PROTOCOL_VERSION, &pv);
 	if (_rc != LDAP_SUCCESS)
 	{
-		_logger.error("Failed to set LDAP version 3 option: %s", ldapError(_rc));
+		_logger.error("Cannot set LDAP version 3 for the connection to %s: %s"s, uri, ldapError(_rc));
 		return false;
 	}
 
@@ -268,32 +170,8 @@ void LDAPClientImpl::unbind()
 }
 
 
-void LDAPClientImpl::setRoleAttributeName(const std::string& name)
-{
-	_roleAttributeName = name;
-}
-
-
-void LDAPClientImpl::setPermissionAttributeName(const std::string& name)
-{
-	_permissionAttributeName = name;
-}
-
-
-void LDAPClientImpl::setRolePermissionAttributeName(const std::string& name)
-{
-	_rolePermissionAttributeName = name;
-}
-
-
-void LDAPClientImpl::setExtraAttributesMap(const AttributesNameMap& nameMap)
-{
-	_extraAttributesMap = nameMap;
-}
-
-
-bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filter, bool subtree, bool queryRoles,
-	bool queryAccountName, AuthProperties& properties)
+bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filter, bool subtree,
+	bool rolePermissions, bool entryRequired, bool queryAccountName, AuthProperties& properties)
 {
 	// display name, account name, user principal name, principal name, permission and role attribute
 	constexpr std::size_t MAX_FIXED_ATTRS = 6;
@@ -301,7 +179,7 @@ bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filt
 	char* pSearchAttr[MAX_LDAP_ATTRS + 1];
 	std::size_t nSearchAttr = 0;
 
-	const auto& permAttrName { queryRoles ? _rolePermissionAttributeName : _permissionAttributeName};
+	const auto& permAttrName { rolePermissions ? _rolePermissionAttributeName : _permissionAttributeName};
 
 	pSearchAttr[nSearchAttr++] = const_cast<char*>(DISPLAY_NAME_ATTR.c_str());
 	if (queryAccountName)
@@ -343,24 +221,20 @@ bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filt
 	// The result must be freed also when the search fails.
 	const std::unique_ptr<::LDAPMessage, MessageDeleter> pMessage(pRawMessage);
 
-	_logger.debug("Search \"%s\" \"%s\" attribute count %z: = %d"s, searchBase, filter, nSearchAttr, _rc);
-	for (std::size_t i {0}; i < nSearchAttr; i++)
+	if (_logger.debug())
 	{
-		_logger.debug("LDAP query attr: %s"s, std::string(pSearchAttr[i]));
+		_logger.debug("Search \"%s\" \"%s\" attribute count %z: = %d"s, searchBase, filter, nSearchAttr, _rc);
+		for (std::size_t i {0}; i < nSearchAttr; i++)
+		{
+			_logger.debug("LDAP query attr: %s"s, std::string(pSearchAttr[i]));
+		}
 	}
 	if (_rc != LDAP_SUCCESS)
 	{
-		_logger.error("LDAP search failed: %s"s, ldapError(_rc));
+		_logger.error("The LDAP search in %s with the filter %s failed: %s"s, searchBase, filter, ldapError(_rc));
 		return false;
 	}
-	std::string displayName;
-	std::string distinguishedName;
-	Permissions ldapPermissions;
-	Roles ldapRoles;
-	Attributes ldapAttributes;
-	std::vector<std::string> accountNames;
-	std::vector<std::string> userPrincipalNames;
-	std::vector<std::string> principalNames;
+	AuthProperties found;
 	int entryCount {0};
 	for (auto* pEntry = ::ldap_first_entry(_ldap, pMessage.get()); pEntry != nullptr;
 		pEntry = ::ldap_next_entry(_ldap, pEntry))
@@ -369,7 +243,7 @@ bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filt
 		char* pDN = ::ldap_get_dn(_ldap, pEntry);
 		if (pDN != nullptr)
 		{
-			distinguishedName = pDN;
+			found.distinguishedName = pDN;
 			::ldap_memfree(pDN);
 		}
 		::BerElement* pRawBerElement{nullptr};
@@ -380,114 +254,23 @@ bool LDAPClientImpl::find(const std::string& searchBase, const std::string& filt
 			::berval** ppValues = ::ldap_get_values_len(_ldap, pEntry, pAttr);
 			if (ppValues != nullptr)
 			{
+				const std::string attr(pAttr);
 				for (int i = 0; ppValues[i] != nullptr; i++)
 				{
-					std::string value(ppValues[i]->bv_val, ppValues[i]->bv_len);
-					Poco::trimInPlace(value);
-					std::string attr(pAttr);
-					std::string canonicalAttr;
-
-					// Not one of the alternatives below, as an extra attribute may map it too.
-					if (queryAccountName && Poco::UTF8::icompare(ACCOUNT_NAME_ATTR, attr) == 0)
-					{
-						accountNames.push_back(value);
-					}
-					else if (queryAccountName && Poco::UTF8::icompare(USER_PRINCIPAL_NAME_ATTR, attr) == 0)
-					{
-						userPrincipalNames.push_back(value);
-					}
-					else if (queryAccountName && Poco::UTF8::icompare(PRINCIPAL_NAME_ATTR, attr) == 0)
-					{
-						principalNames.push_back(value);
-					}
-					if (Poco::UTF8::icompare(DISPLAY_NAME_ATTR, attr) == 0)
-					{
-						if (_logger.debug())
-						{
-							_logger.debug("Found display name: \"%s\""s, value);
-						}
-						displayName = value;
-					}
-					else if (Poco::UTF8::icompare(_permissionAttributeName, attr) == 0 ||
-						Poco::UTF8::icompare(_rolePermissionAttributeName, attr) == 0)
-					{
-						if (_logger.debug())
-						{
-							_logger.debug("Found permission: \"%s\""s, value);
-						}
-						ldapPermissions.insert(value);
-					}
-					else if (Poco::UTF8::icompare(_roleAttributeName, attr) == 0)
-					{
-						if (_logger.debug())
-						{
-							_logger.debug("Found role: \"%s\""s, value);
-						}
-						ldapRoles.insert(Poco::toLower(value));
-					}
-					else if (isExtraAttribute(attr, canonicalAttr))
-					{
-						if (_logger.debug())
-						{
-							_logger.debug("Found attribute: \"%s\" = \"%s\""s, attr, value);
-						}
-						ldapAttributes[canonicalAttr] = value;
-					}
-   				}
+					addValue(attr, std::string(ppValues[i]->bv_val, ppValues[i]->bv_len), queryAccountName, found);
+				}
 				::ldap_value_free_len(ppValues);
 			}
 			::ldap_memfree(pAttr);
 		}
 	}
 
-	if (entryCount < 1)
+	if (!checkEntryCount(entryCount, entryRequired, searchBase, filter))
 	{
-		if (!queryRoles)
-		{
-			// When querying for user's own LDAP record, it is an error if it can't be found.
-			_logger.warning("LDAP: record not found for: \"%s\", \"%s\""s, searchBase, filter);
-			return false;
-		}
-		// It is possible that the LDAP record is not found when trying to find a
-		// LDAP group. This is not treated as an error.
-		_logger.debug("LDAP: record not found for: \"%s\", \"%s\""s, searchBase, filter);
-	}
-	else if (entryCount > 1)
-	{
-		_logger.warning("LDAP: too many records for: \"%s\", \"%s\": %d"s, searchBase, filter, entryCount);
 		return false;
 	}
-
-	properties.distinguishedName = std::move(distinguishedName);
-	properties.fullName = displayName;
-	properties.permissions = std::move(ldapPermissions);
-	properties.roles = std::move(ldapRoles);
-	properties.attributes = std::move(ldapAttributes);
-	properties.accountNames = std::move(accountNames);
-	properties.userPrincipalNames = std::move(userPrincipalNames);
-	properties.principalNames = std::move(principalNames);
-
+	properties = std::move(found);
 	return true;
-}
-
-
-int LDAPClientImpl::lastReturnCode() const
-{
-	return _rc;
-}
-
-
-bool LDAPClientImpl::isExtraAttribute(const std::string& attr, std::string& canonicalAttr) const
-{
-	for (const auto& el: _extraAttributesMap)
-	{
-		if (Poco::UTF8::icompare(el.first, attr) == 0)
-		{
-			canonicalAttr = el.second;
-			return true;
-		}
-	}
-	return false;
 }
 
 

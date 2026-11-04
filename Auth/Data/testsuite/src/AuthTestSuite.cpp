@@ -12,6 +12,7 @@
 
 #include "AuthTestSuite.h"
 #include "AuthAdminServiceTest.h"
+#include "AuthBundleActivatorTest.h"
 
 
 CppUnit::Test* AuthTestSuite::suite()
@@ -20,6 +21,7 @@ CppUnit::Test* AuthTestSuite::suite()
 
 	pSuite->addTest(AuthAdminServiceTest::suite());
 	pSuite->addTest(InlineAttributesAuthAdminServiceTest::suite());
+	pSuite->addTest(AuthBundleActivatorTest::suite());
 
 	return pSuite;
 }

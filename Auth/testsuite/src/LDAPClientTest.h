@@ -38,6 +38,8 @@ public:
 	void testAccountNameIsReadInAccountMode();
 	void testSeveralAccountNamesAreDirectoryError();
 	void testPrincipalNamesAreReadInAccountMode();
+	void testUserSearchRequestsPermissionAttributeOfUsers();
+	void testGroupWithoutEntryIsNotRead();
 
 	void setUp() override;
 	void tearDown() override;

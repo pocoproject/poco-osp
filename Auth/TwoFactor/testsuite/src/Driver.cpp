@@ -1,7 +1,7 @@
 //
 // Driver.cpp
 //
-// Console-based test driver for Poco OSP Auth TwoFactor.
+// Console-based test driver for POCO OSP Auth TwoFactor.
 //
 // Copyright (c) 2020, Applied Informatics Software Engineering GmbH.
 // All rights reserved.

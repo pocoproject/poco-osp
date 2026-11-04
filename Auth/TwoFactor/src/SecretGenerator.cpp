@@ -1,5 +1,5 @@
 //
-// SecretGenerator.h
+// SecretGenerator.cpp
 //
 // Library: OSP/Auth/TwoFactor
 // Package: TwoFactor
@@ -33,18 +33,20 @@ namespace Poco::OSP::Auth::TwoFactor {
 SecretGenerator::SecretGenerator(std::size_t secretLengthBits):
 	_secretLengthBits(secretLengthBits)
 {
-	poco_assert (secretLengthBits >= 80 && secretLengthBits % 8 == 0);
+	poco_assert (secretLengthBits >= MIN_SECRET_LENGTH_BITS && secretLengthBits % BITS_PER_BYTE == 0);
 }
 
 
 std::string SecretGenerator::generate() const
 {
-	const std::size_t bytes = _secretLengthBits/8;
+	const std::size_t bytes = _secretLengthBits/BITS_PER_BYTE;
 	std::string secret;
 	Poco::RandomInputStream rnd;
 	for (std::size_t i = 0; i < bytes; i++)
 	{
-		secret += rnd.get();
+		char c = 0;
+		rnd.get(c);
+		secret += c;
 	}
 	return secret;
 }

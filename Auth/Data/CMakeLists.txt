@@ -54,16 +54,7 @@ target_include_directories(${LIBNAME}
 )
 
 # Dynamic Library
-add_library(${TARGET} MODULE ${BUNDLE_SRCS})
-set_target_properties(${TARGET}
-	PROPERTIES
-	PREFIX ""
-)
-
-# On macOS, use .dylib instead of .so
-if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
-	set_target_properties(${TARGET} PROPERTIES SUFFIX ".dylib")
-endif()
+poco_osp_bundle_module(${TARGET} ${BUNDLE_SRCS})
 
 target_link_libraries(${TARGET}
 	PRIVATE
@@ -72,15 +63,7 @@ target_link_libraries(${TARGET}
 
 # Copy Bundle Resources to build directory. The testsuite reads bundle.properties
 # from the copy, so it is made again whenever a file of bundle/ changes.
-file(GLOB_RECURSE BUNDLE_RESOURCE_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/bundle/*)
-add_custom_command(
-	OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/BundleResources.copied
-	COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/bundle ${CMAKE_CURRENT_BINARY_DIR}/bundle
-	COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/BundleResources.copied
-	DEPENDS ${BUNDLE_RESOURCE_FILES}
-	VERBATIM
-)
-add_custom_target(${TARGET}-resources ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/BundleResources.copied)
+_poco_osp_copy_directory(${TARGET}-resources ${CMAKE_CURRENT_SOURCE_DIR}/bundle ${CMAKE_CURRENT_BINARY_DIR}/bundle)
 
 # Build Bundle
 poco_osp_bundle(${TARGET}-bundle
@@ -88,13 +71,7 @@ poco_osp_bundle(${TARGET}-bundle
 	SPEC ${BUNDLE_SPEC}
 	CODE $<TARGET_FILE:${LIBNAME}> $<TARGET_FILE:${TARGET}>
 	DESTINATION ${POCO_OSP_BUNDLE_DIR}
-)
-
-install(
-	DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
-	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
-	COMPONENT    Bundles
-	FILES_MATCHING PATTERN "${TARGET}*.bndl"
+	INSTALL_COMPONENT Bundles
 )
 
 POCO_INSTALL(${LIBNAME})

@@ -5,7 +5,7 @@
 // Package: Auth
 // Module:  Remoting
 //
-// Basic definitions for the Poco OSP Auth Remoting library.
+// Basic definitions for the POCO OSP Auth Remoting library.
 // This file must be the first file included by every other OSP Auth Remoting
 // header file.
 //

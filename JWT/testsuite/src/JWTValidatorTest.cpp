@@ -14,6 +14,8 @@
 #include "Poco/JWT/Signer.h"
 #include "Poco/JWT/Token.h"
 #include "Poco/Crypto/ECKey.h"
+#include "Poco/Crypto/KeyPair.h"
+#include "Poco/Crypto/RSAKey.h"
 #include "Poco/Logger.h"
 #include "Poco/Message.h"
 #include "Poco/SharedPtr.h"
@@ -62,7 +64,7 @@ namespace
 		return token;
 	}
 
-	std::string publicKey(const Poco::Crypto::ECKey& key)
+	std::string publicKey(const Poco::Crypto::KeyPair& key)
 		/// Returns the public key in PEM format.
 	{
 		std::ostringstream ostr;
@@ -197,6 +199,148 @@ void JWTValidatorTest::testMissingKeyIsLoggedAtStart()
 }
 
 
+void JWTValidatorTest::testUnsupportedAlgorithmIsLoggedAtStart()
+{
+	LogCapture capture(LOGGER_NAME);
+	JWTValidator::Config config;
+	config.algorithms = {"HS256"s, "HS265"s, "PS256"s, "none"s};
+	config.hmacKey = HMAC_KEY;
+	JWTValidator::Ptr pValidator = new JWTValidator(config);
+
+	const std::vector<Poco::Message> messages = messagesUntilEnd(capture.channel());
+	assertEqual (3, static_cast<int>(messages.size()));
+	for (const auto& algorithm: {"HS265"s, "PS256"s, "none"s})
+	{
+		int named = 0;
+		for (const auto& msg: messages)
+		{
+			if (msg.getText().find("algorithm " + algorithm + " is not supported") != std::string::npos) ++named;
+		}
+		assertEqual (1, named);
+	}
+}
+
+
+void JWTValidatorTest::testRSATokenWithConfiguredKey()
+{
+	Poco::SharedPtr<Poco::Crypto::RSAKey> pKey =
+		new Poco::Crypto::RSAKey(Poco::Crypto::RSAKey::KL_2048, Poco::Crypto::RSAKey::EXP_LARGE);
+	JWTValidator::Config config;
+	config.algorithms = {"RS256"s};
+	config.rsaPublicKey = publicKey(*pKey);
+	JWTValidator::Ptr pValidator = new JWTValidator(config);
+	Poco::JWT::Token rsaToken = token("alice"s);
+	const std::string jwt = Poco::JWT::Signer(pKey).sign(rsaToken, "RS256"s);
+
+	std::string username;
+	std::string scope;
+	assertTrue (pValidator->validateToken(jwt, username, scope));
+	assertEqual ("alice"s, username);
+}
+
+
+void JWTValidatorTest::testTokenExpiredWithinLeewayIsAccepted()
+{
+	JWTValidator::Ptr pValidator = new JWTValidator(hmacConfig());
+	Poco::JWT::Token expiredToken = token("alice"s);
+	Poco::Timestamp expiration;
+	expiration -= Poco::Timespan(2, 0);
+	expiredToken.setExpiration(expiration);
+
+	std::string username;
+	std::string scope;
+	assertTrue (pValidator->validateToken(Poco::JWT::Signer(HMAC_KEY).sign(expiredToken, "HS256"s), username, scope));
+}
+
+
+void JWTValidatorTest::testTokenExpiredBeyondLeewayIsRejected()
+{
+	JWTValidator::Ptr pValidator = new JWTValidator(hmacConfig());
+	Poco::JWT::Token expiredToken = token("alice"s);
+	Poco::Timestamp expiration;
+	expiration -= Poco::Timespan(60, 0);
+	expiredToken.setExpiration(expiration);
+
+	std::string username;
+	std::string scope;
+	assertTrue (!pValidator->validateToken(Poco::JWT::Signer(HMAC_KEY).sign(expiredToken, "HS256"s), username, scope));
+}
+
+
+void JWTValidatorTest::testTokenWithoutExpirationIsRejected()
+{
+	JWTValidator::Ptr pValidator = new JWTValidator(hmacConfig());
+	Poco::JWT::Token noExpirationToken;
+	noExpirationToken.setSubject("alice"s);
+
+	std::string username;
+	std::string scope;
+	assertTrue (!pValidator->validateToken(Poco::JWT::Signer(HMAC_KEY).sign(noExpirationToken, "HS256"s),
+		username, scope));
+}
+
+
+void JWTValidatorTest::testTokenNotYetValidIsRejected()
+{
+	JWTValidator::Ptr pValidator = new JWTValidator(hmacConfig());
+	Poco::JWT::Token futureToken = token("alice"s);
+	Poco::Timestamp notBefore;
+	notBefore += Poco::Timespan(60, 0);
+	futureToken.setNotBefore(notBefore);
+
+	std::string username;
+	std::string scope;
+	assertTrue (!pValidator->validateToken(Poco::JWT::Signer(HMAC_KEY).sign(futureToken, "HS256"s), username, scope));
+}
+
+
+void JWTValidatorTest::testIssuerIsChecked()
+{
+	JWTValidator::Config config = hmacConfig();
+	config.issuer = "osp"s;
+	JWTValidator::Ptr pValidator = new JWTValidator(config);
+	Poco::JWT::Signer signer(HMAC_KEY);
+	Poco::JWT::Token ospToken = token("alice"s);
+	ospToken.setIssuer("osp"s);
+	Poco::JWT::Token otherToken = token("alice"s);
+	otherToken.setIssuer("other"s);
+	Poco::JWT::Token noIssuerToken = token("alice"s);
+
+	std::string username;
+	std::string scope;
+	assertTrue (pValidator->validateToken(signer.sign(ospToken, "HS256"s), username, scope));
+	assertTrue (!pValidator->validateToken(signer.sign(otherToken, "HS256"s), username, scope));
+	assertTrue (!pValidator->validateToken(signer.sign(noIssuerToken, "HS256"s), username, scope));
+}
+
+
+void JWTValidatorTest::testAlgorithmThatIsNotConfiguredIsRejected()
+{
+	JWTValidator::Ptr pValidator = new JWTValidator(hmacConfig());
+	Poco::JWT::Signer signer(HMAC_KEY);
+	signer.addAlgorithm("HS384"s);
+	Poco::JWT::Token hs384Token = token("alice"s);
+
+	std::string username;
+	std::string scope;
+	assertTrue (!pValidator->validateToken(signer.sign(hs384Token, "HS384"s), username, scope));
+}
+
+
+void JWTValidatorTest::testUnsignedTokenIsRejected()
+{
+	JWTValidator::Config config = hmacConfig();
+	config.algorithms.insert("none"s);
+	JWTValidator::Ptr pValidator = new JWTValidator(config);
+	Poco::JWT::Token unsignedToken = token("alice"s);
+	unsignedToken.setAlgorithm("none"s);
+
+	std::string username;
+	std::string scope;
+	assertTrue (!pValidator->validateToken(unsignedToken.toString(), username, scope));
+}
+
+
 void JWTValidatorTest::setUp()
 {
 }
@@ -218,6 +362,15 @@ CppUnit::Test* JWTValidatorTest::suite()
 	CppUnit_addTest(pSuite, JWTValidatorTest, testTokenWithoutSubjectIsRejected);
 	CppUnit_addTest(pSuite, JWTValidatorTest, testMalformedTokenIsNotLogged);
 	CppUnit_addTest(pSuite, JWTValidatorTest, testMissingKeyIsLoggedAtStart);
+	CppUnit_addTest(pSuite, JWTValidatorTest, testUnsupportedAlgorithmIsLoggedAtStart);
+	CppUnit_addTest(pSuite, JWTValidatorTest, testRSATokenWithConfiguredKey);
+	CppUnit_addTest(pSuite, JWTValidatorTest, testTokenExpiredWithinLeewayIsAccepted);
+	CppUnit_addTest(pSuite, JWTValidatorTest, testTokenExpiredBeyondLeewayIsRejected);
+	CppUnit_addTest(pSuite, JWTValidatorTest, testTokenWithoutExpirationIsRejected);
+	CppUnit_addTest(pSuite, JWTValidatorTest, testTokenNotYetValidIsRejected);
+	CppUnit_addTest(pSuite, JWTValidatorTest, testIssuerIsChecked);
+	CppUnit_addTest(pSuite, JWTValidatorTest, testAlgorithmThatIsNotConfiguredIsRejected);
+	CppUnit_addTest(pSuite, JWTValidatorTest, testUnsignedTokenIsRejected);
 
 	return pSuite;
 }

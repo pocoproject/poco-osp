@@ -28,6 +28,7 @@ public:
 	
 	void testLDAPParamsHaveDefaultTimeout();
 	void testDefaultAuthenticateAccountReturnsUserName();
+	void testAuthAttributeNamesStartWithAuthInAnyCase();
 #if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 	void testEscapeLDAP();
 	void testEscapeLDAPFilterValue();

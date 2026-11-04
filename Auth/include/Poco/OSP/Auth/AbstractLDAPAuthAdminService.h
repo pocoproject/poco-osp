@@ -23,6 +23,7 @@
 #include "Poco/OSP/Auth/AuthAdminService.h"
 #include "Poco/OSP/Auth/AuthTypes.h"
 #include "Poco/Logger.h"
+#include "Poco/RegularExpression.h"
 #include "Poco/Types.h"
 #include <map>
 #include <memory>
@@ -52,6 +53,9 @@ public:
 			/// The bind DN for binding to the LDAP server, with
 			/// the actual username replaced by a "%s" placeholder,
 			/// e.g. "uid=%s,cn=users,dc=ldapserver,dc=appinf,dc=com".
+			///
+			/// In the DN mode, the template (bindDN, or searchBase if bindDN
+			/// is empty) must contain "%s" exactly once.
 
 		std::string bindUser;
 			/// Optional service account used in ACCOUNT mode to search
@@ -68,10 +72,16 @@ public:
 			/// SERVICE: bindUser performs search and reads while the
 			///          end user is only rebound for credential
 			///          verification.
+			///
+			/// Case is ignored. An empty value is SERVICE if bindUser is set,
+			/// and USER otherwise; SERVICE without bindUser is USER.
 
 		std::string searchBase;
-			/// The search base for querying LDAP attributes. Usually
-			/// equal to bindDN.
+			/// In the ACCOUNT mode, the root of the subtree in which the entry
+			/// of a user is searched by its sAMAccountName or userPrincipalName.
+			/// In the DN mode, the template of the user DN if bindDN is empty,
+			/// and not used otherwise: the entry of a user is read at the DN
+			/// built from bindDN.
 
 		std::string userObjectClass;
 			/// User objectClass:
@@ -87,8 +97,11 @@ public:
 			/// Authentication mode:
 			/// DN: use distiguished name and bindDN
 			/// ACCOUNT: Use userPrincipalName (like "John.Minor@the-company.com") or sAMAccountName (like "COMPANY\John.Minor")
+			///
+			/// Case is ignored, and an empty value is DN.
 
 		static constexpr int DEFAULT_TIMEOUT = 30;
+			/// The default of timeout, in seconds.
 
 		int timeout = DEFAULT_TIMEOUT;
 			/// The timeout in seconds for connecting to the LDAP server and
@@ -102,16 +115,25 @@ public:
 		std::string permissionAttribute;
 			/// The LDAP attribute used for storing permission values.
 			/// Can be empty if permissions are not provided via LDAP.
+			/// If it is set, storeLDAPUser() replaces the permissions of a user
+			/// with the listed ones, also if there are none; if it is empty, the
+			/// stored permissions are kept.
 
 		std::string roleAttribute;
 			/// The LDAP attribute used for storing role assignments.
 			/// Can be empty if roles are not provided via LDAP.
-			///
-			/// Only used if also a permissionAttribute is given.
+			/// If it is set, storeLDAPUser() replaces the roles of a user with
+			/// the listed roles that it imports (see roleFilter and localRoles),
+			/// also if the server lists none; if it is empty, the stored roles
+			/// are kept.
 
 		std::string rolePermissionAttribute;
-			/// The LDAP attribute used for storing role permission values.
-			/// Can be empty if permissions are not provided via LDAP.
+			/// The LDAP attribute of a group entry that holds the permissions
+			/// of the group. If it is set, every imported role value must be the
+			/// DN of a group entry that the connection can read, and
+			/// storeLDAPUser() replaces the permissions of an imported role with
+			/// those of its group entry. If it is empty, roles are assigned
+			/// without reading group entries, and their permissions are kept.
 
 		std::vector<std::pair<std::string, std::string>> extraAttributes;
 			/// The name pairs (mapping LDAP attribute to user attribute name)
@@ -122,6 +144,10 @@ public:
 			/// by calling getUserAttribute().
 			///
 			/// At most 8 attributes may be specified.
+			///
+			/// A user attribute name that starts with "auth_", in any case, is
+			/// reserved for the service (see AuthAdminService::setAuthAttribute()):
+			/// its value is not stored, and the constructor logs an error.
 
 		std::string localUsers;
 			/// A regular expression for matching usernames that should not
@@ -152,9 +178,17 @@ public:
 		/// Creates the AbstractLDAPAuthAdminService using the given LDAP parameters.
 		///
 		/// Note: if ldapParams.uri is empty, LDAP authentication will be disabled.
+		///
+		/// Logs an error for a setting that cannot be used: an unknown authMode,
+		/// or bindMode in the ACCOUNT mode, a DN template without exactly one
+		/// "%s" in the DN mode, or an invalid roleFilter or localRoles
+		/// expression; verifyLDAP() then throws. A build without LDAP support
+		/// logs an error if ldapParams.uri is set.
 
 	~AbstractLDAPAuthAdminService() override;
-		/// Destroys the AuthAdminServiceImpl.
+		/// Destroys the AbstractLDAPAuthAdminService.
+
+	AbstractLDAPAuthAdminService() = delete;
 
 protected:
 	enum class LDAPResult: Poco::UInt8
@@ -180,13 +214,12 @@ protected:
 	{
 		std::string fullName;
 		Permissions permissions;
+			/// The permissions that the LDAP server lists for the user.
 		Attributes attributes;
-		bool hasRoles = false;
-			/// True if the LDAP server lists roles for the user, also
-			/// if none of them is imported.
 		std::map<std::string, std::optional<Permissions>> roles;
 			/// The roles to import, with the permissions of each role, or
-			/// without a value if they cannot be read.
+			/// without a value if LDAPParams::rolePermissionAttribute is empty
+			/// or they cannot be read.
 		bool passwordVerified = false;
 			/// True once the LDAP server has accepted the password, also if
 			/// reading the user's properties fails afterwards.
@@ -229,7 +262,8 @@ protected:
 		/// is rejected without contacting the server.
 		///
 		/// Throws a Poco::IOException if the LDAP server cannot be used to
-		/// verify the credentials: the service account of the SERVICE bind
+		/// verify the credentials: a setting of the LDAP parameters cannot be
+		/// used (see the constructor), the service account of the SERVICE bind
 		/// mode has an empty password or is rejected, the search for the
 		/// user's entry fails or finds more than one entry, the timeouts of
 		/// the connection cannot be set, or the user's entry cannot be read
@@ -291,8 +325,12 @@ protected:
 		/// that the LDAP server has accepted. A role whose ROLE_ATTR_LDAP
 		/// attribute is "false" is not imported.
 		///
-		/// Throws a Poco::IOException, before anything is stored, if the
-		/// permissions of a role to import could not be read.
+		/// Replaces the user's permissions, roles and role permissions as the
+		/// LDAPParams settings describe. A login accepted without this call
+		/// (password cache, stored password; see canUseLocalCredentials())
+		/// keeps them. Throws a Poco::IOException, before anything is stored, if
+		/// rolePermissionAttribute is set and the permissions of a role to
+		/// import cannot be read.
 		///
 		/// An exception of the functions that store the user, such as a
 		/// Poco::Data::DataException, is passed on after a part of the user
@@ -314,23 +352,59 @@ protected:
 		/// the logger of the service.
 #endif
 
-	[[nodiscard]] bool isExtraAttribute(const std::string& attr, std::string& canonicalAttr) const;
 	virtual void createOrUpdateRoleImpl(const std::string& rolename) const = 0;
+		/// Creates the role with the given name if it does not exist.
+
 	virtual void createOrUpdateUserImpl(const std::string& username, const std::string& credentials) const = 0;
+		/// Creates the user with the given name if it does not exist, and
+		/// stores the password.
+
 	virtual void replaceUserAttributeImpl(const std::string& username, const std::string& attribute, const std::string& value) const = 0;
+		/// Sets the value of an attribute of the user.
+
 	virtual void replaceRoleAttributeImpl(const std::string& rolename, const std::string& attribute, const std::string& value) const = 0;
+		/// Sets the value of an attribute of the role.
+
 	virtual void replacePermissionsForUserImpl(const std::string& username, const std::set<std::string>& permissions) const = 0;
+		/// Replaces the permissions granted to the user directly.
+
 	virtual void replaceRolesForUserImpl(const std::string& username, const std::set<std::string>& permissions) const = 0;
+		/// Replaces the roles of the user.
+
 	virtual void replacePermissionsForRoleImpl(const std::string& rolename, const std::set<std::string>& permissions) const = 0;
+		/// Replaces the permissions of the role.
+
 	[[nodiscard]] virtual std::string getUserAttributeImpl(const std::string& username, const std::string& attribute,
 		const std::string& deflt = std::string()) const = 0;
+		/// Returns the value of an attribute of the user, or deflt if it is not set.
+
 	[[nodiscard]] virtual std::string getRoleAttributeImpl(const std::string& rolename, const std::string& attribute,
 		const std::string& deflt = std::string()) const = 0;
+		/// Returns the value of an attribute of the role, or deflt if it is not set.
 
-
-protected:
 	Poco::Logger& _logger;
 	LDAPParams _ldapParams;
+
+#if defined(POCO_OSP_AUTH_ENABLE_LDAP)
+private:
+	void refuseLDAP(const std::string& reason);
+		/// Logs that the LDAP server is not used because of the given setting,
+		/// and makes verifyLDAP() throw it.
+
+	[[nodiscard]] std::unique_ptr<Poco::RegularExpression> compileLDAPExpression(const std::string& setting,
+		const std::string& pattern);
+		/// Returns the compiled pattern, or nullptr if it is empty or, after
+		/// refuseLDAP(), not a valid regular expression.
+
+	bool _accountMode = false;
+		/// LDAPParams::authMode is ACCOUNT.
+	bool _serviceBind = false;
+		/// The ACCOUNT mode uses the SERVICE bind mode.
+	std::unique_ptr<Poco::RegularExpression> _pRoleFilter;
+	std::unique_ptr<Poco::RegularExpression> _pLocalRoles;
+	std::string _configurationError;
+		/// The first setting that cannot be used, or empty.
+#endif
 };
 
 

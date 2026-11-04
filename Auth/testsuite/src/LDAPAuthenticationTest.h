@@ -57,6 +57,15 @@ public:
 	void testUnreachableServerFallsBack();
 	void testUnansweredServerFallsBackToLocalCredentials();
 	void testTimeoutOfZeroIsReplacedByDefault();
+	void testRolesAndPermissionsNoLongerListedAreRemoved();
+	void testUnconfiguredAttributesLeaveStoredRolesAndPermissions();
+	void testRolesAreAssignedWithoutGroupLookupIfNoRolePermissionAttribute();
+	void testDNTemplateWithoutOnePlaceholderIsNotUsed();
+	void testUserNameReplacesOnlyPlaceholderOfDNTemplate();
+	void testModesAreCheckedOnceIgnoringCase();
+	void testUnknownModeIsNotUsed();
+	void testInvalidRoleExpressionIsNotUsed();
+	void testDirectoryDoesNotSetAuthAttributes();
 
 	void setUp() override;
 	void tearDown() override;

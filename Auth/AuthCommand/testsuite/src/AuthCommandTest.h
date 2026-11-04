@@ -42,6 +42,11 @@ public:
 	void testAuthRequiresAdminPermission();
 	void testAddUserNeedsNameAndPassword();
 	void testAddUserRecordsCreator();
+	void testRemoveUserRefusesSessionUser();
+	void testReservedAttributeIsRefusedByService();
+	void testGrantAndRevokePermissions();
+	void testUnlockUnlocksUser();
+	void testShowUsersWithAttributeNeedsValue();
 
 	static CppUnit::Test* suite();
 

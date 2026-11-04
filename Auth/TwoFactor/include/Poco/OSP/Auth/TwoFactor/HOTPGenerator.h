@@ -25,6 +25,7 @@
 #include "Poco/SHA1Engine.h"
 #include "Poco/ByteOrder.h"
 #include "Poco/NumberFormatter.h"
+#include <array>
 
 
 namespace Poco::OSP::Auth::TwoFactor {
@@ -74,7 +75,8 @@ public:
 protected:
 	[[nodiscard]] Poco::UInt32 digitsPower() const
 	{
-		static const Poco::UInt32 DIGITS_POWER[] = {1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000};
+		static constexpr std::array<Poco::UInt32, 9> DIGITS_POWER = {1, 10, 100, 1000, 10000, 100000, 1000000, 10000000,
+			100000000};
 
 		return DIGITS_POWER[_codeDigits];
 	}

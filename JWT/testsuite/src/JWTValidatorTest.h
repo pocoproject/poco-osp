@@ -32,6 +32,15 @@ public:
 	void testTokenWithoutSubjectIsRejected();
 	void testMalformedTokenIsNotLogged();
 	void testMissingKeyIsLoggedAtStart();
+	void testUnsupportedAlgorithmIsLoggedAtStart();
+	void testRSATokenWithConfiguredKey();
+	void testTokenExpiredWithinLeewayIsAccepted();
+	void testTokenExpiredBeyondLeewayIsRejected();
+	void testTokenWithoutExpirationIsRejected();
+	void testTokenNotYetValidIsRejected();
+	void testIssuerIsChecked();
+	void testAlgorithmThatIsNotConfiguredIsRejected();
+	void testUnsignedTokenIsRejected();
 
 	void setUp() override;
 	void tearDown() override;

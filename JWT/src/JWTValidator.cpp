@@ -9,9 +9,11 @@
 
 
 #include "JWTValidator.h"
+#include "Poco/JWT/Signer.h"
 #include "Poco/JWT/Token.h"
 #include "Poco/String.h"
 #include <algorithm>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -25,8 +27,15 @@ namespace Poco::OSP::JWT {
 
 namespace
 {
+	[[nodiscard]] bool isSupported(const std::string& algorithm)
+		/// Returns true if POCO JWT verifies tokens signed with the given algorithm.
+	{
+		static const std::set<std::string> SUPPORTED = Poco::JWT::Signer().addAllAlgorithms().getAlgorithms();
+		return SUPPORTED.contains(algorithm);
+	}
+
 	[[nodiscard]] bool hasKey(const JWTValidator::Config& config, const std::string& algorithm)
-		/// Returns true if the configuration has a key for the given algorithm.
+		/// Returns true if the configuration has a key for the given supported algorithm.
 	{
 		if (Poco::startsWith(algorithm, "HS"s)) return !config.hmacKey.empty();
 		if (Poco::startsWith(algorithm, "RS"s)) return !config.rsaPublicKey.empty();
@@ -48,7 +57,11 @@ JWTValidator::JWTValidator(const Config& config):
 	configureSigner(config);
 	for (const auto& algorithm: config.algorithms)
 	{
-		if (!hasKey(config, algorithm))
+		if (!isSupported(algorithm))
+		{
+			_logger.warning("The JWT algorithm %s is not supported; tokens signed with it are rejected."s, algorithm);
+		}
+		else if (!hasKey(config, algorithm))
 		{
 			_logger.warning("No key is configured for the JWT algorithm %s; tokens signed with it are rejected."s, algorithm);
 		}

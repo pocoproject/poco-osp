@@ -28,10 +28,9 @@ class TestAuthAdminService: public Poco::OSP::Auth::AuthAdminService
 	///
 	/// Knows the user "admin" with the password "secret" and the permission
 	/// "authAdmin", and the user "guest" with the password "guest" and no
-	/// permission. Like the service of OSP Auth, addUser() and changePassword()
-	/// throw a Poco::InvalidArgumentException for an empty password, addUser()
-	/// throws a Poco::ExistsException for a known user, and changePassword() and
-	/// setUserAttribute() throw a Poco::NotFoundException for an unknown user.
+	/// permission. Throws the exceptions of the OSP Auth service for an empty
+	/// password, a known or unknown user and an "auth_" attribute name; roles
+	/// have permissions only, and a lock-out only marks the user.
 	///
 	/// The other members of the AuthAdminService interface, which the commands
 	/// do not call in the tests, throw a Poco::NotImplementedException.
@@ -129,6 +128,8 @@ private:
 	std::map<std::string, std::string> _passwords;
 	std::map<std::string, std::set<std::string>> _permissions;
 	std::map<std::string, std::map<std::string, std::string>> _attributes;
+	std::map<std::string, std::set<std::string>> _rolePermissions;
+	std::set<std::string> _lockedOutUsers;
 };
 
 

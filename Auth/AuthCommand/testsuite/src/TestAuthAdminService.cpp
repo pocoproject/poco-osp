@@ -44,7 +44,7 @@ bool TestAuthAdminService::authenticate(const std::string& userName, const std::
 bool TestAuthAdminService::authorize(const std::string& userName, const std::string& permission) const
 {
 	const auto it = _permissions.find(userName);
-	return it != _permissions.end() && it->second.find(permission) != it->second.end();
+	return it != _permissions.end() && it->second.contains(permission);
 }
 
 
@@ -57,7 +57,7 @@ bool TestAuthAdminService::authorize(const std::string& userName, const std::str
 
 bool TestAuthAdminService::userExists(const std::string& userName) const
 {
-	return _passwords.find(userName) != _passwords.end();
+	return _passwords.contains(userName);
 }
 
 
@@ -93,6 +93,7 @@ std::string TestAuthAdminService::getUserAttribute(const std::string& username, 
 void TestAuthAdminService::setUserAttribute(const std::string& username, const std::string& attribute,
 	const std::string& value)
 {
+	if (isAuthAttribute(attribute)) throw Poco::InvalidArgumentException("Reserved attribute name"s, attribute);
 	if (!userExists(username)) throw Poco::NotFoundException(username);
 
 	_attributes[username][attribute] = value;
@@ -105,9 +106,10 @@ bool TestAuthAdminService::verifyCredentials(const std::string&, const std::stri
 }
 
 
-void TestAuthAdminService::permissionsForUser(const std::string&, std::set<std::string>&) const
+void TestAuthAdminService::permissionsForUser(const std::string& username, std::set<std::string>& permissions) const
 {
-	throw Poco::NotImplementedException();
+	const auto it = _permissions.find(username);
+	permissions = it != _permissions.end() ? it->second : std::set<std::string>();
 }
 
 
@@ -117,9 +119,12 @@ void TestAuthAdminService::effectivePermissionsForUser(const std::string&, std::
 }
 
 
-void TestAuthAdminService::grantPermissionsToUser(const std::string&, const std::set<std::string>&)
+void TestAuthAdminService::grantPermissionsToUser(const std::string& username,
+	const std::set<std::string>& permissions)
 {
-	throw Poco::NotImplementedException();
+	if (!userExists(username)) throw Poco::NotFoundException(username);
+
+	_permissions[username].insert(permissions.begin(), permissions.end());
 }
 
 
@@ -129,9 +134,10 @@ void TestAuthAdminService::replacePermissionsForUser(const std::string&, const s
 }
 
 
-void TestAuthAdminService::revokePermissionsFromUser(const std::string&, const std::set<std::string>&)
+void TestAuthAdminService::revokePermissionsFromUser(const std::string& username,
+	const std::set<std::string>& permissions)
 {
-	throw Poco::NotImplementedException();
+	for (const auto& permission: permissions) _permissions[username].erase(permission);
 }
 
 
@@ -172,21 +178,27 @@ bool TestAuthAdminService::userEnabled(const std::string&) const
 }
 
 
-void TestAuthAdminService::removeUser(const std::string&)
+void TestAuthAdminService::removeUser(const std::string& username)
 {
-	throw Poco::NotImplementedException();
+	_passwords.erase(username);
+	_permissions.erase(username);
+	_attributes.erase(username);
 }
 
 
-void TestAuthAdminService::permissionsForRole(const std::string&, std::set<std::string>&) const
+void TestAuthAdminService::permissionsForRole(const std::string& rolename, std::set<std::string>& permissions) const
 {
-	throw Poco::NotImplementedException();
+	const auto it = _rolePermissions.find(rolename);
+	permissions = it != _rolePermissions.end() ? it->second : std::set<std::string>();
 }
 
 
-void TestAuthAdminService::grantPermissionsToRole(const std::string&, const std::set<std::string>&)
+void TestAuthAdminService::grantPermissionsToRole(const std::string& rolename,
+	const std::set<std::string>& permissions)
 {
-	throw Poco::NotImplementedException();
+	if (!roleExists(rolename)) throw Poco::NotFoundException(rolename);
+
+	_rolePermissions[rolename].insert(permissions.begin(), permissions.end());
 }
 
 
@@ -196,15 +208,16 @@ void TestAuthAdminService::replacePermissionsForRole(const std::string&, const s
 }
 
 
-void TestAuthAdminService::revokePermissionsFromRole(const std::string&, const std::set<std::string>&)
+void TestAuthAdminService::revokePermissionsFromRole(const std::string& rolename,
+	const std::set<std::string>& permissions)
 {
-	throw Poco::NotImplementedException();
+	for (const auto& permission: permissions) _rolePermissions[rolename].erase(permission);
 }
 
 
-bool TestAuthAdminService::roleExists(const std::string&) const
+bool TestAuthAdminService::roleExists(const std::string& rolename) const
 {
-	throw Poco::NotImplementedException();
+	return _rolePermissions.contains(rolename);
 }
 
 
@@ -214,9 +227,9 @@ void TestAuthAdminService::roles(std::set<std::string>&) const
 }
 
 
-void TestAuthAdminService::addRole(const std::string&)
+void TestAuthAdminService::addRole(const std::string& rolename)
 {
-	throw Poco::NotImplementedException();
+	if (!_rolePermissions.emplace(rolename, std::set<std::string>()).second) throw Poco::ExistsException(rolename);
 }
 
 
@@ -256,9 +269,11 @@ void TestAuthAdminService::uncacheUser(const std::string&)
 }
 
 
-void TestAuthAdminService::removeUserAttribute(const std::string&, const std::string&)
+void TestAuthAdminService::removeUserAttribute(const std::string& username, const std::string& attribute)
 {
-	throw Poco::NotImplementedException();
+	if (isAuthAttribute(attribute)) throw Poco::InvalidArgumentException("Reserved attribute name"s, attribute);
+
+	_attributes[username].erase(attribute);
 }
 
 
@@ -310,21 +325,21 @@ void TestAuthAdminService::revokePermission(const std::string&)
 }
 
 
-void TestAuthAdminService::lockOutUser(const std::string&, const Poco::DateTime&)
+void TestAuthAdminService::lockOutUser(const std::string& username, const Poco::DateTime&)
 {
-	throw Poco::NotImplementedException();
+	_lockedOutUsers.insert(username);
 }
 
 
-void TestAuthAdminService::unlockOutUser(const std::string&)
+void TestAuthAdminService::unlockOutUser(const std::string& username)
 {
-	throw Poco::NotImplementedException();
+	_lockedOutUsers.erase(username);
 }
 
 
-bool TestAuthAdminService::isUserLockedOut(const std::string&) const
+bool TestAuthAdminService::isUserLockedOut(const std::string& username) const
 {
-	throw Poco::NotImplementedException();
+	return _lockedOutUsers.contains(username);
 }
 
 

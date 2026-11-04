@@ -15,6 +15,7 @@
 
 
 #include "Poco/OSP/Auth/AbstractLDAPAuthAdminService.h"
+#include "Poco/OSP/Auth/AuthTypes.h"
 #include "Poco/UTF8String.h"
 #include "Poco/String.h"
 #include "Poco/NumberParser.h"
@@ -29,7 +30,6 @@
 	#include "Poco/OSP/Auth/LDAPClient.h"
 #endif
 
-#include <algorithm>
 #include <ctime>
 #include <map>
 #include <memory>
@@ -37,6 +37,7 @@
 #include <set>
 #include <string>
 #include <utility>
+
 
 using namespace std::string_literals;
 
@@ -58,26 +59,86 @@ AbstractLDAPAuthAdminService::AbstractLDAPAuthAdminService(Poco::Logger& logger,
 		}
 		_ldapParams.timeout = LDAPParams::DEFAULT_TIMEOUT;
 	}
-	const bool serviceBind = _ldapParams.authMode == "ACCOUNT"s && !_ldapParams.bindUser.empty() &&
-		Poco::toUpper(_ldapParams.bindMode) != "USER"s;
-	if (!_ldapParams.uri.empty() && _ldapParams.authMode == "DN"s && _ldapParams.bindDN.empty())
+	if (_ldapParams.uri.empty())
 	{
-		_logger.warning("LDAP: auth.ldap.bindDN is not set; the DN of a user is built from auth.ldap.searchBase. Set "
-			"auth.ldap.bindDN to the DN of the user entries, with %s in place of the user name.");
-	}
-	if (!_ldapParams.uri.empty() && serviceBind && _ldapParams.bindPassword.empty())
-	{
-		_logger.error("LDAP: auth.ldap.bindUser is set but auth.ldap.bindPassword is empty, so the LDAP server cannot "
-			"verify passwords until auth.ldap.bindPassword is set. Until then, LDAP users can log in only with the "
-			"stored copy of their password, where auth.ldap.inaccessible.fallbackToLocal and "
-			"auth.ldap.cache.lifetimeDays allow it.");
+		return;
 	}
 #if defined(POCO_OSP_AUTH_ENABLE_LDAP)
-	if (!_ldapParams.uri.empty() && _ldapParams.extraAttributes.size() > LDAPClient::MAX_EXTRA_ATTRIBUTES)
+	const std::string authMode = Poco::toUpper(_ldapParams.authMode);
+	const std::string bindMode = Poco::toUpper(_ldapParams.bindMode);
+	_accountMode = authMode == "ACCOUNT"s;
+	if (!_accountMode && !authMode.empty() && authMode != "DN"s)
+	{
+		refuseLDAP("auth.ldap.authMode is \""s + _ldapParams.authMode + "\", which is neither DN nor ACCOUNT"s);
+	}
+	else if (_accountMode)
+	{
+		if (!bindMode.empty() && bindMode != "SERVICE"s && bindMode != "USER"s)
+		{
+			refuseLDAP("auth.ldap.bindMode is \""s + _ldapParams.bindMode + "\", which is neither SERVICE nor USER"s);
+		}
+		else
+		{
+			if (_ldapParams.bindUser.empty() && bindMode == "SERVICE"s)
+			{
+				_logger.warning("LDAP: auth.ldap.bindMode is SERVICE, but auth.ldap.bindUser is not set, so the USER "
+					"bind mode is used: searches and reads use the account of the user who logs in.");
+			}
+			_serviceBind = !_ldapParams.bindUser.empty() && bindMode != "USER"s;
+			if (_serviceBind)
+			{
+				_logger.information("LDAP: the ACCOUNT mode uses the SERVICE bind mode: searches and reads use "
+					"auth.ldap.bindUser.");
+			}
+			else
+			{
+				_logger.information("LDAP: the ACCOUNT mode uses the USER bind mode: searches and reads use the "
+					"account of the user who logs in.");
+			}
+		}
+	}
+	else
+	{
+		if (_ldapParams.bindDN.empty())
+		{
+			_logger.warning("LDAP: auth.ldap.bindDN is not set; the DN of a user is built from auth.ldap.searchBase. "
+				"Set auth.ldap.bindDN to the DN of the user entries, with %s in place of the user name.");
+		}
+		const std::string& dnTemplate = _ldapParams.bindDN.empty() ? _ldapParams.searchBase : _ldapParams.bindDN;
+		std::size_t placeholders = 0;
+		for (auto pos = dnTemplate.find("%s"s); pos != std::string::npos; pos = dnTemplate.find("%s"s, pos + 2))
+		{
+			++placeholders;
+		}
+		if (placeholders != 1)
+		{
+			refuseLDAP((_ldapParams.bindDN.empty() ? "auth.ldap.searchBase"s : "auth.ldap.bindDN"s) + " is \""s +
+				dnTemplate + "\", which does not contain %s exactly once in place of the user name"s);
+		}
+	}
+	if (_serviceBind && _ldapParams.bindPassword.empty())
+	{
+		_logger.error("LDAP: auth.ldap.bindUser is set but auth.ldap.bindPassword is empty, so the LDAP server cannot "
+			"verify passwords until auth.ldap.bindPassword is set.");
+	}
+	_pRoleFilter = compileLDAPExpression("auth.ldap.roleFilter"s, _ldapParams.roleFilter);
+	_pLocalRoles = compileLDAPExpression("auth.ldap.localRoles"s, _ldapParams.localRoles);
+	for (const auto& [ldapAttribute, userAttribute]: _ldapParams.extraAttributes)
+	{
+		if (isAuthAttribute(userAttribute))
+		{
+			_logger.error("LDAP: auth.ldap.extraAttributes maps %s to %s, a name reserved for the attributes of the "
+				"authentication service, so its value is not stored."s, ldapAttribute, userAttribute);
+		}
+	}
+	if (_ldapParams.extraAttributes.size() > LDAPClient::MAX_EXTRA_ATTRIBUTES)
 	{
 		_logger.warning("LDAP: auth.ldap.extraAttributes lists %z attributes; only the first %z are read from the LDAP "
 			"server.", _ldapParams.extraAttributes.size(), LDAPClient::MAX_EXTRA_ATTRIBUTES);
 	}
+#else
+	_logger.error("LDAP: auth.ldap.uri is set, but this build of OSP Auth does not support LDAP, so the LDAP server is "
+		"not used.");
 #endif
 }
 
@@ -85,7 +146,8 @@ AbstractLDAPAuthAdminService::AbstractLDAPAuthAdminService(Poco::Logger& logger,
 AbstractLDAPAuthAdminService::~AbstractLDAPAuthAdminService() = default;
 
 
-bool AbstractLDAPAuthAdminService::authenticateLDAP(const std::string& username, const std::string& credentials, bool& fallbackLocal) const
+bool AbstractLDAPAuthAdminService::authenticateLDAP(const std::string& username, const std::string& credentials,
+	bool& fallbackLocal) const
 {
 	fallbackLocal = false;
 	LDAPUser user;
@@ -113,6 +175,11 @@ AbstractLDAPAuthAdminService::LDAPResult AbstractLDAPAuthAdminService::verifyLDA
 {
 #if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 
+	if (!_configurationError.empty())
+	{
+		throw Poco::IOException("The LDAP settings cannot be used"s, _configurationError);
+	}
+
 	if (!LDAPClient::isValidBindValue(username) || !LDAPClient::isValidBindValue(credentials))
 	{
 		_logger.debug("LDAP authentication refused: the user name or the password is empty or contains a NUL "
@@ -125,13 +192,7 @@ AbstractLDAPAuthAdminService::LDAPResult AbstractLDAPAuthAdminService::verifyLDA
 
 	auto configureClient = [this](LDAPClient& client)
 	{
-		if (_ldapParams.authMode == "DN"s)
-			client.setMode(LDAPClient::Mode::DIST_NAME);
-		else if (_ldapParams.authMode == "ACCOUNT"s)
-			client.setMode(LDAPClient::Mode::ACCOUNT_NAME);
-		else
-			_logger.information("LDAP authentication mode not known: %s", _ldapParams.authMode);
-
+		client.setMode(_accountMode ? LDAPClient::Mode::ACCOUNT_NAME : LDAPClient::Mode::DIST_NAME);
 		client.setBindDN(_ldapParams.bindDN);
 		client.setSearchBase(_ldapParams.searchBase);
 		client.setUserObjectClass(_ldapParams.userObjectClass);
@@ -163,44 +224,7 @@ AbstractLDAPAuthAdminService::LDAPResult AbstractLDAPAuthAdminService::verifyLDA
 	const std::unique_ptr<std::string, decltype(clearCreds)> pCredsGuard(&creds, clearCreds);
 	LDAPClient::Result result = LDAPClient::Result::ERROR_RESULT;
 	int bindCode = 0;
-	bool useServiceBind = false;
-
-	if (lc.mode() == LDAPClient::Mode::ACCOUNT_NAME)
-	{
-		const auto bindMode = Poco::toUpper(_ldapParams.bindMode);
-		if (!_ldapParams.bindUser.empty())
-		{
-			if (bindMode.empty() || bindMode == "SERVICE"s)
-			{
-				useServiceBind = true;
-			}
-			else if (bindMode != "USER"s)
-			{
-				_logger.warning("LDAP bind mode not known: %s. Using SERVICE because auth.ldap.bindUser is configured.", _ldapParams.bindMode);
-				useServiceBind = true;
-			}
-		}
-		else if (bindMode == "SERVICE"s)
-		{
-			_logger.warning("LDAP bind mode SERVICE requires auth.ldap.bindUser. Falling back to USER mode.");
-		}
-		else if (!bindMode.empty() && bindMode != "USER"s)
-		{
-			_logger.warning("LDAP bind mode not known: %s. Using USER mode.", _ldapParams.bindMode);
-		}
-
-		if (_logger.information())
-		{
-			if (useServiceBind)
-			{
-				_logger.information("LDAP ACCOUNT bind workflow: SERVICE (searches and reads use auth.ldap.bindUser).");
-			}
-			else
-			{
-				_logger.information("LDAP ACCOUNT bind workflow: USER (searches and reads use the authenticated user).");
-			}
-		}
-	}
+	const bool useServiceBind = _serviceBind;
 
 	// The account name, or the given name if the entry has none, so that the
 	// check covers every login.
@@ -336,37 +360,30 @@ AbstractLDAPAuthAdminService::LDAPResult AbstractLDAPAuthAdminService::verifyLDA
 	}
 	user.permissions = lc.permissions();
 	user.attributes = lc.attributes();
-	user.hasRoles = !lc.roles().empty();
 	if (!useServiceBind && !acceptAccount())
 	{
 		return LDAPResult::LOCKED_OUT;
 	}
 
-	std::unique_ptr<Poco::RegularExpression> pRoleFilter;
-	if (!_ldapParams.roleFilter.empty())
-	{
-		pRoleFilter = std::make_unique<Poco::RegularExpression>(_ldapParams.roleFilter);
-	}
-	std::unique_ptr<Poco::RegularExpression> pLocalRoles;
-	if (!_ldapParams.localRoles.empty())
-	{
-		pLocalRoles = std::make_unique<Poco::RegularExpression>(_ldapParams.localRoles);
-	}
 	for (const auto& r: lc.roles())
 	{
-		if (pRoleFilter != nullptr && !pRoleFilter->match(r))
+		if (_pRoleFilter != nullptr && !_pRoleFilter->match(r))
 		{
 			if (_logger.debug())
 			{
 				_logger.debug("Skipping LDAP role due to roleFilter: %s", r);
 			}
 		}
-		else if (pLocalRoles != nullptr && pLocalRoles->match(r))
+		else if (_pLocalRoles != nullptr && _pLocalRoles->match(r))
 		{
 			if (_logger.debug())
 			{
 				_logger.debug("Skipping LDAP role %s: a local role has this name.", r);
 			}
+		}
+		else if (_ldapParams.rolePermissionAttribute.empty())
+		{
+			user.roles[r] = std::nullopt;
 		}
 		else
 		{
@@ -389,7 +406,8 @@ AbstractLDAPAuthAdminService::LDAPResult AbstractLDAPAuthAdminService::verifyLDA
 	return LDAPResult::ACCEPTED;
 
 #else
-	throw Poco::NotImplementedException("LDAP is not supported by this build of OSP Auth. Rebuild with -DPOCO_OSP_AUTH_ENABLE_LDAP");
+	throw Poco::NotImplementedException("LDAP is not supported by this build of OSP Auth. "
+		"Rebuild with -DENABLE_OSP_AUTH_LDAP=ON");
 #endif
 }
 
@@ -397,7 +415,7 @@ AbstractLDAPAuthAdminService::LDAPResult AbstractLDAPAuthAdminService::verifyLDA
 void AbstractLDAPAuthAdminService::storeLDAPUser(const std::string& username, const std::string& credentials,
 	const LDAPUser& user) const
 {
-	std::map<std::string, Permissions> rolePermissions;
+	std::map<std::string, std::optional<Permissions>> importedRoles;
 	for (const auto& [role, permissions]: user.roles)
 	{
 		if (getRoleAttributeImpl(role, ROLE_ATTR_LDAP) == "false"s)
@@ -407,37 +425,43 @@ void AbstractLDAPAuthAdminService::storeLDAPUser(const std::string& username, co
 				_logger.debug("Skipping LDAP role %s: a local role has this name.", role);
 			}
 		}
-		else if (!permissions.has_value())
+		else if (!permissions.has_value() && !_ldapParams.rolePermissionAttribute.empty())
 		{
 			throw Poco::IOException("Cannot read the permissions of the LDAP group", role);
 		}
 		else
 		{
-			rolePermissions[role] = *permissions;
+			importedRoles.emplace(role, permissions);
 		}
 	}
 
 	createOrUpdateUserImpl(username, credentials);
 	replaceUserAttributeImpl(username, USER_ATTR_FULL_NAME, user.fullName);
 
-	if (!user.permissions.empty())
+	if (!_ldapParams.permissionAttribute.empty())
 	{
 		replacePermissionsForUserImpl(username, user.permissions);
 	}
 
 	for (const auto& a: user.attributes)
 	{
-		replaceUserAttributeImpl(username, a.first, a.second);
+		if (!isAuthAttribute(a.first))
+		{
+			replaceUserAttributeImpl(username, a.first, a.second);
+		}
 	}
 
-	if (user.hasRoles)
+	if (!_ldapParams.roleAttribute.empty())
 	{
 		std::set<std::string> roles;
-		for (const auto& [role, permissions]: rolePermissions)
+		for (const auto& [role, permissions]: importedRoles)
 		{
 			createOrUpdateRoleImpl(role);
 			replaceRoleAttributeImpl(role, ROLE_ATTR_LDAP, "true");
-			replacePermissionsForRoleImpl(role, permissions);
+			if (permissions.has_value())
+			{
+				replacePermissionsForRoleImpl(role, *permissions);
+			}
 			roles.insert(role);
 		}
 		replaceRolesForUserImpl(username, roles);
@@ -485,18 +509,35 @@ std::unique_ptr<LDAPClient> AbstractLDAPAuthAdminService::createLDAPClient() con
 #endif
 
 
-bool AbstractLDAPAuthAdminService::isExtraAttribute(const std::string& attr, std::string& canonicalAttr) const
+#if defined(POCO_OSP_AUTH_ENABLE_LDAP)
+void AbstractLDAPAuthAdminService::refuseLDAP(const std::string& reason)
 {
-	for (auto it = _ldapParams.extraAttributes.begin(); it != _ldapParams.extraAttributes.end(); ++it)
+	_logger.error("LDAP: %s, so the LDAP server is not used."s, reason);
+	if (_configurationError.empty())
 	{
-		if (Poco::UTF8::icompare(it->first, attr) == 0)
-		{
-			canonicalAttr = it->second;
-			return true;
-		}
+		_configurationError = reason;
 	}
-	return false;
 }
+
+
+std::unique_ptr<Poco::RegularExpression> AbstractLDAPAuthAdminService::compileLDAPExpression(
+	const std::string& setting, const std::string& pattern)
+{
+	if (pattern.empty())
+	{
+		return nullptr;
+	}
+	try
+	{
+		return std::make_unique<Poco::RegularExpression>(pattern);
+	}
+	catch (Poco::RegularExpressionException& exc)
+	{
+		refuseLDAP(setting + " is not a valid regular expression ("s + exc.message() + ")"s);
+		return nullptr;
+	}
+}
+#endif
 
 
 } // namespace Poco::OSP::Auth

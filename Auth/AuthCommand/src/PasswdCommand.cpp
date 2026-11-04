@@ -20,6 +20,7 @@
 #include "Poco/OSP/Auth/AuthAdminService.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/OSP/ServiceFinder.h"
+#include <cstddef>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -41,7 +42,7 @@ int PasswdCommand::execute(Poco::OSP::Shell::Session& session, const std::vector
 
 	if (pAuthAdminSvc != nullptr)
 	{
-		if (args.size() < 3 || args[1] == "--help" || args[1] == "-h")
+		if (args.size() == 2 && (args[1] == "--help" || args[1] == "-h"))
 		{
 			help(ostr);
 			return Poco::OSP::Shell::Command::STATUS_OK;
@@ -58,7 +59,7 @@ int PasswdCommand::execute(Poco::OSP::Shell::Session& session, const std::vector
 void PasswdCommand::help(std::ostream& ostr)
 {
 	ostr
-		<< "usage: passwd <username> <password>\n"
+		<< "usage: passwd [--] <username> <password>\n"
 		<< "Change the password of the given user.\n"
 		<< "The user name is the account name of the user, which\n"
 		<< "can differ from the name given at the login.\n"
@@ -71,13 +72,15 @@ void PasswdCommand::help(std::ostream& ostr)
 int PasswdCommand::passwd(Poco::OSP::Shell::Session& session, Poco::OSP::Auth::AuthAdminService::Ptr pAuthAdminSvc,
 	const std::vector<std::string>& args, std::ostream& ostr)
 {
-	// The extension of the command has no permission, so it also runs in a session without a login.
+	// The command processor runs the command only after a login; the check is kept for a direct call.
 	if (!session.authenticated()) return Poco::OSP::Shell::Command::STATUS_DENIED;
 
-	if (args.size() == 3)
+	std::size_t first = 1;
+	if (args.size() > first && args[first] == "--") ++first;
+	if (args.size() == first + 2)
 	{
-		std::string username = args[1];
-		std::string password = args[2];
+		const std::string& username = args[first];
+		const std::string& password = args[first + 1];
 		if (username == session.user() || session.authorize("authAdmin"))
 		{
 			pAuthAdminSvc->changePassword(username, password);

@@ -15,6 +15,7 @@
 
 
 #include "Poco/OSP/Auth/PooledAuthAdminService.h"
+#include "Poco/Bugcheck.h"
 #include "Poco/Delegate.h"
 #include "Poco/Hash.h"
 #include "Poco/String.h"
@@ -43,13 +44,20 @@ PooledAuthAdminService::PooledAuthAdminService(const std::vector<AuthAdminServic
 
 PooledAuthAdminService::~PooledAuthAdminService()
 {
-	for (auto pBackend: _backends)
+	try
 	{
-		pBackend->userAdded -= Poco::delegate(this, &PooledAuthAdminService::onUserAdded);
-		pBackend->userRemoved -= Poco::delegate(this, &PooledAuthAdminService::onUserRemoved);
-		pBackend->roleAdded -= Poco::delegate(this, &PooledAuthAdminService::onRoleAdded);
-		pBackend->roleRemoved -= Poco::delegate(this, &PooledAuthAdminService::onRoleRemoved);
-		pBackend->validateUser -= Poco::delegate(this, &PooledAuthAdminService::onValidateUser);
+		for (auto pBackend: _backends)
+		{
+			pBackend->userAdded -= Poco::delegate(this, &PooledAuthAdminService::onUserAdded);
+			pBackend->userRemoved -= Poco::delegate(this, &PooledAuthAdminService::onUserRemoved);
+			pBackend->roleAdded -= Poco::delegate(this, &PooledAuthAdminService::onRoleAdded);
+			pBackend->roleRemoved -= Poco::delegate(this, &PooledAuthAdminService::onRoleRemoved);
+			pBackend->validateUser -= Poco::delegate(this, &PooledAuthAdminService::onValidateUser);
+		}
+	}
+	catch (...)
+	{
+		poco_unexpected();
 	}
 }
 

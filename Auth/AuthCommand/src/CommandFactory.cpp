@@ -22,23 +22,39 @@
 
 
 class AuthCommandFactory: public Poco::OSP::Shell::CommandFactory
+	/// Creates the auth command.
 {
 public:
-	Poco::OSP::Shell::Command* createCommand() override
-	{
-		return new AuthCommand(context());
-	}
+	AuthCommandFactory() = default;
+	~AuthCommandFactory() override = default;
+
+	[[nodiscard]] Poco::OSP::Shell::Command* createCommand() override;
+		/// Returns a new AuthCommand.
 };
 
 
 class PasswdCommandFactory: public Poco::OSP::Shell::CommandFactory
+	/// Creates the passwd command.
 {
 public:
-	Poco::OSP::Shell::Command* createCommand() override
-	{
-		return new PasswdCommand(context());
-	}
+	PasswdCommandFactory() = default;
+	~PasswdCommandFactory() override = default;
+
+	[[nodiscard]] Poco::OSP::Shell::Command* createCommand() override;
+		/// Returns a new PasswdCommand.
 };
+
+
+Poco::OSP::Shell::Command* AuthCommandFactory::createCommand()
+{
+	return new AuthCommand(context());
+}
+
+
+Poco::OSP::Shell::Command* PasswdCommandFactory::createCommand()
+{
+	return new PasswdCommand(context());
+}
 
 
 POCO_BEGIN_NAMED_MANIFEST(Shell, Poco::OSP::Shell::CommandFactory)

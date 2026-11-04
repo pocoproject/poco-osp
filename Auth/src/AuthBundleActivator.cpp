@@ -31,14 +31,22 @@ public:
 	
 	~AuthBundleActivator() override = default;
 	
-	void start(BundleContext::Ptr /*pContext*/) override
-	{
-	}
-		
-	void stop(BundleContext::Ptr /*pContext*/) override
-	{
-	}
+	void start(BundleContext::Ptr pContext) override;
+		/// Does nothing: the bundle only provides the library.
+
+	void stop(BundleContext::Ptr pContext) override;
+		/// Does nothing.
 };
+
+
+void AuthBundleActivator::start(BundleContext::Ptr /*pContext*/)
+{
+}
+
+
+void AuthBundleActivator::stop(BundleContext::Ptr /*pContext*/)
+{
+}
 
 
 } // namespace Poco::OSP::Auth

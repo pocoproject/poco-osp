@@ -9,9 +9,10 @@
 
 
 #include "SimpleAuth.h"
+#include "Poco/OSP/BundleActivator.h"
 #include "Poco/ClassLibrary.h"
 
 
-POCO_BEGIN_MANIFEST(BundleActivator)
-	POCO_EXPORT_CLASS(SimpleAuthBundleActivator)
+POCO_BEGIN_MANIFEST(Poco::OSP::BundleActivator)
+	POCO_EXPORT_CLASS(Poco::OSP::SimpleAuth::SimpleAuthBundleActivator)
 POCO_END_MANIFEST

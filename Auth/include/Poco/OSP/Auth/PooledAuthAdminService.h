@@ -50,7 +50,7 @@ public:
 		/// The vector must not be empty.
 
 	~PooledAuthAdminService() override;
-		/// Destroys the AuthAdminServiceImpl.
+		/// Destroys the PooledAuthAdminService.
 
 	// AuthAdminService
 	[[nodiscard]] bool verifyCredentials(const std::string& username, const std::string& credentials) override;
@@ -133,13 +133,30 @@ public:
 
 protected:
 	[[nodiscard]] AuthAdminService::Ptr forUser(const std::string& username) const;
+		/// Returns the backend for the given user, the same one for names that
+		/// differ only in the case of ASCII letters.
+
 	[[nodiscard]] AuthAdminService::Ptr forRole(const std::string& rolename) const;
+		/// Returns the backend for the given role.
+
 	[[nodiscard]] AuthAdminService::Ptr any() const;
+		/// Returns a backend chosen at random.
+
 	void onUserAdded(const std::string& username);
+		/// Fires userAdded for the userAdded event of a backend.
+
 	void onUserRemoved(const std::string& username);
+		/// Fires userRemoved for the userRemoved event of a backend.
+
 	void onRoleAdded(const std::string& rolename);
+		/// Fires roleAdded for the roleAdded event of a backend.
+
 	void onRoleRemoved(const std::string& rolename);
+		/// Fires roleRemoved for the roleRemoved event of a backend.
+
 	void onValidateUser(ValidateUserEvent& event);
+		/// Fires validateUser, with this service as the sender, for the
+		/// validateUser event of a backend.
 
 private:
 	const std::vector<AuthAdminService::Ptr> _backends;

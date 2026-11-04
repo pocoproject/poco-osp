@@ -35,6 +35,9 @@ class OSPAuthTwoFactor_API SecretGenerator
 	/// QR code.
 {
 public:
+	static constexpr std::size_t MIN_SECRET_LENGTH_BITS = 80;
+	static constexpr std::size_t BITS_PER_BYTE = 8;
+
 	SecretGenerator() = default;
 		/// Creates a SecretGenerator with the default secret
 		/// length (128 bits).

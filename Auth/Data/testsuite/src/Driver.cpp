@@ -1,7 +1,7 @@
 //
 // Driver.cpp
 //
-// Console-based test driver for Poco OSP Auth.
+// Console-based test driver for POCO OSP Auth.
 //
 // Copyright (c) 2012, Applied Informatics Software Engineering GmbH.
 // All rights reserved.

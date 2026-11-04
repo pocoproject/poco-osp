@@ -5,7 +5,7 @@
 // Package: Auth
 // Module:  Auth
 //
-// Basic definitions for the Poco OSP Auth library.
+// Basic definitions for the POCO OSP Auth library.
 // This file must be the first file included by every other OSP Auth
 // header file.
 //

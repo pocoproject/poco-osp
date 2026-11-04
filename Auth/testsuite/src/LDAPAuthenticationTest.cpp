@@ -21,9 +21,14 @@
 #include "Poco/OSP/Auth/LDAPClient.h"
 #include "Poco/Net/ServerSocket.h"
 #include "Poco/Net/SocketAddress.h"
+#include "Poco/Bugcheck.h"
+#include "Poco/Channel.h"
 #include "Poco/DateTime.h"
+#include "Poco/Delegate.h"
+#include "Poco/EventChannel.h"
 #include "Poco/Exception.h"
 #include "Poco/Logger.h"
+#include "Poco/Message.h"
 #include "Poco/Timespan.h"
 #include "Poco/Timestamp.h"
 #include <map>
@@ -64,6 +69,7 @@ namespace
 			/// A group that is not listed cannot be read.
 
 		int initializeCount = 0;
+		std::vector<std::string> groupLookups;
 		std::vector<std::string> boundDNs;
 		std::vector<Poco::Timespan> timeouts;
 	};
@@ -139,6 +145,7 @@ namespace
 
 		bool fetchGroupPermissions(const std::string& groupDN, Permissions& permissions) override
 		{
+			_directory.groupLookups.push_back(groupDN);
 			const auto it = _directory.groupPermissions.find(groupDN);
 			if (it == _directory.groupPermissions.end()) return false;
 			permissions = it->second;
@@ -199,7 +206,7 @@ namespace
 
 		bool hasUser(const std::string& username) const
 		{
-			return _credentials.find(username) != _credentials.end();
+			return _credentials.contains(username);
 		}
 
 		std::string userAttribute(const std::string& username, const std::string& attribute) const
@@ -223,6 +230,16 @@ namespace
 			return _userRoles[username];
 		}
 
+		void setUserPermissions(const std::string& username, const Permissions& permissions)
+		{
+			_userPermissions[username] = permissions;
+		}
+
+		void setUserRoles(const std::string& username, const Roles& roles)
+		{
+			_userRoles[username] = roles;
+		}
+
 		void addRole(const std::string& rolename, const Permissions& permissions)
 		{
 			_roles.insert(rolename);
@@ -242,7 +259,7 @@ namespace
 
 		bool roleExists(const std::string& rolename) const override
 		{
-			return _roles.find(rolename) != _roles.end();
+			return _roles.contains(rolename);
 		}
 
 	protected:
@@ -255,7 +272,7 @@ namespace
 		bool acceptLDAPAccount(const std::string&, const std::string& accountName) const override
 		{
 			_checkedAccounts.push_back(accountName);
-			return _lockedOutAccounts.find(accountName) == _lockedOutAccounts.end();
+			return !_lockedOutAccounts.contains(accountName);
 		}
 
 		void createOrUpdateRoleImpl(const std::string& rolename) const override
@@ -418,6 +435,71 @@ namespace
 		mutable std::map<std::string, Permissions> _rolePermissions;
 		std::set<std::string> _lockedOutAccounts;
 		mutable std::vector<std::string> _checkedAccounts;
+	};
+
+
+	class CapturedLog
+		/// Keeps the messages of the logger of the tests until detach() or
+		/// its destruction, which give the logger its channel and level back.
+	{
+	public:
+		CapturedLog():
+			_logger(Poco::Logger::get("LDAPAuthenticationTest"s)),
+			_pPreviousChannel(_logger.getChannel()),
+			_previousLevel(_logger.getLevel())
+		{
+			_pChannel->messageLogged += Poco::delegate(this, &CapturedLog::onMessageLogged);
+			_logger.setChannel(_pChannel);
+			_logger.setLevel(Poco::Message::PRIO_INFORMATION);
+		}
+
+		CapturedLog(const CapturedLog&) = delete;
+		CapturedLog(CapturedLog&&) = delete;
+		CapturedLog& operator = (const CapturedLog&) = delete;
+		CapturedLog& operator = (CapturedLog&&) = delete;
+
+		~CapturedLog()
+		{
+			try
+			{
+				detach();
+				_pChannel->messageLogged -= Poco::delegate(this, &CapturedLog::onMessageLogged);
+			}
+			catch (...)
+			{
+				poco_unexpected();
+			}
+		}
+
+		void detach()
+			/// Gives the logger its channel and level back.
+		{
+			_logger.setChannel(_pPreviousChannel);
+			_logger.setLevel(_previousLevel);
+		}
+
+		[[nodiscard]] int count(Poco::Message::Priority priority, const std::string& text) const
+			/// Returns the number of messages of the given priority that contain text.
+		{
+			int n = 0;
+			for (const auto& msg: _messages)
+			{
+				if (msg.getPriority() == priority && msg.getText().find(text) != std::string::npos) ++n;
+			}
+			return n;
+		}
+
+	private:
+		void onMessageLogged(const Poco::Message& msg)
+		{
+			_messages.push_back(msg);
+		}
+
+		Poco::Logger& _logger;
+		Poco::Channel::Ptr _pPreviousChannel;
+		int _previousLevel;
+		Poco::EventChannel::Ptr _pChannel = new Poco::EventChannel;
+		std::vector<Poco::Message> _messages;
 	};
 
 
@@ -1021,6 +1103,222 @@ void LDAPAuthenticationTest::testTimeoutOfZeroIsReplacedByDefault()
 }
 
 
+void LDAPAuthenticationTest::testRolesAndPermissionsNoLongerListedAreRemoved()
+{
+	Directory directory;
+	directory.roles = {"admins"s};
+	directory.groupPermissions = {{"admins"s, {"all"s}}};
+	directory.permissions = {"write"s};
+	TestLDAPAuthAdminService service(dnParams(), &directory);
+
+	bool fallbackLocal = false;
+	assertTrue (service.authenticate("alice"s, "secret"s, fallbackLocal));
+	assertTrue (service.userRoles("alice"s) == LDAPClient::Roles{"admins"s});
+	assertTrue (service.userPermissions("alice"s) == LDAPClient::Permissions{"write"s});
+
+	directory.roles.clear();
+	directory.permissions.clear();
+	assertTrue (service.authenticate("alice"s, "secret"s, fallbackLocal));
+	assertTrue (service.userRoles("alice"s).empty());
+	assertTrue (service.userPermissions("alice"s).empty());
+}
+
+
+void LDAPAuthenticationTest::testUnconfiguredAttributesLeaveStoredRolesAndPermissions()
+{
+	Directory directory;
+	auto params = dnParams();
+	params.permissionAttribute.clear();
+	params.roleAttribute.clear();
+	TestLDAPAuthAdminService service(params, &directory);
+	service.setUserPermissions("alice"s, {"local"s});
+	service.setUserRoles("alice"s, {"operators"s});
+
+	bool fallbackLocal = false;
+	assertTrue (service.authenticate("alice"s, "secret"s, fallbackLocal));
+	assertTrue (service.userPermissions("alice"s) == LDAPClient::Permissions{"local"s});
+	assertTrue (service.userRoles("alice"s) == LDAPClient::Roles{"operators"s});
+}
+
+
+void LDAPAuthenticationTest::testRolesAreAssignedWithoutGroupLookupIfNoRolePermissionAttribute()
+{
+	Directory directory;
+	directory.roles = {"operators"s};
+	auto params = dnParams();
+	params.rolePermissionAttribute.clear();
+	TestLDAPAuthAdminService service(params, &directory);
+	service.addRole("operators"s, {"operate"s});
+
+	bool fallbackLocal = false;
+	assertTrue (service.authenticate("alice"s, "secret"s, fallbackLocal));
+	assertTrue (directory.groupLookups.empty());
+	assertTrue (service.userRoles("alice"s) == LDAPClient::Roles{"operators"s});
+	assertTrue (service.rolePermissions("operators"s) == LDAPClient::Permissions{"operate"s});
+}
+
+
+void LDAPAuthenticationTest::testDNTemplateWithoutOnePlaceholderIsNotUsed()
+{
+	auto serviceDN = dnParams();
+	serviceDN.bindDN = "cn=service,dc=example,dc=com"s;
+	auto twoPlaceholders = dnParams();
+	twoPlaceholders.bindDN = "uid=%s,ou=%s,dc=example,dc=com"s;
+	auto searchBaseWithout = dnParams();
+	searchBaseWithout.bindDN.clear();
+	searchBaseWithout.searchBase = "ou=people,dc=example,dc=com"s;
+
+	for (const auto& params: {serviceDN, twoPlaceholders, searchBaseWithout})
+	{
+		Directory directory;
+		TestLDAPAuthAdminService service(params, &directory);
+		bool fallbackLocal = false;
+		try
+		{
+			[[maybe_unused]] const bool accepted = service.authenticate("mallory"s, "secret"s, fallbackLocal);
+			fail("a DN template without exactly one placeholder must be reported as a directory error");
+		}
+		catch (Poco::IOException&)
+		{
+		}
+		assertEqual (0, directory.initializeCount);
+		assertTrue (directory.boundDNs.empty());
+		assertFalse (service.hasUser("mallory"s));
+	}
+}
+
+
+void LDAPAuthenticationTest::testUserNameReplacesOnlyPlaceholderOfDNTemplate()
+{
+	const std::map<std::string, std::vector<std::string>> boundDNs = {
+		{"uid=%%s,ou=people,dc=example,dc=com"s,
+			{"uid=%alice,ou=people,dc=example,dc=com"s, "uid=%mallory,ou=people,dc=example,dc=com"s}},
+		{"uid=%d%s,ou=people,dc=example,dc=com"s,
+			{"uid=%dalice,ou=people,dc=example,dc=com"s, "uid=%dmallory,ou=people,dc=example,dc=com"s}}};
+
+	for (const auto& [dnTemplate, expectedDNs]: boundDNs)
+	{
+		Directory directory;
+		auto params = dnParams();
+		params.bindDN = dnTemplate;
+		TestLDAPAuthAdminService service(params, &directory);
+
+		bool fallbackLocal = false;
+		assertTrue (service.authenticate("alice"s, "secret"s, fallbackLocal));
+		assertTrue (service.authenticate("mallory"s, "secret"s, fallbackLocal));
+		assertTrue (directory.boundDNs == expectedDNs);
+	}
+}
+
+
+void LDAPAuthenticationTest::testModesAreCheckedOnceIgnoringCase()
+{
+	CapturedLog capturedLog;
+	Directory directory;
+	directory.accountName = "alice"s;
+	auto params = dnParams();
+	params.authMode = "Account"s;
+	params.bindUser = "cn=service,dc=example,dc=com"s;
+	params.bindPassword = "service secret"s;
+	params.bindMode = "service"s;
+	TestLDAPAuthAdminService service(params, &directory);
+
+	bool fallbackLocal = false;
+	assertTrue (service.authenticate("alice"s, "secret"s, fallbackLocal));
+	assertTrue (service.authenticate("alice"s, "secret"s, fallbackLocal));
+	capturedLog.detach();
+	assertTrue (directory.boundDNs == std::vector<std::string>({"cn=service,dc=example,dc=com"s, directory.foundUserDN,
+		"cn=service,dc=example,dc=com"s, directory.foundUserDN}));
+	assertEqual (1, capturedLog.count(Poco::Message::PRIO_INFORMATION, "SERVICE bind mode"s));
+}
+
+
+void LDAPAuthenticationTest::testUnknownModeIsNotUsed()
+{
+	auto unknownAuthMode = dnParams();
+	unknownAuthMode.authMode = "LDAP"s;
+	unknownAuthMode.bindDN.clear();
+	unknownAuthMode.searchBase = "dc=example,dc=com"s;
+	auto unknownBindMode = dnParams();
+	unknownBindMode.authMode = "ACCOUNT"s;
+	unknownBindMode.bindUser = "cn=service,dc=example,dc=com"s;
+	unknownBindMode.bindMode = "ADMIN"s;
+
+	for (const auto& params: {unknownAuthMode, unknownBindMode})
+	{
+		CapturedLog capturedLog;
+		Directory directory;
+		TestLDAPAuthAdminService service(params, &directory);
+		for (int i = 0; i < 2; ++i)
+		{
+			bool fallbackLocal = false;
+			try
+			{
+				[[maybe_unused]] const bool accepted = service.authenticate("alice"s, "secret"s, fallbackLocal);
+				fail("an unknown mode must be reported as a directory error");
+			}
+			catch (Poco::IOException&)
+			{
+			}
+		}
+		capturedLog.detach();
+		assertEqual (0, directory.initializeCount);
+		assertTrue (directory.boundDNs.empty());
+		assertEqual (1, capturedLog.count(Poco::Message::PRIO_ERROR, "\""s + (params.bindMode.empty() ?
+			params.authMode : params.bindMode) + "\""s));
+		assertEqual (1, capturedLog.count(Poco::Message::PRIO_ERROR, ""s));
+		assertEqual (0, capturedLog.count(Poco::Message::PRIO_WARNING, ""s));
+		assertEqual (0, capturedLog.count(Poco::Message::PRIO_INFORMATION, ""s));
+	}
+}
+
+
+void LDAPAuthenticationTest::testInvalidRoleExpressionIsNotUsed()
+{
+	auto invalidRoleFilter = dnParams();
+	invalidRoleFilter.roleFilter = "dev("s;
+	auto invalidLocalRoles = dnParams();
+	invalidLocalRoles.localRoles = "admin|("s;
+
+	for (const auto& params: {invalidRoleFilter, invalidLocalRoles})
+	{
+		Directory directory;
+		directory.roles = {"dev"s};
+		directory.groupPermissions = {{"dev"s, {"build"s}}};
+		TestLDAPAuthAdminService service(params, &directory);
+		bool fallbackLocal = false;
+		try
+		{
+			[[maybe_unused]] const bool accepted = service.authenticate("alice"s, "secret"s, fallbackLocal);
+			fail("an invalid regular expression must be reported as a directory error");
+		}
+		catch (Poco::IOException&)
+		{
+		}
+		assertTrue (directory.boundDNs.empty());
+		assertFalse (service.hasUser("alice"s));
+	}
+}
+
+
+void LDAPAuthenticationTest::testDirectoryDoesNotSetAuthAttributes()
+{
+	CapturedLog capturedLog;
+	Directory directory;
+	directory.attributes = {{"Auth_ldap"s, "false"s}, {"mail"s, "alice@example.com"s}};
+	auto params = dnParams();
+	params.extraAttributes = {{"description"s, "Auth_ldap"s}, {"mail"s, "mail"s}};
+	TestLDAPAuthAdminService service(params, &directory);
+	capturedLog.detach();
+
+	bool fallbackLocal = false;
+	assertTrue (service.authenticate("alice"s, "secret"s, fallbackLocal));
+	assertEqual ("alice@example.com"s, service.userAttribute("alice"s, "mail"s));
+	assertTrue (service.userAttribute("alice"s, "Auth_ldap"s).empty());
+	assertEqual (1, capturedLog.count(Poco::Message::PRIO_ERROR, "Auth_ldap"s));
+}
+
+
 void LDAPAuthenticationTest::setUp()
 {
 }
@@ -1064,6 +1362,15 @@ CppUnit::Test* LDAPAuthenticationTest::suite()
 	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testUnreachableServerFallsBack);
 	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testUnansweredServerFallsBackToLocalCredentials);
 	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testTimeoutOfZeroIsReplacedByDefault);
+	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testRolesAndPermissionsNoLongerListedAreRemoved);
+	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testUnconfiguredAttributesLeaveStoredRolesAndPermissions);
+	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testRolesAreAssignedWithoutGroupLookupIfNoRolePermissionAttribute);
+	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testDNTemplateWithoutOnePlaceholderIsNotUsed);
+	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testUserNameReplacesOnlyPlaceholderOfDNTemplate);
+	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testModesAreCheckedOnceIgnoringCase);
+	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testUnknownModeIsNotUsed);
+	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testInvalidRoleExpressionIsNotUsed);
+	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testDirectoryDoesNotSetAuthAttributes);
 
 	return pSuite;
 }

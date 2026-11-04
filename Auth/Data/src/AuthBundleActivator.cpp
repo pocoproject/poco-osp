@@ -18,7 +18,9 @@
 #include "Poco/OSP/Auth/Data/AuthAdminServiceImpl.h"
 #include "Poco/OSP/Auth/PooledAuthAdminService.h"
 #include "Poco/StringTokenizer.h"
+#include "Poco/Thread.h"
 #include "Poco/ClassLibrary.h"
+#include <vector>
 
 
 using Poco::OSP::BundleActivator;
@@ -49,7 +51,6 @@ public:
 	{
 		AuthAdminServiceImpl::AuthParams authParams;
 		AuthAdminServiceImpl::LDAPParams ldapParams;
-		ldapParams.timeout = 30;
 
 		ServiceRef::Ptr pPrefsSvcRef = pContext->registry().findByName("osp.core.preferences"s);
 		int databaseStartupTimeout = 10;
@@ -83,7 +84,8 @@ public:
 			ldapParams.userObjectClass     = pPrefsSvc->configuration()->getString("auth.ldap.userObjectClass"s, "user"s);
 			ldapParams.groupObjectClass    = pPrefsSvc->configuration()->getString("auth.ldap.groupObjectClass"s, "group"s);
 			ldapParams.authMode            = pPrefsSvc->configuration()->getString("auth.ldap.authMode"s, "DN"s);
-			ldapParams.timeout             = pPrefsSvc->configuration()->getInt("auth.ldap.timeout"s, 30);
+			ldapParams.timeout             = pPrefsSvc->configuration()->getInt("auth.ldap.timeout"s,
+				ldapParams.timeout);
 			ldapParams.permissionAttribute = pPrefsSvc->configuration()->getString("auth.ldap.permissionAttribute"s, ""s);
 			ldapParams.rolePermissionAttribute = pPrefsSvc->configuration()->getString("auth.ldap.rolePermissionAttribute"s, ""s);
 			ldapParams.roleAttribute       = pPrefsSvc->configuration()->getString("auth.ldap.roleAttribute"s, ""s);
@@ -119,7 +121,7 @@ public:
 			pContext->logger().information("Checking database connection (%s)..."s, authParams.dbConnector);
 			int time = 0;
 			bool databaseOK = AuthAdminServiceImpl::checkDatabaseConnectivity(pContext->thisBundle()->properties(), authParams, pContext->logger());
-			while (!databaseOK && time <= databaseStartupTimeout)
+			while (!databaseOK && time < databaseStartupTimeout)
 			{
 				pContext->logger().warning("Database connection failure. Retrying..."s);
 				Poco::Thread::sleep(2000);

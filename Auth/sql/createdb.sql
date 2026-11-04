@@ -56,15 +56,15 @@ CREATE TABLE auth_role_mappings
 	internal_role VARCHAR(256) NOT NULL REFERENCES auth_role(rolename) ON DELETE CASCADE
 );
 
-INSERT INTO auth_user (username, password) VALUES("admin", "3d29e163b9107fcb31077b45b47026e2");
+INSERT INTO auth_user (username, password) VALUES('admin', '3d29e163b9107fcb31077b45b47026e2');
 
-INSERT INTO auth_user_attributes VALUES("admin", "auth_ldap", "false");
+INSERT INTO auth_user_attributes VALUES('admin', 'auth_ldap', 'false');
 
-INSERT INTO auth_role VALUES("admin");
+INSERT INTO auth_role VALUES('admin');
 
-INSERT INTO auth_role_attributes VALUES("admin", "auth_ldap_role", "false");
+INSERT INTO auth_role_attributes VALUES('admin', 'auth_ldap_role', 'false');
 
-INSERT INTO auth_role_permissions VALUES("admin", "bundleAdmin");
-INSERT INTO auth_role_permissions VALUES("admin", "authAdmin");
+INSERT INTO auth_role_permissions VALUES('admin', 'bundleAdmin');
+INSERT INTO auth_role_permissions VALUES('admin', 'authAdmin');
 
-INSERT INTO auth_user_roles VALUES("admin", "admin");
+INSERT INTO auth_user_roles VALUES('admin', 'admin');

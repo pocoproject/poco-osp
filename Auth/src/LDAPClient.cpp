@@ -15,9 +15,13 @@
 
 
 #include "Poco/OSP/Auth/LDAPClient.h"
+#include "LDAPClientImpl.h"
+#include "Poco/Bugcheck.h"
 #include "Poco/Exception.h"
 #include "Poco/Format.h"
+#include "Poco/String.h"
 #include "Poco/Timespan.h"
+#include "Poco/UTF8String.h"
 #include <cstddef>
 #include <string>
 #include <utility>
@@ -28,6 +32,7 @@
 #else
 #include "LDAPClient_POSIX.cpp"
 #endif
+
 
 using namespace std::string_literals;
 
@@ -248,9 +253,9 @@ bool LDAPClient::findUserDN(const std::string& username, std::string& userDN)
 	LDAPClientImpl::AuthProperties properties;
 	const auto filter = accountSearchFilter(_userObjectClass, username);
 
-	// Searched like a group, for which finding no entry is not a failure,
-	// so that only a failed search and several entries are reported as such.
-	if (!_impl->find(_searchBase, filter, true, true, _mode == Mode::ACCOUNT_NAME, properties))
+	// Finding no entry is not a failure, so that only a failed search and
+	// several entries are reported as such.
+	if (!_impl->find(_searchBase, filter, true, false, false, _mode == Mode::ACCOUNT_NAME, properties))
 	{
 		throw Poco::IOException("The LDAP search for the user failed or found more than one entry", username);
 	}
@@ -282,9 +287,11 @@ bool LDAPClient::fetchOwnProperties()
 	case Mode::ACCOUNT_NAME:
 		filter = accountSearchFilter(_userObjectClass, username);
 		break;
+	default:
+		poco_bugcheck();
 	}
 
-	if (_impl->find(searchBase, filter, _mode != Mode::DIST_NAME, false, _mode == Mode::ACCOUNT_NAME, properties))
+	if (_impl->find(searchBase, filter, _mode != Mode::DIST_NAME, false, true, _mode == Mode::ACCOUNT_NAME, properties))
 	{
 		_accountName = onlyAccountName(properties.accountNames, username);
 		_userPrincipalName = onlyValue(properties.userPrincipalNames);
@@ -314,7 +321,7 @@ bool LDAPClient::fetchOwnProperties(const std::string& userDN)
 	LDAPClientImpl::AuthProperties properties;
 	const std::string filter = "(objectClass=" + _userObjectClass + ")";
 
-	if (_impl->find(userDN, filter, false, false, _mode == Mode::ACCOUNT_NAME, properties))
+	if (_impl->find(userDN, filter, false, false, true, _mode == Mode::ACCOUNT_NAME, properties))
 	{
 		_accountName = onlyAccountName(properties.accountNames, userDN);
 		_userPrincipalName = onlyValue(properties.userPrincipalNames);
@@ -336,7 +343,7 @@ bool LDAPClient::fetchGroupPermissions(const std::string& groupDN, Permissions& 
 	LDAPClientImpl::AuthProperties properties;
 	std::string filter = "(objectClass=" + _groupObjectClass + ")";
 
-	if (_impl->find(groupDN, filter, false, true, false, properties))
+	if (_impl->find(groupDN, filter, false, true, true, false, properties))
 	{
 		permissions = std::move(properties.permissions);
 		return true;
@@ -353,7 +360,7 @@ int LDAPClient::lastReturnCode() const
 
 std::string LDAPClient::distinguishedName(const std::string& username) const
 {
-	return Poco::format(_bindDN.empty() ? _searchBase : _bindDN, escapeLDAP(username));
+	return Poco::replace(_bindDN.empty() ? _searchBase : _bindDN, "%s"s, escapeLDAP(username));
 }
 
 
@@ -452,6 +459,151 @@ std::string LDAPClient::escapeFilterValue(const std::string& str)
 		}
 	}
 	return result;
+}
+
+
+const std::string LDAPClientImpl::DISPLAY_NAME_ATTR{"displayName"s};
+const std::string LDAPClientImpl::ACCOUNT_NAME_ATTR{"sAMAccountName"s};
+const std::string LDAPClientImpl::USER_PRINCIPAL_NAME_ATTR{"userPrincipalName"s};
+const std::string LDAPClientImpl::PRINCIPAL_NAME_ATTR{"msDS-PrincipalName"s};
+
+
+LDAPClientImpl::LDAPClientImpl(Poco::Logger& logger):
+	_logger(logger)
+{
+}
+
+
+LDAPClientImpl::~LDAPClientImpl()
+{
+	try
+	{
+		unbind();
+	}
+	catch (...)
+	{
+		poco_unexpected();
+	}
+}
+
+
+void LDAPClientImpl::setRoleAttributeName(const std::string& name)
+{
+	_roleAttributeName = name;
+}
+
+
+void LDAPClientImpl::setPermissionAttributeName(const std::string& name)
+{
+	_permissionAttributeName = name;
+}
+
+
+void LDAPClientImpl::setRolePermissionAttributeName(const std::string& name)
+{
+	_rolePermissionAttributeName = name;
+}
+
+
+void LDAPClientImpl::setExtraAttributesMap(const AttributesNameMap& nameMap)
+{
+	_extraAttributesMap = nameMap;
+}
+
+
+int LDAPClientImpl::lastReturnCode() const
+{
+	return static_cast<int>(_rc);
+}
+
+
+void LDAPClientImpl::addValue(const std::string& attr, std::string value, bool queryAccountName,
+	AuthProperties& properties) const
+{
+	Poco::trimInPlace(value);
+	std::string canonicalAttr;
+
+	// Not one of the alternatives below, as an extra attribute may map it too.
+	if (queryAccountName && Poco::UTF8::icompare(ACCOUNT_NAME_ATTR, attr) == 0)
+	{
+		properties.accountNames.push_back(value);
+	}
+	else if (queryAccountName && Poco::UTF8::icompare(USER_PRINCIPAL_NAME_ATTR, attr) == 0)
+	{
+		properties.userPrincipalNames.push_back(value);
+	}
+	else if (queryAccountName && Poco::UTF8::icompare(PRINCIPAL_NAME_ATTR, attr) == 0)
+	{
+		properties.principalNames.push_back(value);
+	}
+	if (Poco::UTF8::icompare(DISPLAY_NAME_ATTR, attr) == 0)
+	{
+		if (_logger.debug())
+		{
+			_logger.debug("Found display name: \"%s\""s, value);
+		}
+		properties.fullName = value;
+	}
+	else if (Poco::UTF8::icompare(_permissionAttributeName, attr) == 0 ||
+		Poco::UTF8::icompare(_rolePermissionAttributeName, attr) == 0)
+	{
+		if (_logger.debug())
+		{
+			_logger.debug("Found permission: \"%s\""s, value);
+		}
+		properties.permissions.insert(value);
+	}
+	else if (Poco::UTF8::icompare(_roleAttributeName, attr) == 0)
+	{
+		if (_logger.debug())
+		{
+			_logger.debug("Found role: \"%s\""s, value);
+		}
+		properties.roles.insert(Poco::toLower(value));
+	}
+	else if (isExtraAttribute(attr, canonicalAttr))
+	{
+		if (_logger.debug())
+		{
+			_logger.debug("Found attribute: \"%s\" = \"%s\""s, attr, value);
+		}
+		properties.attributes[canonicalAttr] = value;
+	}
+}
+
+
+bool LDAPClientImpl::checkEntryCount(int entryCount, bool entryRequired, const std::string& searchBase,
+	const std::string& filter) const
+{
+	if (entryCount > 1)
+	{
+		_logger.warning("LDAP: too many records for: \"%s\", \"%s\": %d"s, searchBase, filter, entryCount);
+		return false;
+	}
+	if (entryCount < 1)
+	{
+		if (entryRequired)
+		{
+			_logger.warning("LDAP: record not found for: \"%s\", \"%s\""s, searchBase, filter);
+			return false;
+		}
+		_logger.debug("LDAP: record not found for: \"%s\", \"%s\""s, searchBase, filter);
+	}
+	return true;
+}
+
+
+bool LDAPClientImpl::isExtraAttribute(const std::string& attr, std::string& canonicalAttr) const
+{
+	for (const auto& el: _extraAttributesMap)
+	{
+		if (Poco::UTF8::icompare(el.first, attr) == 0)
+		{
+			canonicalAttr = el.second;
+			return true;
+		}
+	}
+	return false;
 }
 
 

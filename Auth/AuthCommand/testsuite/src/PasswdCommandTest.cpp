@@ -34,6 +34,7 @@ using namespace std::string_literals;
 namespace
 {
 	const std::string NEW_PASSWORD("newsecret");
+	const std::string DASH_USER("-h");
 }
 
 
@@ -126,7 +127,7 @@ void PasswdCommandTest::testHelpHasNoPrompt()
 
 	assertEqual (static_cast<int>(Command::STATUS_OK), command.execute(guest, {"passwd"s, "--help"s}, ostr));
 	const std::string help = ostr.str();
-	assertTrue (help.find("usage: passwd <username> <password>"s) != std::string::npos);
+	assertTrue (help.find("usage: passwd [--] <username> <password>"s) != std::string::npos);
 	assertTrue (help.find("prompt"s) == std::string::npos);
 }
 
@@ -143,6 +144,39 @@ void PasswdCommandTest::testHelpNamesAccountName()
 }
 
 
+void PasswdCommandTest::testUserNameAfterDoubleDashMayStartWithDash()
+{
+	PasswdCommand command(_pBundle->context());
+	Session admin(_pBundle->context(), AuthAdminService::SERVICE_NAME);
+	assertTrue (admin.login(TestAuthAdminService::ADMIN, TestAuthAdminService::ADMIN_PASSWORD));
+	_pAuthService->addUser(DASH_USER, TestAuthAdminService::GUEST_PASSWORD);
+	std::ostringstream ostr;
+
+	assertEqual (static_cast<int>(Command::STATUS_OK),
+		command.execute(admin, {"passwd"s, "--"s, DASH_USER, NEW_PASSWORD}, ostr));
+	assertTrue (_pAuthService->authenticate(DASH_USER, NEW_PASSWORD));
+}
+
+
+void PasswdCommandTest::testHelpOnlyForSingleHelpArgument()
+{
+	PasswdCommand command(_pBundle->context());
+	Session admin(_pBundle->context(), AuthAdminService::SERVICE_NAME);
+	assertTrue (admin.login(TestAuthAdminService::ADMIN, TestAuthAdminService::ADMIN_PASSWORD));
+	_pAuthService->addUser(DASH_USER, TestAuthAdminService::GUEST_PASSWORD);
+	std::ostringstream helpStream;
+
+	assertEqual (static_cast<int>(Command::STATUS_OK), command.execute(admin, {"passwd"s, "--help"s}, helpStream));
+	assertTrue (helpStream.str().find("usage: passwd"s) != std::string::npos);
+
+	std::ostringstream ostr;
+	assertEqual (static_cast<int>(Command::STATUS_OK),
+		command.execute(admin, {"passwd"s, DASH_USER, NEW_PASSWORD}, ostr));
+	assertTrue (ostr.str().empty());
+	assertTrue (_pAuthService->authenticate(DASH_USER, NEW_PASSWORD));
+}
+
+
 CppUnit::Test* PasswdCommandTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("PasswdCommandTest");
@@ -153,6 +187,8 @@ CppUnit::Test* PasswdCommandTest::suite()
 	CppUnit_addTest(pSuite, PasswdCommandTest, testAdministratorChangesPasswords);
 	CppUnit_addTest(pSuite, PasswdCommandTest, testHelpHasNoPrompt);
 	CppUnit_addTest(pSuite, PasswdCommandTest, testHelpNamesAccountName);
+	CppUnit_addTest(pSuite, PasswdCommandTest, testUserNameAfterDoubleDashMayStartWithDash);
+	CppUnit_addTest(pSuite, PasswdCommandTest, testHelpOnlyForSingleHelpArgument);
 
 	return pSuite;
 }

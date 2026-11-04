@@ -18,7 +18,6 @@
 #include "Poco/OSP/Preferences.h"
 #include "Poco/OSP/Auth/TwoFactor/TwoFactorServiceImpl.h"
 #include "Poco/OSP/Auth/AuthAdminService.h"
-#include "Poco/StringTokenizer.h"
 #include "Poco/Timespan.h"
 #include "Poco/DigestEngine.h"
 #include "Poco/RandomStream.h"
@@ -26,6 +25,7 @@
 #include <cstddef>
 #include <ios>
 #include <string>
+#include <utility>
 
 
 using Poco::OSP::BundleActivator;
@@ -41,10 +41,43 @@ using namespace std::string_literals;
 namespace Poco::OSP::Auth::TwoFactor {
 
 
+namespace
+{
+	class RegisteredAuthTwoFactorService: public TwoFactorServiceImpl
+		/// Uses the AuthAdminService registered at the time of each call, so
+		/// that it keeps none of a stopped or uninstalled bundle.
+	{
+	public:
+		RegisteredAuthTwoFactorService(BundleContext::Ptr pContext, const Config& config):
+			TwoFactorServiceImpl(nullptr, config, pContext->logger()),
+			_pContext(std::move(pContext))
+		{
+		}
+
+		RegisteredAuthTwoFactorService() = delete;
+		RegisteredAuthTwoFactorService(const RegisteredAuthTwoFactorService&) = delete;
+		RegisteredAuthTwoFactorService(RegisteredAuthTwoFactorService&&) = delete;
+		RegisteredAuthTwoFactorService& operator = (const RegisteredAuthTwoFactorService&) = delete;
+		RegisteredAuthTwoFactorService& operator = (RegisteredAuthTwoFactorService&&) = delete;
+		~RegisteredAuthTwoFactorService() override = default;
+
+	protected:
+		[[nodiscard]] AuthAdminService::Ptr authService() const override
+		{
+			return Poco::OSP::ServiceFinder::find<AuthAdminService>(_pContext);
+		}
+
+	private:
+		BundleContext::Ptr _pContext;
+	};
+}
+
+
 class TwoFactorBundleActivator: public BundleActivator
 	/// The BundleActivator for the Auth TwoFactor Bundle.
 	///
-	/// Registers the TwoFactorServiceImpl service.
+	/// Registers the TwoFactorService; a call throws a Poco::NotFoundException
+	/// if no AuthAdminService is registered.
 {
 public:
 	TwoFactorBundleActivator() = default;
@@ -55,8 +88,10 @@ public:
 		PreferencesService::Ptr pPrefsService = Poco::OSP::ServiceFinder::find<Poco::OSP::PreferencesService>(pContext);
 
 		TwoFactorServiceImpl::Config config;
-		config.secretLengthBits = pPrefsService->configuration()->getUInt("auth.twofactor.secretLengthBits"s, 128);
-		config.codeDigits = pPrefsService->configuration()->getUInt("auth.twofactor.codeDigits"s, 6);
+		config.secretLengthBits = pPrefsService->configuration()->getUInt("auth.twofactor.secretLengthBits"s,
+			static_cast<unsigned>(config.secretLengthBits));
+		config.codeDigits = pPrefsService->configuration()->getUInt("auth.twofactor.codeDigits"s,
+			static_cast<unsigned>(config.codeDigits));
 		config.passphrase = pPrefsService->configuration()->getString("auth.twofactor.passphrase"s, ""s);
 		config.issuer = pPrefsService->configuration()->getString("auth.twofactor.issuer"s, ""s);
 		config.maxFailures = pPrefsService->configuration()->getUInt("auth.twofactor.maxFailures"s,
@@ -72,15 +107,14 @@ public:
 			{
 				config.keySalt = keySalt(pPrefsService->preferences(pContext->thisBundle()->symbolicName()));
 			}
-			AuthAdminService::Ptr pAuthAdminService = Poco::OSP::ServiceFinder::find<AuthAdminService>(pContext);
-			TwoFactorServiceImpl::Ptr pTwoFactorService = new TwoFactorServiceImpl(pAuthAdminService, config,
-				pContext->logger());
+			TwoFactorServiceImpl::Ptr pTwoFactorService = new RegisteredAuthTwoFactorService(pContext, config);
 			_pTwoFactorServiceRef = pContext->registry().registerService(TwoFactorService::SERVICE_NAME, pTwoFactorService, Properties());
 			pContext->logger().information("TwoFactorService registered.");
 		}
 		else
 		{
-			pContext->logger().notice("No key and/or issuer configuration for TwoFactorService found. Service will not be available.");
+			pContext->logger().notice("auth.twofactor.passphrase or auth.twofactor.issuer is not set, so the "
+				"two-factor authentication service is not available."s);
 		}
 	}
 

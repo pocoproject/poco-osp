@@ -59,6 +59,7 @@ public:
 	};
 
 	enum class Result
+		/// The result of a bind (see bindResult()).
 	{
 		SUCCESS_RESULT,
 		SERVER_INACCESSIBLE,
@@ -150,16 +151,25 @@ public:
 		/// Unbinds and disconnects from the server
 
 	void setMode(Mode mode);
+		/// Sets the authentication mode.
+
 	[[nodiscard]] Mode mode() const;
+		/// Returns the authentication mode.
 
 	void setBindDN(const std::string& bindDN);
 		/// Sets the template of the user DN for DIST_NAME mode, with a "%s"
 		/// placeholder for the username.
 
 	[[nodiscard]] const std::string& bindDN() const;
+		/// Returns the template of the user DN (see setBindDN()).
 
 	void setSearchBase(const std::string& base);
+		/// Sets the base of the searches: the root of the subtree in which the
+		/// entry of a user is searched in ACCOUNT_NAME mode, and the template
+		/// of the user DN in DIST_NAME mode if no bind DN template is set.
+
 	[[nodiscard]] const std::string& searchBase() const;
+		/// Returns the base of the searches (see setSearchBase()).
 
 	void setUserObjectClass(const std::string& userObjectClass);
 		/// LDAP attribute user object class
@@ -210,10 +220,14 @@ public:
 		/// sAMAccountName value.
 
 	[[nodiscard]] virtual bool fetchGroupPermissions(const std::string& groupDN, Permissions& permissions);
-		/// Get permissions assigned to an LDAP group using its DN.
-		/// It only works if the role attribute name resolves to an DN, for example
-		/// when using memberOf. It does not read and role attributes otherwise
-		/// because the LDAP entry is not found.
+		/// Reads the permissions of the group entry with the given DN from the
+		/// role permission attribute (see setRolePermissionAttributeName()).
+		/// The values of the role attribute must therefore be DNs of group
+		/// entries, as with memberOf.
+		///
+		/// Returns false if the search fails or finds no entry of the group
+		/// object class (see setGroupObjectClass()) that the connection can
+		/// read at the DN.
 
 	[[nodiscard]] const std::string& fullName() const;
 		/// Full user name (if it is available) obtained with last query

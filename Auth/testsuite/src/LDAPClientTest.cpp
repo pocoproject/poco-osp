@@ -678,6 +678,45 @@ void LDAPClientTest::testPrincipalNamesAreReadInAccountMode()
 }
 
 
+void LDAPClientTest::testUserSearchRequestsPermissionAttributeOfUsers()
+{
+	Directory directory;
+	directory.entries = {{"uid=alice,ou=people,dc=example,dc=com"s, {}}};
+	ScriptedLDAPServer server(directory);
+	LDAPClient client(Poco::Logger::get("LDAPClientTest"s));
+	client.setSearchBase("ou=people,dc=example,dc=com"s);
+	client.setRolePermissionAttributeName("groupPermission"s);
+	bindClient(client, server);
+
+	std::string userDN;
+	assertTrue (client.findUserDN("alice"s, userDN));
+	const std::vector<std::string> expected = {"displayName"s, "permission"s, "memberOf"s};
+	Poco::FastMutex::ScopedLock lock(directory.mutex);
+	assertTrue (directory.requestedAttributes == expected);
+}
+
+
+void LDAPClientTest::testGroupWithoutEntryIsNotRead()
+{
+	Directory directory;
+	ScriptedLDAPServer server(directory);
+	LDAPClient client(Poco::Logger::get("LDAPClientTest"s));
+	client.setGroupObjectClass("groupOfNames"s);
+	client.setRolePermissionAttributeName("permission"s);
+	bindClient(client, server);
+
+	LDAPClient::Permissions permissions;
+	assertFalse (client.fetchGroupPermissions("ou=people,dc=example,dc=com"s, permissions));
+
+	{
+		Poco::FastMutex::ScopedLock lock(directory.mutex);
+		directory.entries = {{"cn=operators,ou=groups,dc=example,dc=com"s, {{"permission"s, {"operate"s}}}}};
+	}
+	assertTrue (client.fetchGroupPermissions("cn=operators,ou=groups,dc=example,dc=com"s, permissions));
+	assertTrue (permissions == LDAPClient::Permissions{"operate"s});
+}
+
+
 void LDAPClientTest::setUp()
 {
 }
@@ -702,6 +741,8 @@ CppUnit::Test* LDAPClientTest::suite()
 	CppUnit_addTest(pSuite, LDAPClientTest, testAccountNameIsReadInAccountMode);
 	CppUnit_addTest(pSuite, LDAPClientTest, testSeveralAccountNamesAreDirectoryError);
 	CppUnit_addTest(pSuite, LDAPClientTest, testPrincipalNamesAreReadInAccountMode);
+	CppUnit_addTest(pSuite, LDAPClientTest, testUserSearchRequestsPermissionAttributeOfUsers);
+	CppUnit_addTest(pSuite, LDAPClientTest, testGroupWithoutEntryIsNotRead);
 
 	return pSuite;
 }

@@ -7,7 +7,7 @@
     <vendor>Applied Informatics</vendor>
     <copyright>(c) 2007-2026, Applied Informatics Software Engineering GmbH</copyright>
     <activator>
-      <class>SimpleAuthBundleActivator</class>
+      <class>Poco::OSP::SimpleAuth::SimpleAuthBundleActivator</class>
       <library>com.appinf.osp.simple-auth</library>
     </activator>
     <lazyStart>false</lazyStart>

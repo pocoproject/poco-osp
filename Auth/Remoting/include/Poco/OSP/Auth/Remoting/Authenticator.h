@@ -31,24 +31,16 @@ namespace Poco::OSP::Auth::Remoting {
 class OSPAuthRemoting_API Authenticator: public Poco::RemotingNG::Authenticator
 	/// A RemotingNG Authenticator that trusts the identity already established
 	/// by the OSP WebServerDispatcher (via session cookie, HTTP Basic, or
-	/// Bearer JWT).
+	/// Bearer token).
 	///
-	/// The dispatcher writes the authenticated username to the
-	/// X-OSP-Authorized-User HTTP header before the request reaches the
-	/// RemotingNG skeleton. This Authenticator verifies that the header is
-	/// present and non-empty and returns the username as the authenticated
-	/// identity.
+	/// The dispatcher makes the authenticated user name the
+	/// Poco::OSP::Auth::RequestIdentity of the thread that runs the request
+	/// handler and the RemotingNG skeleton; this Authenticator returns it.
 	///
-	/// This approach avoids duplicating authentication logic: the dispatcher
-	/// is the single source of truth for authentication, and this class only
-	/// gates access to RemotingNG endpoints behind a valid dispatcher-injected
-	/// identity.
-	///
-	/// The dispatcher removes the X-OSP-Authorized-User and
-	/// X-OSP-Authorized-Scope headers that a client sends, for every mapping,
-	/// and sets them only for a request it has authenticated. For an endpoint
-	/// mapped without a URL-level permission the header is therefore absent
-	/// and authentication fails.
+	/// A request that the dispatcher has not passed on, such as one received by a
+	/// listener with its own HTTP server, or one for an endpoint mapped without a
+	/// URL-level permission, has no identity and fails. The credentials that
+	/// RemotingNG passes are not used.
 {
 public:
 	using Ptr = Poco::AutoPtr<Authenticator>;
@@ -62,8 +54,8 @@ public:
 	[[nodiscard]] Poco::RemotingNG::AuthenticateResult authenticate(
 		const Poco::RemotingNG::Credentials& credentials,
 		Poco::UInt32 conversationID = 0) override;
-		/// Returns AUTH_DONE with the username from X-OSP-Authorized-User if
-		/// the header is present and non-empty, AUTH_FAILED otherwise.
+		/// Returns AUTH_DONE with the user name of the RequestIdentity of the
+		/// current thread, or AUTH_FAILED if the thread has none.
 };
 
 

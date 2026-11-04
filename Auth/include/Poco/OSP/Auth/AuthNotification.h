@@ -19,11 +19,12 @@
 #ifndef OSP_Auth_AuthNotification_INCLUDED
 #define OSP_Auth_AuthNotification_INCLUDED
 
+
 #include "Poco/OSP/Auth/Auth.h"
 #include "Poco/OSP/Auth/AuthTypes.h"
 #include "Poco/Notification.h"
-
 #include <string>
+
 
 namespace Poco::OSP::Auth {
 
@@ -41,18 +42,33 @@ public:
 		const Permissions& permissions,
 		const Attributes& attributes
 	);
+		/// Creates the AuthNotification for the login of the given user.
 
 	~AuthNotification() override;
+		/// Destroys the AuthNotification.
+
+	AuthNotification() = delete;
 
 	[[nodiscard]] bool isExternal() const;
+		/// Returns true if the user is a user of an external directory,
+		/// such as an LDAP server, also if the login was checked with
+		/// the stored or cached copy of the password.
+
 	[[nodiscard]] const std::string& userName() const;
+		/// Returns the name of the user.
+
 	[[nodiscard]] const std::string& fullName() const;
+		/// Returns the full name of the user.
+
 	[[nodiscard]] const Roles& roles() const;
+		/// Returns the roles of the user.
+
 	[[nodiscard]] const Permissions& permissions() const;
 		/// Returns the permissions granted to the user directly,
 		/// without the permissions of the user's roles.
 
 	[[nodiscard]] const Attributes& attributes() const;
+		/// Returns the attributes of the user.
 
 private:
 
@@ -70,30 +86,36 @@ private:
 // inlines
 //
 
+
 inline bool AuthNotification::isExternal() const
 {
 	return _isExternal;
 }
+
 
 inline const std::string& AuthNotification::userName() const
 {
 	return _userName;
 }
 
+
 inline const std::string& AuthNotification::fullName() const
 {
 	return _fullName;
 }
+
 
 inline const Roles& AuthNotification::roles() const
 {
 	return _roles;
 }
 
+
 inline const Permissions& AuthNotification::permissions() const
 {
 	return _permissions;
 }
+
 
 inline const Attributes& AuthNotification::attributes() const
 {
@@ -102,5 +124,6 @@ inline const Attributes& AuthNotification::attributes() const
 
 
 } // namespace Poco::OSP::Auth
+
 
 #endif // OSP_Auth_AuthNotification_INCLUDED

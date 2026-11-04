@@ -15,14 +15,10 @@
 
 
 #include "Poco/OSP/Auth/Remoting/Authenticator.h"
-#include "Poco/RemotingNG/Context.h"
-#include "Poco/Net/HTTPServerRequest.h"
+#include "Poco/OSP/Auth/RequestIdentity.h"
 
 
 namespace Poco::OSP::Auth::Remoting {
-
-
-using namespace std::string_literals;
 
 
 Authenticator::Authenticator() = default;
@@ -35,34 +31,16 @@ Poco::RemotingNG::AuthenticateResult Authenticator::authenticate(
 	const Poco::RemotingNG::Credentials& /*credentials*/,
 	Poco::UInt32 /*conversationID*/)
 {
-	// Trust the dispatcher-injected X-OSP-Authorized-User header. The dispatcher
-	// (WebServerDispatcher::authorize) has already validated the session cookie,
-	// HTTP Basic credentials, or Bearer JWT before the request reached here.
-	// It removes this header from every request a client sends and sets it only
-	// after successful authentication, so a client cannot supply it.
-	auto pContext = Poco::RemotingNG::Context::get();
-	if (pContext == nullptr || !pContext->has("httpRequest"s))
-	{
-		return Poco::RemotingNG::AuthenticateResult(
-			Poco::RemotingNG::AuthenticateResult::AUTH_FAILED);
-	}
-
-	auto* pRequest = pContext->getValue<Poco::Net::HTTPServerRequest*>("httpRequest"s);
-	if (pRequest == nullptr)
-	{
-		return Poco::RemotingNG::AuthenticateResult(
-			Poco::RemotingNG::AuthenticateResult::AUTH_FAILED);
-	}
-
-	std::string username = pRequest->get("X-OSP-Authorized-User"s, ""s);
-	if (username.empty())
+	// The dispatcher's identity, not a header field: a client can send one to a listener with its own HTTP server.
+	const RequestIdentity* pIdentity = RequestIdentity::current();
+	if (pIdentity == nullptr)
 	{
 		return Poco::RemotingNG::AuthenticateResult(
 			Poco::RemotingNG::AuthenticateResult::AUTH_FAILED);
 	}
 
 	Poco::RemotingNG::Credentials authCreds;
-	authCreds.setAttribute(Poco::RemotingNG::Credentials::ATTR_USERNAME, username);
+	authCreds.setAttribute(Poco::RemotingNG::Credentials::ATTR_USERNAME, pIdentity->user());
 	return Poco::RemotingNG::AuthenticateResult(
 		Poco::RemotingNG::AuthenticateResult::AUTH_DONE, authCreds);
 }

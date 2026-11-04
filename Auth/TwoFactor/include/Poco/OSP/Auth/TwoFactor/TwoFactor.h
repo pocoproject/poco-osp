@@ -5,7 +5,7 @@
 // Package: TwoFactor
 // Module:  TwoFactor
 //
-// Basic definitions for the Poco OSP Auth TwoFactor library.
+// Basic definitions for the POCO OSP Auth TwoFactor library.
 // This file must be the first file included by every other OSP Auth TwoFactor
 // header file.
 //

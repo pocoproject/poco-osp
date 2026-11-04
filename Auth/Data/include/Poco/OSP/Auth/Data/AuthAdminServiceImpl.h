@@ -60,18 +60,24 @@ class OSPAuthData_API AuthAdminServiceImpl: public AbstractLDAPAuthAdminService
 	///   - Version 3 uses PBKDF2 with HMAC-SHA1 and per-user random salt with additional
 	///     MD5 password pre-hashing, allowing implementation of secure challenge-response
 	///     authentication mechanisms such as SCRAM-SHA1.
-	///   - Version 4 uses PBKDF2 with HMAC-SHA256, SHA1 pre-hasing and a minimum of
+	///   - Version 4 uses PBKDF2 with HMAC-SHA256, SHA1 pre-hashing and a minimum of
 	///     50.000 iterations, and a minimum salt length of 8 bytes.
 	///
-	/// Version 4 is recommended for new deployments. Stored passwords using a lower
-	/// version than the one configured will automatically be upgraded as soon as
-	/// a user successfully authenticates.
-	/// A stored version 3 or 4 password hash with fewer PBKDF2 iterations than
-	/// configured is replaced in the same way.
+	/// Version 4 is recommended for new deployments. A login that accepts the credentials
+	/// replaces a stored hash that they match if it has a lower version than configured, or is
+	/// a version 3 or 4 hash of the configured version with fewer PBKDF2 iterations than a new
+	/// hash gets (auth.pbkdf2Rounds, at least 50.000 for version 4). A login that the LDAP
+	/// server accepts and that stores the user's LDAP data replaces a stored hash that the
+	/// credentials do not match.
 	///
-	/// The login of a user without a stored password hash, such as an unknown
-	/// user, computes a hash of the configured version, so that the time of
-	/// the login does not show whether the user exists or has a password.
+	/// For a user without a stored hash, such as an unknown user, a login computes a hash of
+	/// the configured version, so that its time does not show whether the user exists or has
+	/// a password. It takes the time of a check of a current hash that is kept; checking a
+	/// hash of another version or iteration count, or replacing a hash, takes another time.
+	///
+	/// A user not in AuthParams::neverLockOutUsers is locked out for lockOutTime seconds after
+	/// maxFailures failed logins (needs the auth_failures column); the count is kept until a
+	/// login accepts the password or unlockOutUser() is called.
 	///
 	/// As of 2021, the recommended number of iterations for PBKDF2 with HMAC-SHA256
 	/// is 310.000 for HMAC-SHA256 (version 4) and 720.000 for HMAC-SHA1 (version 3).
@@ -117,14 +123,14 @@ public:
 		int cacheTimeout = 60;
 			/// The timeout for the credentials cache, in seconds.
 		int hashVersion = 4;
-			/// The version of the password has to use:
+			/// The version of the password hash to use:
 			///    - 1: MD5 with common salt (original, no longer considered secure)
 			///    - 2: PBKDF2 with HMAC-SHA1 and per-user random salt
 			///    - 3: PBKDF2 with HMAC-SHA1 and per-user random salt with additional
 			///         MD5 password pre-hashing, allowing implementation of secure challenge-response
-			///         authentication mechanisms such as SCRAM-SHA1 (recommended).
-			///    - 4: Like version 3, but using PBKDF2 with HMAC-SHA256, SHA1 pre-hasing, a minimum
-			///         of 50.000 iterations and minimum salt length of 8 bytes.
+			///         authentication mechanisms such as SCRAM-SHA1.
+			///    - 4: Like version 3, but using PBKDF2 with HMAC-SHA256, SHA1 pre-hashing, a minimum
+			///         of 50.000 iterations and minimum salt length of 8 bytes (recommended).
 		int saltLength = 7;
 			/// The length of the random per-user salt in bytes.
 		int pbkdf2Iterations = 1024;
@@ -132,17 +138,18 @@ public:
 		std::string credentialsSalt;
 			/// Salt for version 3 initial MD5 credentials hash (username:salt:password).
 		int maxFailures = 0;
-			/// Maximum login failures before lockout; set to 0 to disable
-			/// automatic lockout on too many login failures.
+			/// The number of failed logins after which a user is locked out;
+			/// 0 disables the automatic lock-out (see the class documentation).
 		int lockOutTime = 0;
-			/// Account lockout time in seconds after maxFailures failed login attempts.
-			/// Set to 0 to disable lockout after too many login failures.
+			/// The lock-out time in seconds after maxFailures failed logins;
+			/// 0 disables the automatic lock-out.
 		std::set<std::string> neverLockOutUsers;
-			/// A set of usernames that should never be locked out after
-			/// too many login failures.
-			/// This typically includes the main administrator account,
-			/// in order to prevent the administrator from being locked
-			/// out through a DoS attack.
+			/// The users that failed logins do not lock out, typically the main administrator.
+			/// A name is compared exactly with the account name of the login (see
+			/// authenticateAccount()), whose ASCII letters are in lower case for an LDAP user.
+			/// Failed logins under a name that the database collation takes as the same user
+			/// name (other case, accents, trailing spaces) can lock the user out.
+			/// lockOutUser() locks out these users too.
 	};
 
 	AuthAdminServiceImpl(const Poco::Util::AbstractConfiguration& properties, Poco::Logger& logger, const AuthParams& authParams, const LDAPParams& ldapParams);
@@ -152,6 +159,9 @@ public:
 		///
 		/// See the Poco::Data::Session class for more information on connector names and
 		/// connection strings.
+		///
+		/// Throws a Poco::InvalidArgumentException if authParams.hashVersion is not
+		/// from 1 to 4 or authParams.pbkdf2Iterations is not positive.
 
 	~AuthAdminServiceImpl() override;
 		/// Destroys the AuthAdminServiceImpl.
@@ -227,11 +237,10 @@ public:
 		/// Throws a Poco::Data::DataException if the auth database cannot be used.
 	[[nodiscard]] bool authenticateAccount(const std::string& username, const std::string& credentials,
 		std::string& accountName) const override;
-		/// The account name of an LDAP user is the sAMAccountName of the
-		/// user's entry in the ACCOUNT mode, in lower case, if the LDAP server
-		/// has given it; otherwise it is username, in lower case for an LDAP
-		/// user. The local account, the failure count, the lock-out and the
-		/// attributes of the user are kept under the account name.
+		/// The account name is username, or for an LDAP user the sAMAccountName of the user's
+		/// entry in the ACCOUNT mode if the LDAP server has given it, with its ASCII letters in
+		/// lower case for an LDAP user. The local account, the failure count, the lock-out and
+		/// the attributes of the user are kept under the account name.
 		///
 		/// Throws a Poco::Data::DataException if the auth database cannot be used.
 	[[nodiscard]] bool authorize(const std::string& username, const std::string& permission) const override;
@@ -258,18 +267,45 @@ protected:
 		/// must know that a login waits.
 
 	[[nodiscard]] Poco::Data::Session& session() const;
+		/// Returns the session of the LDAP login that is storing its result (see
+		/// LoginSessionScope), otherwise the session of the service, replaced if it is not
+		/// good, or if auth.db.sessionTimeout has elapsed since its last use and it has no open
+		/// transaction.
 	static void setupSession(Poco::Data::Session& session, const Poco::Util::AbstractConfiguration& properties, const AuthParams& authParams, Poco::Logger& logger);
 	[[nodiscard]] bool sessionExpired() const;
-	[[nodiscard]] bool authenticateDB(Poco::Data::Session& session, const std::string& username,
-		const std::string& credentials, bool isLogin) const;
-		/// Returns true if the credentials match the stored password hash of
-		/// the user. If isLogin is true and the user has no stored password
-		/// hash, the credentials are hashed all the same (see the class
-		/// documentation).
+	struct PasswordCheck
+		/// The result of checking credentials against a stored password hash.
+	{
+		std::string storedHash;
+			/// The stored password hash that the credentials were checked
+			/// against; empty if the user has no stored password hash.
+		int storedVersion = 0;
+			/// The version of storedHash; 0 if storedHash is empty.
+		bool matches = false;
+			/// True if the credentials match storedHash.
+		std::string newHash;
+			/// If not empty, the hash of the credentials in the configured
+			/// version, to be stored in place of storedHash.
+	};
+
+	[[nodiscard]] virtual PasswordCheck checkPassword(const std::string& username, const std::string& credentials,
+		const std::string& storedHash, bool replace) const;
+		/// Checks the credentials of the user against storedHash. Called without the lock of
+		/// the service, as computing a hash takes long.
+		///
+		/// Computes a new hash if the credentials match a hash that a login replaces (see the
+		/// class documentation), if they do not match and replace is true, or if storedHash
+		/// is empty.
+	[[nodiscard]] virtual std::string saltAndHashCredentials(const std::string& username,
+		const std::string& credentials) const;
+		/// Returns a hash of the credentials in the configured version, from version 2 on with
+		/// a new random salt. Called without the lock of the service, as it takes long.
 	void changePasswordImpl(Poco::Data::Session& session, const std::string& username, const std::string& hashedCredentials) const;
 	[[nodiscard]] bool userExistsImpl(Poco::Data::Session& session, const std::string& username) const;
 	[[nodiscard]] bool roleExistsImpl(Poco::Data::Session& session, const std::string& rolename) const;
-	void addUserImpl(Poco::Data::Session& session, const std::string& username, const std::string& password) const;
+	void addUserImpl(Poco::Data::Session& session, const std::string& username,
+		const std::string& hashedPassword) const;
+		/// Adds the user with the given password hash.
 	void removeUserImpl(Poco::Data::Session& session, const std::string& username) const;
 	void uncacheUserImpl(const std::string& username) const;
 	[[nodiscard]] int attributesForUserImpl(Poco::Data::Session& sess, const std::string& username,
@@ -326,9 +362,12 @@ private:
 			/// The name of the login.
 		std::chrono::steady_clock::time_point deadline;
 			/// The end of the time that the login waits for other logins.
+		std::optional<PasswordCheck> passwordCheck;
+			/// The check whose hash createOrUpdateUserImpl() stores, as storeLDAPUser() passes
+			/// it the credentials only.
 	};
 
-	class LDAPLoginGuard
+	class OSPAuthData_API LDAPLoginGuard
 		/// Ends the LDAP round trip of a user: removes the names that the
 		/// login has reserved and wakes the logins that wait for them.
 	{
@@ -347,6 +386,24 @@ private:
 		const std::string _username;
 	};
 
+	class OSPAuthData_API LoginSessionScope
+		/// Makes session() return the session of an LDAP login while it stores its result,
+		/// so that what storeLDAPUser() writes is in the login's transaction and fails with it.
+	{
+	public:
+		POCO_NODISCARD_CTOR LoginSessionScope(const AuthAdminServiceImpl& service, const Poco::Data::Session& session);
+		~LoginSessionScope();
+
+		LoginSessionScope() = delete;
+		LoginSessionScope(const LoginSessionScope&) = delete;
+		LoginSessionScope(LoginSessionScope&&) = delete;
+		LoginSessionScope& operator = (const LoginSessionScope&) = delete;
+		LoginSessionScope& operator = (LoginSessionScope&&) = delete;
+
+	private:
+		const AuthAdminServiceImpl& _service;
+	};
+
 	static constexpr std::chrono::seconds LDAP_LOGIN_WAIT_MARGIN{5};
 
 	using Permissions = std::set<std::string>;
@@ -359,36 +416,38 @@ private:
 		bool& isLDAPUser) const;
 		/// Verifies the credentials and, if validate is true, fires validateUser
 		/// for an authenticated user. Holds the lock of the service except
-		/// during the conversation with the LDAP server.
+		/// during the conversation with the LDAP server, while it waits for another login of
+		/// the same user (see waitForLDAPLoginImpl()) and while checkPassword() runs.
 		///
 		/// On return, username holds the name the user is stored under,
-		/// which is the account name in lower case for an LDAP user.
+		/// which is the account name with its ASCII letters in lower case for
+		/// an LDAP user.
 	void postLoginNotification(const std::string& username, bool isLDAPUser) const;
 		/// Posts the AuthNotification of a successful login of the user
 		/// stored under username, if the notification center has observers.
-	[[nodiscard]] std::optional<bool> authenticateWithoutLDAPImpl(Poco::Data::Session& sess,
-		const std::string& username, const std::string& credentials, bool isLDAPUser) const;
+	[[nodiscard]] std::optional<bool> authenticateCachedImpl(Poco::Data::Session& sess,
+		const std::string& username, const std::string& credentials) const;
 		/// Returns the result of the authentication if it is decided without
-		/// the LDAP server: for a locked-out user, a cached password or a
-		/// local user. Returns no value for an LDAP user whose credentials
-		/// the LDAP server must verify.
+		/// the stored password hash or the LDAP server: for a locked-out user
+		/// or a cached password. Returns no value otherwise.
 	[[nodiscard]] bool ldapUserNameImpl(Poco::Data::Session& sess, std::string& username, std::string& ldapAttr) const;
-		/// Returns true for an LDAP user, whose name is then changed to lower case,
-		/// the name the user is stored under.
+		/// Returns true for an LDAP user, whose name then has its ASCII letters
+		/// changed to lower case, the name the user is stored under.
 	[[nodiscard]] AccountState accountStateImpl(Poco::Data::Session& sess, std::string& username) const;
 		/// Returns the state of the account that decides how the user is
 		/// authenticated. On return, username holds the name the user is
-		/// stored under, which is lower case for an LDAP user.
+		/// stored under, with its ASCII letters in lower case for an LDAP user.
 	[[nodiscard]] std::chrono::milliseconds ldapLoginWaitTime() const;
 		/// Returns how long a login waits for the LDAP round trip of
 		/// another login of the same user.
 	[[nodiscard]] bool waitForLDAPLoginImpl(const std::string& username,
 		std::chrono::steady_clock::time_point deadline) const;
-		/// Waits, with the lock of the service held, until a login that has
-		/// reserved username ends or the deadline passes. Returns false, and
+		/// Called with the lock of the service held, which it releases while it waits until a
+		/// login that has reserved username ends or the deadline passes. Returns false, and
 		/// logs that the login is refused, if the deadline has passed.
 	[[nodiscard]] bool applyLDAPResultImpl(Poco::Data::Session& sess, const std::string& username,
-		const std::string& credentials, std::optional<LDAPResult> ldapResult, const LDAPUser& ldapUser) const;
+		const std::string& credentials, std::optional<LDAPResult> ldapResult, const LDAPUser& ldapUser,
+		const PasswordCheck& check) const;
 		/// Stores the result of verifyLDAP(), other than LDAPResult::LOCKED_OUT,
 		/// and returns whether the user is authenticated. No result means a
 		/// directory error: the stored credentials decide only where
@@ -396,12 +455,24 @@ private:
 		/// failure unless the LDAP server had accepted the password
 		/// (LDAPUser::passwordVerified) before the directory error.
 		///
+		/// check is the result of checkPassword() for every result other than
+		/// LDAPResult::REJECTED and LDAPResult::REFUSED, with replace set if the LDAP server
+		/// has accepted the credentials.
+		///
 		/// Throws a Poco::Data::DataException if the user that the LDAP
 		/// server has accepted cannot be stored in the database.
-	[[nodiscard]] bool authenticateStoredImpl(Poco::Data::Session& sess, const std::string& username,
-		const std::string& credentials) const;
-		/// Verifies the credentials against the stored password hash and
-		/// updates the caches and the failure count.
+	[[nodiscard]] std::string storedHashImpl(Poco::Data::Session& sess, const std::string& username) const;
+		/// Returns the stored password hash of the user; empty if the user
+		/// does not exist or has no password hash.
+	[[nodiscard]] bool applyPasswordCheckImpl(Poco::Data::Session& sess, const std::string& username,
+		const std::string& credentials, const PasswordCheck& check, bool countFailure) const;
+		/// Returns check.matches. Stores the new hash and updates the caches
+		/// and the lock-out if the credentials match; otherwise counts the
+		/// failure if countFailure is true.
+	void storeCredentialsImpl(Poco::Data::Session& sess, const std::string& username,
+		const PasswordCheck& check) const;
+		/// Adds the user with the new hash of check, or stores the new hash
+		/// for an existing user if check has one.
 	void acceptStoredCredentialsImpl(Poco::Data::Session& sess, const std::string& username,
 		const std::string& credentials) const;
 		/// Caches the credentials and the permissions of a user whose
@@ -411,12 +482,10 @@ private:
 	PermissionsPtr loadPermissions(Poco::Data::Session& sess, const std::string& username) const;
 	void reloadPermissions(Poco::Data::Session& sess, const std::string& username) const;
 	[[nodiscard]] bool isInlineAttribute(const std::string& attribute) const;
-	[[nodiscard]] bool isAuthAttribute(const std::string& attribute) const;
 	[[nodiscard]] bool isAuthAttributeName(const std::string& attribute) const;
-		/// Returns true if the attribute name starts with the prefix auth_ in
-		/// lower case, as the names of authentication attributes are written.
-		/// isAuthAttribute() matches the prefix in any case, as the SQL
-		/// statements do, so that such names are not used for user attributes.
+		/// Returns true if the attribute name starts with auth_ in lower case, as the names of
+		/// authentication attributes are written. isAuthAttribute() matches the prefix in any
+		/// ASCII case, as the SQL statements can, so that such names are not user attributes.
 	[[nodiscard]] std::string getUserAttributeImpl(Poco::Data::Session& sess, const std::string& username,
 		const std::string& attribute, const std::string& deflt) const;
 	[[nodiscard]] std::string getRoleAttributeImpl(Poco::Data::Session& sess, const std::string& rolename,
@@ -438,9 +507,8 @@ private:
 		std::string& ldapAttr) const;
 	[[nodiscard]] bool isLDAPRoleImpl(Poco::Data::Session& sess, const std::string& rolename,
 		std::string& ldapAttr) const;
-	[[nodiscard]] std::string hashPersistentCredentials(Poco::Data::Session& sess, const std::string& username,
-		const std::string& credentials) const;
-	std::string saltAndHashCredentials(const std::string& username, const std::string& credentials) const;
+	[[nodiscard]] std::string hashWithSalt(const std::string& username, const std::string& credentials,
+		const std::string& salt, int version, int iterations) const;
 	[[nodiscard]] int pbkdf2Iterations() const;
 		/// Returns the number of PBKDF2 iterations for a new hash of the configured version.
 	[[nodiscard]] std::string hashCachedCredentials(const std::string& username, const std::string& credentials) const;
@@ -449,6 +517,9 @@ private:
 	[[nodiscard]] StatementPlaceholderProvider::Ptr statementPlaceholderProvider() const;
 	[[nodiscard]] std::string hashForUser(Poco::Data::Session& sess, const std::string& username) const;
 	std::string saltForUser(Poco::Data::Session& sess, const std::string& username, int& version, int& iterations) const;
+	[[nodiscard]] std::string saltOfHash(const std::string& hash, int& version, int& iterations) const;
+		/// Returns the salt of the stored password hash, and its version and
+		/// PBKDF2 iteration count. An empty hash is of version 1.
 	[[nodiscard]] static std::string md5(const std::string& salt, const std::string& credentials);
 	[[nodiscard]] static std::string sha1(const std::string& salt, const std::string& credentials);
 	[[nodiscard]] static std::string pbkdf2(const std::string& salt, const std::string& credentials, int version,
@@ -459,6 +530,8 @@ private:
 
 	const Poco::Util::AbstractConfiguration& _properties;
 	mutable Poco::SharedPtr<Poco::Data::Session> _pSession;
+	mutable std::optional<Poco::Data::Session> _loginSession;
+		/// The session that LoginSessionScope sets for session() to return.
 	mutable Poco::Timestamp _sessionLastUsed;
 	const AuthParams _authParams;
 	Poco::SharedPtr<Poco::RegularExpression> _pLocalUsersExpr;

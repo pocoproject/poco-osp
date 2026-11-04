@@ -36,6 +36,7 @@ public:
 	void testFailuresLockOutUser();
 	void testLockOutIsLogged();
 	void testSuccessResetsFailureCount();
+	void testFailureAfterLockOutLocksOutAgain();
 	void testSecretIsBoundToUser();
 	void testEqualSecretsAreStoredDifferently();
 	void testOtherPassphraseCannotReadSecret();
