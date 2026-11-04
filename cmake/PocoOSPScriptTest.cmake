@@ -15,6 +15,7 @@
 set(EXIT_OK 0)
 set(EXIT_USAGE 64)
 set(EXIT_DATAERR 65)
+set(EXIT_NOINPUT 66)
 
 # The prefix of an option of Poco::Util::Application, which takes options as
 # /<name>[=<value>] on Windows and as --<name>[=<value>] elsewhere.
@@ -26,7 +27,8 @@ endif()
 
 # poco_osp_expect_exit(<expected> <description> <program> [<argument>...])
 # Runs the program with the arguments in WORK_DIR and checks its exit status.
-# <expected> is an exit status, or FAILURE for any status other than 0.
+# <expected> is an exit status, or FAILURE for any status other than 0; a
+# program ended by a signal fails the check also for FAILURE.
 # A mismatch is reported with SEND_ERROR, so that the script runs the
 # remaining checks and fails at its end.
 function(poco_osp_expect_exit expected description program)
@@ -40,6 +42,12 @@ function(poco_osp_expect_exit expected description program)
 	if(expected STREQUAL "FAILURE")
 		if(result EQUAL 0)
 			message(SEND_ERROR "${description}: ${name} ${arguments} succeeded, expected a failure:\n${output}")
+			return()
+		endif()
+		# execute_process reports a program ended by a signal with a text, such as "Segmentation fault".
+		if(NOT result MATCHES "^[0-9]+$")
+			message(SEND_ERROR "${description}: ${name} ${arguments} ended with \"${result}\", expected a failure "
+				"exit status:\n${output}")
 			return()
 		endif()
 	elseif(NOT result STREQUAL "${expected}")
@@ -56,5 +64,17 @@ function(poco_osp_expect description)
 		message(STATUS "${description}")
 	else()
 		message(SEND_ERROR "not true: ${description}")
+	endif()
+endfunction()
+
+# poco_osp_wait_for_newer_time()
+# Waits until a file written afterwards is newer, for the build tool of the
+# generator GENERATOR, than the outputs of the last build. A script calls it
+# before it changes an input between two builds. GNU Make 3.81, the make of
+# macOS, compares file times in whole seconds, so an input changed in the same
+# second as the last build is not newer than its outputs.
+function(poco_osp_wait_for_newer_time)
+	if(GENERATOR MATCHES "Makefiles")
+		execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep 1.1)
 	endif()
 endfunction()

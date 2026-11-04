@@ -7,9 +7,16 @@ if(NOT CMAKE_CURRENT_SOURCE_DIR STREQUAL _poco_osp_root)
 		"after POCO. Including this module from another directory is not supported.")
 endif()
 
+# Switches the option off and records the reason, which the configure summary shows.
+macro(_poco_osp_switch_off _option _reason)
+	message(WARNING "${_option} is switched off: ${_reason}.")
+	set(${_option} OFF)
+	set(POCO_OSP_OFF_REASON_${_option} "${_reason}")
+endmacro()
+
 # A superproject chooses its POCO components, so a missing one is its configuration error. A
-# standalone configure pulls what POCO provides and switches off the parts the pulled version
-# cannot build.
+# standalone configure pulls what POCO provides and switches off the parts whose POCO components
+# the pulled POCO does not build, such as Poco::SSH without libssh.
 set(_poco_osp_errors "")
 foreach(_poco_osp_option IN LISTS POCO_OSP_PARTS)
 	if(NOT ${_poco_osp_option})
@@ -33,14 +40,7 @@ foreach(_poco_osp_option IN LISTS POCO_OSP_PARTS)
 		list(APPEND _poco_osp_errors "${_poco_osp_option} needs ${_poco_osp_missing_text}: switch \
 ${_poco_osp_missing_options} ON in the superproject, or ${_poco_osp_option} OFF.")
 	else()
-		set(_poco_osp_reason "POCO does not provide ${_poco_osp_missing_text}")
-		if(_poco_osp_missing MATCHES "Poco::RemotingNG")
-			string(APPEND _poco_osp_reason " (POCO releases before 2.0 do not contain RemotingNG, "
-				"POCO_OSP_POCO_VERSION=latest builds it)")
-		endif()
-		message(WARNING "${_poco_osp_option} is switched off: ${_poco_osp_reason}.")
-		set(${_poco_osp_option} OFF)
-		set(POCO_OSP_OFF_REASON_${_poco_osp_option} "${_poco_osp_reason}")
+		_poco_osp_switch_off(${_poco_osp_option} "POCO does not provide ${_poco_osp_missing_text}")
 	endif()
 endforeach()
 unset(_poco_osp_missing)
@@ -53,6 +53,19 @@ if(_poco_osp_errors)
 endif()
 unset(_poco_osp_errors)
 
+# A bundle library loaded at run time has its own copy of static POCO and OSP libraries, so the
+# framework and the bundles would not share their objects. The tests of the core library load
+# bundles.
+if(NOT BUILD_SHARED_LIBS)
+	if(ENABLE_OSP_BUNDLES)
+		_poco_osp_switch_off(ENABLE_OSP_BUNDLES "bundles need shared libraries, and BUILD_SHARED_LIBS is OFF")
+	endif()
+	if(POCO_OSP_ENABLE_TESTS)
+		_poco_osp_switch_off(POCO_OSP_ENABLE_TESTS
+			"the tests load bundles, which need shared libraries, and BUILD_SHARED_LIBS is OFF")
+	endif()
+endif()
+
 # PocoOSPOptions.cmake has checked the dependencies between OSP parts, so a dependency that is off
 # here has been switched off above.
 set(_poco_osp_changed ON)
@@ -64,10 +77,7 @@ while(_poco_osp_changed)
 		endif()
 		foreach(_poco_osp_need IN LISTS POCO_OSP_NEEDS_${_poco_osp_option})
 			if(NOT ${_poco_osp_need})
-				set(_poco_osp_reason "it needs ${_poco_osp_need}, which is switched off")
-				message(WARNING "${_poco_osp_option} is switched off: ${_poco_osp_reason}.")
-				set(${_poco_osp_option} OFF)
-				set(POCO_OSP_OFF_REASON_${_poco_osp_option} "${_poco_osp_reason}")
+				_poco_osp_switch_off(${_poco_osp_option} "it needs ${_poco_osp_need}, which is switched off")
 				set(_poco_osp_changed ON)
 				break()
 			endif()
@@ -75,7 +85,6 @@ while(_poco_osp_changed)
 	endforeach()
 endwhile()
 unset(_poco_osp_changed)
-unset(_poco_osp_reason)
 
 # Poco project context for the module subdirectories. The modules expect a Poco project name
 # (POCO_GENERATE_PACKAGE writes Poco<Module>ConfigVersion.cmake), and
@@ -105,6 +114,21 @@ endif()
 if(NOT DEFINED POCO_OSP_BUNDLE_DIR)
 	set(POCO_OSP_BUNDLE_DIR "${CMAKE_BINARY_DIR}/${POCO_INSTALL_BUNDLEDIR}")
 endif()
+
+# POCO's find_package(OpenSSL) defines OpenSSL::applink only in POCO's directories.
+if(MSVC AND TARGET Poco::Crypto)
+	find_package(OpenSSL REQUIRED)
+endif()
+
+# poco_osp_link_applink(<target>)
+# Links OpenSSL::applink into the executable <target> with MSVC. POCO Crypto and NetSSL pass C runtime FILE
+# objects to OpenSSL, which an OpenSSL built for x86 or x64 accesses through OPENSSL_Applink in the executable;
+# without it, OpenSSL ends the process.
+function(poco_osp_link_applink _target)
+	if(MSVC AND TARGET OpenSSL::applink)
+		target_link_libraries(${_target} PRIVATE OpenSSL::applink)
+	endif()
+endfunction()
 
 include(PocoOSPComponents)
 

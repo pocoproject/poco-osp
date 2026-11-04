@@ -29,8 +29,8 @@ target_include_directories(OSPUnit
 	PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-# No package: POCO does not export Poco::CppUnit, which the public headers include.
-POCO_INSTALL(OSPUnit)
+# Not installed: the public headers include CppUnit headers, which POCO installs only with
+# ENABLE_INSTALL_CPPUNIT, and POCO exports no Poco::CppUnit. The test runner bundle ships the library.
 
 if(POCO_OSP_ENABLE_TESTS)
 	add_subdirectory(testsuite)

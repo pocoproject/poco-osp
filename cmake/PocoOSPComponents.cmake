@@ -127,6 +127,8 @@ if(ENABLE_OSP)
 	)
 
 	target_link_libraries(OSP PUBLIC Poco::Foundation Poco::XML Poco::Util PRIVATE Poco::Zip)
+	# Every OSP library links Poco::OSP, so its users are compiled as C++20 too.
+	target_compile_features(OSP PUBLIC cxx_std_20)
 	target_include_directories(OSP
 		PUBLIC
 			$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -143,7 +145,18 @@ if(ENABLE_OSP)
 endif()
 
 if(POCO_OSP_ENABLE_TESTS)
+	# Test helpers of the Web testsuite that the testsuites of other components use, split by
+	# their POCO dependencies.
+	add_library(OSPTestSupport STATIC Web/testsuite/src/LogCapture.cpp Web/testsuite/src/TemporaryBundle.cpp)
+	target_include_directories(OSPTestSupport PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/Web/testsuite/src)
+	target_link_libraries(OSPTestSupport PUBLIC Poco::OSP Poco::Foundation PRIVATE Poco::Zip)
+	if(TARGET Poco::Net)
+		add_library(OSPTestSupportNet STATIC Web/testsuite/src/ServerRequestStub.cpp)
+		target_include_directories(OSPTestSupportNet PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/Web/testsuite/src)
+		target_link_libraries(OSPTestSupportNet PUBLIC Poco::Net Poco::Foundation)
+	endif()
 	add_subdirectory(testsuite)
+	add_subdirectory(cmake/testsuite)
 endif()
 
 if(POCO_OSP_ENABLE_SAMPLES)

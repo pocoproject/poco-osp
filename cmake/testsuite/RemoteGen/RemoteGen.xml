@@ -1,0 +1,13 @@
+<AppConfig>
+	<RemoteGen>
+		<files>
+			<include>
+				${POCO_OSP_BASE}/include/Service.h
+			</include>
+		</files>
+		<output>
+			<include>generated/include</include>
+			<src>generated/src</src>
+		</output>
+	</RemoteGen>
+</AppConfig>

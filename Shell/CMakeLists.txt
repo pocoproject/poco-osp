@@ -63,7 +63,7 @@ set_target_properties(${LIBNAME}
 	DEFINE_SYMBOL OSPShell_EXPORTS
 )
 
-target_link_libraries(${LIBNAME} PUBLIC Poco::OSP Poco::Net Poco::Util Poco::Foundation PRIVATE Poco::Zip Poco::XML Poco::JSON)
+target_link_libraries(${LIBNAME} PUBLIC Poco::OSP Poco::Net Poco::Util Poco::Foundation PRIVATE Poco::XML)
 
 target_include_directories(${LIBNAME}
 	PUBLIC
@@ -73,18 +73,9 @@ target_include_directories(${LIBNAME}
 )
 
 # Dynamic Library
-add_library(${TARGET} MODULE ${BUNDLE_SRCS})
-set_target_properties(${TARGET}
-	PROPERTIES
-	PREFIX ""
-)
+poco_osp_bundle_module(${TARGET} ${BUNDLE_SRCS})
 
-# On macOS, use .dylib instead of .so
-if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
-	set_target_properties(${TARGET} PROPERTIES SUFFIX ".dylib")
-endif()
-
-target_link_libraries(${TARGET} PRIVATE Poco::OSPShell Poco::OSP Poco::Zip Poco::Net Poco::Util Poco::XML Poco::JSON Poco::Foundation)
+target_link_libraries(${TARGET} PRIVATE Poco::OSPShell Poco::OSP Poco::Net Poco::Util Poco::XML Poco::Foundation)
 
 if(ENABLE_OSP_SHELL_SSH)
 	# Poco::SSH links libssh PRIVATE, so SSHShellConnection.cpp
@@ -93,21 +84,17 @@ if(ENABLE_OSP_SHELL_SSH)
 	find_package(libssh CONFIG REQUIRED)
 	target_compile_definitions(${TARGET} PRIVATE OSP_SHELL_ENABLE_SSH=1)
 	target_link_libraries(${TARGET} PRIVATE Poco::SSH ssh)
+	# No other bundle ships Poco::SSH.
+	set(SSH_CODE $<TARGET_FILE:Poco::SSH>)
 endif()
 
 # Build Bundle
 poco_osp_bundle(${TARGET}-bundle
 	DEPENDS ${LIBNAME} ${TARGET}
 	SPEC ${BUNDLE_SPEC}
-	CODE $<TARGET_FILE:${LIBNAME}> $<TARGET_FILE:${TARGET}>
+	CODE $<TARGET_FILE:${LIBNAME}> $<TARGET_FILE:${TARGET}> ${SSH_CODE}
 	DESTINATION ${POCO_OSP_BUNDLE_DIR}
-)
-
-install(
-	DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
-	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
-	COMPONENT    Bundles
-	FILES_MATCHING PATTERN "${TARGET}*.bndl"
+	INSTALL_COMPONENT Bundles
 )
 
 POCO_INSTALL(${LIBNAME})

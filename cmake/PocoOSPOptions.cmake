@@ -16,7 +16,7 @@ endif()
 
 option(ENABLE_OSP "Enable the OSP core library" ON)
 option(ENABLE_OSP_BUNDLE_CREATOR "Enable the OSP bundle creator" ON)
-option(ENABLE_OSP_BUNDLES "Enable creating OSP bundles" ${_poco_osp_default})
+option(ENABLE_OSP_BUNDLES "Enable creating OSP bundles (switched off in a static build)" ${_poco_osp_default})
 option(ENABLE_OSP_BUNDLESIGN "Enable the OSP bundle signing library and the bundle signer" ${_poco_osp_default})
 option(ENABLE_OSP_STRIPBUNDLE "Enable the OSP bundle stripping tool stripbundle" ${_poco_osp_default})
 option(ENABLE_OSP_CODECACHE "Enable the OSP code cache utility ccutil" ${_poco_osp_default})
@@ -57,7 +57,9 @@ if(TARGET Poco::Foundation AND ENABLE_SAMPLES)
 else()
 	set(_poco_osp_samples_default OFF)
 endif()
-option(POCO_OSP_ENABLE_TESTS "Build the OSP test suites (the core library tests need ENABLE_OSP_BUNDLES)" ${_poco_osp_tests_default})
+option(POCO_OSP_ENABLE_TESTS
+	"Build the OSP test suites (of the core library and of each enabled part; switched off in a static build)"
+	${_poco_osp_tests_default})
 option(POCO_OSP_ENABLE_SAMPLES "Build the OSP samples" ${_poco_osp_samples_default})
 unset(_poco_osp_tests_default)
 unset(_poco_osp_samples_default)
@@ -140,7 +142,7 @@ _poco_osp_part(ENABLE_OSP_REMOTING NEEDS ENABLE_OSP_BUNDLES ENABLE_OSP_NET ENABL
 		Poco::RemotingNG Poco::RemotingNGTCP Poco::RemotingNGREST)
 _poco_osp_part(ENABLE_OSP_UNIT NEEDS ENABLE_OSP_BUNDLES
 	POCO Poco::Foundation Poco::XML Poco::Util Poco::CppUnit)
-_poco_osp_part(POCO_OSP_ENABLE_TESTS NEEDS ENABLE_OSP_BUNDLES
+_poco_osp_part(POCO_OSP_ENABLE_TESTS NEEDS ENABLE_OSP
 	POCO Poco::Foundation Poco::XML Poco::Util Poco::Zip Poco::CppUnit)
 _poco_osp_part(POCO_OSP_ENABLE_SAMPLES NEEDS ENABLE_OSP_BUNDLES ENABLE_OSP_SHELL ENABLE_OSP_WEB
 	POCO Poco::Foundation Poco::XML Poco::JSON Poco::Util Poco::Zip)
