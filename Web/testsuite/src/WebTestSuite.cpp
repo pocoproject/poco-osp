@@ -11,6 +11,13 @@
 #include "WebTestSuite.h"
 #include "WebServerDispatcherTest.h"
 #include "MediaTypeMapperTest.h"
+#include "WebSessionTest.h"
+#include "WebSessionManagerTest.h"
+#include "LibraryFactoryTest.h"
+#include "WebServerExtensionPointTest.h"
+#include "AbstractWebServerBundleActivatorTest.h"
+#include "CppUnit/Test.h"
+#include "CppUnit/TestSuite.h"
 
 
 CppUnit::Test* WebTestSuite::suite()
@@ -19,6 +26,11 @@ CppUnit::Test* WebTestSuite::suite()
 
 	pSuite->addTest(WebServerDispatcherTest::suite());
 	pSuite->addTest(MediaTypeMapperTest::suite());
+	pSuite->addTest(WebSessionTest::suite());
+	pSuite->addTest(WebSessionManagerTest::suite());
+	pSuite->addTest(LibraryFactoryTest::suite());
+	pSuite->addTest(WebServerExtensionPointTest::suite());
+	pSuite->addTest(AbstractWebServerBundleActivatorTest::suite());
 
 	return pSuite;
 }

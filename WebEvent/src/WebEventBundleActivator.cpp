@@ -17,9 +17,9 @@
 #include "Poco/OSP/WebEvent/WebEventServiceImpl.h"
 #include "Poco/OSP/WebEvent/WebEventRequestHandler.h"
 #include "Poco/OSP/Web/WebRequestHandlerFactory.h"
-#include "Poco/Environment.h"
 #include "Poco/AutoPtr.h"
 #include "Poco/ClassLibrary.h"
+#include <chrono>
 
 
 using Poco::OSP::Web::WebRequestHandlerFactory;
@@ -42,7 +42,7 @@ class WebEventRequestHandlerFactory: public WebRequestHandlerFactory
 public:
 	Poco::Net::HTTPRequestHandler* createRequestHandler(const Poco::Net::HTTPServerRequest& request)
 	{
-		return new WebEventRequestHandler(_pWebEventServiceImpl, context());
+		return new WebEventRequestHandler(_pWebEventServiceImpl, _pAllowedOrigins);
 	}
 	
 protected:
@@ -53,10 +53,13 @@ protected:
 		{
 			 _pWebEventServiceImpl = pWebEventServiceRef->castedInstance<WebEventServiceImpl>();
 		}
+		Poco::OSP::PreferencesService::Ptr pPrefs = Poco::OSP::ServiceFinder::find<Poco::OSP::PreferencesService>(context());
+		_pAllowedOrigins = WebEventRequestHandler::parseAllowedOrigins(pPrefs->configuration()->getString("osp.web.event.allowedOrigins", ""));
 	}
 	
 private:
 	WebEventServiceImpl::Ptr _pWebEventServiceImpl;
+	WebEventRequestHandler::OriginSetPtr _pAllowedOrigins;
 };
 
 
@@ -78,12 +81,15 @@ public:
 	{
 		Poco::OSP::PreferencesService::Ptr pPrefs = Poco::OSP::ServiceFinder::find<Poco::OSP::PreferencesService>(pContext);
 
-		int workerCount = pPrefs->configuration()->getInt("osp.web.event.workers", 2*Poco::Environment::processorCount());
-		int maxWebSockets = pPrefs->configuration()->getInt("osp.web.event.maxWebSockets", 0);
-		int maxPendingFrames = pPrefs->configuration()->getInt("osp.web.event.maxPendingFrames", WebEventServiceImpl::DEFAULT_MAX_PENDING_FRAMES);
-		int pingInterval = pPrefs->configuration()->getInt("osp.web.event.pingInterval", 60);
+		WebEventServiceImpl::Config config;
+		config.workerCount = pPrefs->configuration()->getInt("osp.web.event.workers", WebEventServiceImpl::defaultWorkerCount());
+		config.maxSockets = pPrefs->configuration()->getInt("osp.web.event.maxWebSockets", config.maxSockets);
+		config.maxPendingFrames = pPrefs->configuration()->getInt("osp.web.event.maxPendingFrames", config.maxPendingFrames);
+		config.pingInterval = std::chrono::seconds(pPrefs->configuration()->getInt("osp.web.event.pingInterval", static_cast<int>(config.pingInterval.count())));
+		config.clientNotify = pPrefs->configuration()->getBool("osp.web.event.clientNotify", config.clientNotify);
+		config.maxSubjects = pPrefs->configuration()->getInt("osp.web.event.maxSubjects", config.maxSubjects);
 
-		_pWebEventService = new WebEventServiceImpl(pContext, maxWebSockets, workerCount, maxPendingFrames, pingInterval);
+		_pWebEventService = new WebEventServiceImpl(pContext, config);
 		_pWebEventServiceRef = pContext->registry().registerService(WebEventService::SERVICE_NAME, _pWebEventService, Properties());
 	}
 		

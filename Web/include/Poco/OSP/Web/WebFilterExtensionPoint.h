@@ -25,8 +25,8 @@
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/ClassLoader.h"
 #include "Poco/Mutex.h"
-#include "Poco/SharedPtr.h"
 #include <map>
+#include <memory>
 
 
 namespace Poco {
@@ -46,6 +46,10 @@ class OSPWeb_API WebFilterExtensionPoint: public ExtensionPoint
 	///                library="MyLib"/>
 	///
 	/// Note that the extension points are automatically removed if a bundle is stopped.
+	/// Only one filter can be registered for a media type: the extension for a media type
+	/// that already has a filter is rejected with a Poco::ExistsException.
+	/// A library named by the library attribute stays loaded as long as a filter
+	/// factory or a filter created from it exists.
 	///
 	/// The following attributes can be specified for "osp.web.server.directory":
 	///    * mediaType:   The media type this filter applies to. Every resource having
@@ -72,7 +76,7 @@ protected:
 	void handleFilter(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem);
 
 	void onBundleStopped(const void* pSender, BundleEvent& ev);
-		/// When a bundle is stopped, all of its request handlers and mappings are automatically disabled.
+		/// When a bundle is stopped, all of its filters are removed.
 
 	static const std::string ATTR_CLASS;
 	static const std::string ATTR_LIBRARY;
@@ -82,15 +86,12 @@ protected:
 private:
 	WebFilterExtensionPoint();
 
-	using FactoryPtr = Poco::SharedPtr<WebFilterFactory>;
 	using Loader = Poco::ClassLoader<WebFilterFactory>;
-	using LibBundleMap = std::map<std::string, Bundle::Ptr>;
 	using BundleFilterMap = std::multimap<Bundle::Ptr, std::string>;
 
 	BundleContext::Ptr   _pContext;
 	WebServerDispatcher* _pDispatcher;
-	Loader               _loader;
-	LibBundleMap         _libBundleMap;
+	std::shared_ptr<Loader> _pLoader = std::make_shared<Loader>();
 	BundleFilterMap      _bundleFilterMap;
 	Poco::FastMutex      _mutex;
 };

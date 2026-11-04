@@ -14,6 +14,7 @@
 
 #include "Poco/OSP/Web/MediaTypeMapper.h"
 #include "Poco/String.h"
+#include "Poco/Mutex.h"
 #include <cctype>
 
 
@@ -26,7 +27,7 @@ const std::string MediaTypeMapper::SERVICE_NAME("osp.web.mediatype");
 
 
 MediaTypeMapper::MediaTypeMapper():
-	_default("application/binary")
+	_default("application/octet-stream")
 {
 }
 
@@ -82,14 +83,18 @@ MediaTypeMapper::ConstIterator MediaTypeMapper::find(const std::string& suffix) 
 
 void MediaTypeMapper::add(const std::string& suffix, const std::string& mediaType)
 {
+	Poco::FastMutex::ScopedLock lock(_mutex);
+
 	_map[Poco::toLower(suffix)] = mediaType;
 }
 
 
-const std::string& MediaTypeMapper::map(const std::string& suffix) const
+std::string MediaTypeMapper::map(const std::string& suffix) const
 {
-	ConstIterator it = find(Poco::toLower(suffix));
-	if (it != end())
+	Poco::FastMutex::ScopedLock lock(_mutex);
+
+	ConstIterator it = _map.find(Poco::toLower(suffix));
+	if (it != _map.end())
 		return it->second;
 	else
 		return _default;
@@ -98,7 +103,17 @@ const std::string& MediaTypeMapper::map(const std::string& suffix) const
 
 void MediaTypeMapper::setDefault(const std::string& mediaType)
 {
+	Poco::FastMutex::ScopedLock lock(_mutex);
+
 	_default = mediaType;
+}
+
+
+std::string MediaTypeMapper::getDefault() const
+{
+	Poco::FastMutex::ScopedLock lock(_mutex);
+
+	return _default;
 }
 
 

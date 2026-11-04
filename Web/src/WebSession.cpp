@@ -14,13 +14,12 @@
 
 #include "Poco/OSP/Web/WebSession.h"
 #include "Poco/OSP/Web/WebSessionStore.h"
-#include "Poco/OSP/BundleEvents.h"
+#include "WebSessionRegistry.h"
+#include "Poco/OSP/Bundle.h"
 #include "Poco/Timespan.h"
-#include "Poco/Delegate.h"
 #include "Poco/Exception.h"
-
-
-using Poco::Delegate;
+#include "Poco/Any.h"
+#include <memory>
 
 
 namespace Poco {
@@ -39,7 +38,6 @@ WebSession::WebSession(const std::string& id, const std::string& csrfToken, Poco
 	_clientAddress(clientAddress),
 	_pStore(pStore)
 {
-	_pContext->events().bundleStopping += Delegate<WebSession, BundleEvent>(this, &WebSession::onBundleStopping);
 	accessImpl();
 	_attrs[CSRF_TOKEN] = csrfToken;
 }
@@ -55,7 +53,6 @@ WebSession::WebSession(const std::string& id, Poco::Int64 version, int timeoutSe
 	_attrs(attrs),
 	_pStore(pStore)
 {
-	_pContext->events().bundleStopping += Delegate<WebSession, BundleEvent>(this, &WebSession::onBundleStopping);
 	accessImpl();
 }
 
@@ -64,7 +61,7 @@ WebSession::~WebSession()
 {
 	try
 	{
-		_pContext->events().bundleStopping -= Delegate<WebSession, BundleEvent>(this, &WebSession::onBundleStopping);
+		if (_pRegistry != nullptr) _pRegistry->remove(this);
 		const WebSession* pThis(this);
 		sessionEnds.notify(this, pThis);
 	}
@@ -84,7 +81,7 @@ bool WebSession::has(const std::string& key) const
 }
 
 
-const Poco::Any& WebSession::get(const std::string& key) const
+Poco::Any WebSession::get(const std::string& key) const
 {
 	Poco::FastMutex::ScopedLock lock(_mutex);
 
@@ -98,9 +95,15 @@ const Poco::Any& WebSession::get(const std::string& key) const
 
 void WebSession::set(const std::string& key, const Poco::Any& value)
 {
+	// Declared before the lock, so that the replaced value is destroyed after the
+	// lock is released: it may hold the last reference to another session, whose
+	// destructor locks the session registry.
+	Poco::Any replaced;
 	Poco::FastMutex::ScopedLock lock(_mutex);
 
-	_attrs[key] = value;
+	Poco::Any& attr = _attrs[key];
+	replaced.swap(attr);
+	attr = value;
 
 	if (_pStore)
 	{
@@ -111,9 +114,16 @@ void WebSession::set(const std::string& key, const Poco::Any& value)
 
 void WebSession::erase(const std::string& key)
 {
+	// Destroyed after the lock is released (see set()).
+	Poco::Any removed;
 	Poco::FastMutex::ScopedLock lock(_mutex);
 
-	_attrs.erase(key);
+	auto it = _attrs.find(key);
+	if (it != _attrs.end())
+	{
+		removed.swap(it->second);
+		_attrs.erase(it);
+	}
 
 	if (_pStore)
 	{
@@ -122,8 +132,18 @@ void WebSession::erase(const std::string& key)
 }
 
 
+WebSession::Attributes WebSession::attributes() const
+{
+	Poco::FastMutex::ScopedLock lock(_mutex);
+
+	return _attrs;
+}
+
+
 void WebSession::clear()
 {
+	// Destroyed after the lock is released (see set()).
+	Attributes removed;
 	Poco::FastMutex::ScopedLock lock(_mutex);
 
 	Poco::Any token;
@@ -133,11 +153,16 @@ void WebSession::clear()
 		token = it->second;
 	}
 
+	removed.swap(_attrs);
 	clearImpl();
 
 	if (!token.empty())
 	{
 		_attrs[CSRF_TOKEN] = token;
+		if (_pStore != nullptr)
+		{
+			updateVersion(_pStore->saveValue(_id, CSRF_TOKEN, token));
+		}
 	}
 }
 
@@ -207,13 +232,27 @@ void WebSession::updateVersion(Poco::Int64 version)
 }
 
 
-void WebSession::onBundleStopping(const void* pSender, BundleEvent& ev)
+void WebSession::registerWith(const std::shared_ptr<WebSessionRegistry>& pRegistry)
 {
-	if (ev.bundle() == _pContext->thisBundle())
+	if (_pRegistry == nullptr)
 	{
-		// Only clear attributes in memory, do not clear attributes in session store.
-		_attrs.clear();
+		_pRegistry = pRegistry;
+		_pRegistry->add(this);
 	}
+}
+
+
+WebSession::Attributes WebSession::releaseAttributes(const Bundle::ConstPtr& pBundle)
+{
+	Attributes attrs;
+	if (pBundle == _pContext->thisBundle())
+	{
+		Poco::FastMutex::ScopedLock lock(_mutex);
+
+		// Only clear attributes in memory, do not clear attributes in session store.
+		attrs.swap(_attrs);
+	}
+	return attrs;
 }
 
 

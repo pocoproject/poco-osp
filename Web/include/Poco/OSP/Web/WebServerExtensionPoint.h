@@ -25,8 +25,7 @@
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/ClassLoader.h"
 #include "Poco/Mutex.h"
-#include "Poco/SharedPtr.h"
-#include <map>
+#include <memory>
 
 
 namespace Poco {
@@ -50,6 +49,8 @@ class OSPWeb_API WebServerExtensionPoint: public ExtensionPoint
 	///                library="MyLib"/>
 	///
 	/// Note that the extension points are automatically removed if a bundle is stopped.
+	/// A library named by the library attribute stays loaded as long as a request
+	/// handler factory or a request handler created from it exists.
 	///
 	/// The following attributes can be specified for both extension points:
 	///    * path:        The URI on the server to which the resource or handler is mapped.
@@ -77,17 +78,25 @@ class OSPWeb_API WebServerExtensionPoint: public ExtensionPoint
 	///    * csrfProtection:
 	///                   If "true", enable CSRF/XSRF protection for session-based
 	///                   authentication. Requests must contain a header (default name
-	///                   "X-XSRF-TOKEN", but can be set with csrfToken attribute)
+	///                   "X-XSRF-TOKEN", but can be set with the csrfTokenHeader attribute)
 	///                   containing the session's CSRF token.
 	///    * csrfTokenHeader:
 	///                   For CSRF/XSRF protection, specify the name of the header
 	///                   containing the CSRF/XSRF token. Defaults to "X-XSRF-TOKEN".
 	///    * hidden:      If "true", path is not included by WebServerDispatcher::listVirtualPaths().
 	///    * redirectOn401:
-	///                   If the request would result in a 401 (Unauthorized) response due to missing
-	///                   authentication (see authMethods, permission and session attributes), send
-	///                   a redirect (302) response instead to the specified location, but only if the 
-	///                   request is a GET request. This can be used to redirect to the login page. 
+	///                   For "osp.web.server.directory" only: if a GET request would result in a
+	///                   401 (Unauthorized) response due to missing authentication (see authMethods,
+	///                   permission and session attributes), send a redirect (302) response to the
+	///                   specified location instead, with the request URI in the "redirect" query
+	///                   parameter unless the request is for that location. This can be used to
+	///                   redirect to the login page.
+	///                   A user logged in through a session who lacks the permission is redirected
+	///                   to "/" (or gets a 403 response if the request is for "/"); a user
+	///                   authenticated with HTTP Basic credentials or a bearer token gets 403.
+	///                   If not specified, the "osp.web.redirectOn401" configuration property is used.
+	///                   Requests for request handlers ("osp.web.server.requesthandler") are
+	///                   not redirected.
 	///
 	/// The following attributes can be specified for "osp.web.server.directory":
 	///    * resource:    Specify a directory within the bundle where the HTML, image
@@ -129,10 +138,11 @@ class OSPWeb_API WebServerExtensionPoint: public ExtensionPoint
 	///    * exactMatch:  If set to "true", the request URI path must exactly match the value specified in the
 	///                   "path" attribute. If set to "false" (default), will also match if the path
 	///                   specified in the "path" attribute is a parent of the request URI path.
-	///    * errorResponseFormat:
-	///                   Format of error response. Can be "html" or "json". Defaults to "html", but can be
-	///                   overridden by client if the request contains an "Accept" header
-	///                   ("application/json" or "text/html").
+	///    * responseFormat:
+	///                   Format of error responses. Can be "html" or "json". Defaults to "html".
+	///                   A request with an "Accept" header containing "application/json" gets a JSON
+	///                   error response also if the format is "html". 401 responses of request
+	///                   handlers are always JSON.
 {
 public:
 	WebServerExtensionPoint(BundleContext::Ptr pContext, WebServerDispatcher* pDispatcher);
@@ -152,9 +162,6 @@ protected:
 	void handleDirectory(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem);
 	void handleRequestHandler(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem);
 	void handleCommon(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem, WebServerDispatcher::VirtualPath& vPath);
-
-	void onBundleStopped(const void* pSender, BundleEvent& ev);
-		/// When a bundle is stopped, all of its request handlers and mappings are automatically disabled.
 
 	static const std::string ATTR_PATH;
 	static const std::string ATTR_PATTERN;
@@ -187,14 +194,11 @@ protected:
 private:
 	WebServerExtensionPoint();
 
-	using FactoryPtr = Poco::SharedPtr<WebRequestHandlerFactory>;
 	using Loader = Poco::ClassLoader<WebRequestHandlerFactory>;
-	using LibBundleMap = std::map<std::string, Bundle::Ptr>;
 
 	BundleContext::Ptr   _pContext;
 	WebServerDispatcher* _pDispatcher;
-	Loader               _loader;
-	LibBundleMap         _libBundleMap;
+	std::shared_ptr<Loader> _pLoader = std::make_shared<Loader>();
 	Poco::FastMutex      _mutex;
 };
 

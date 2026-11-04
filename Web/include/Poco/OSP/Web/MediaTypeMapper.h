@@ -21,6 +21,7 @@
 #include "Poco/OSP/Web/Web.h"
 #include "Poco/OSP/Service.h"
 #include "Poco/AutoPtr.h"
+#include "Poco/Mutex.h"
 #include <map>
 #include <istream>
 
@@ -46,6 +47,10 @@ class OSPWeb_API MediaTypeMapper: public Service
 	/// character ('#') are treated as comments and ignored.
 	///
 	/// The name of the MediaTypeMapper service is "osp.web.mediatype".
+	///
+	/// add(), map(), setDefault() and getDefault() can be called from several
+	/// threads. find(), begin() and end() return iterators into the mappings
+	/// and must not be used while another thread calls add() or load().
 {
 public:
 	using Ptr = Poco::AutoPtr<MediaTypeMapper>;
@@ -64,7 +69,8 @@ public:
 		/// are added to the existing mappings.
 
 	void add(const std::string& suffix, const std::string& mediaType);
-		/// Adds the suffix->MIME media type mapping if no entry exists for the suffix yet.
+		/// Adds the suffix->MIME media type mapping, or replaces the
+		/// media type of an existing mapping for the suffix.
 		/// Suffix is not case sensitive.
 
 	ConstIterator find(const std::string& suffix) const;
@@ -77,20 +83,20 @@ public:
 	ConstIterator end() const;
 		/// Returns the end iterator for the suffix to MIME media type map.
 
-	const std::string& map(const std::string& suffix) const;
+	[[nodiscard]] std::string map(const std::string& suffix) const;
 		/// Returns a MIME media type for the given suffix. If no media type has been
 		/// registered for the given suffix, the default media type
-		/// (application/binary, unless anothe one has been set) is returned.
+		/// (application/octet-stream, unless another one has been set) is returned.
 		/// Note that the search is not case sensitive!
 
 	void setDefault(const std::string& mediaType);
 		/// Sets a default MIME media type for unknown suffixes.
 
-	const std::string& getDefault() const;
+	[[nodiscard]] std::string getDefault() const;
 		/// Returns the default MIME media type.
 		///
 		/// Unless another default type has been set with setDefault(),
-		/// the default type is application/binary.
+		/// the default type is application/octet-stream.
 
 	// Service
 	virtual const std::type_info& type() const;
@@ -101,6 +107,7 @@ public:
 private:
 	SuffixToMediaTypeMap _map;
 	std::string          _default;
+	mutable Poco::FastMutex _mutex;
 };
 
 
@@ -116,12 +123,6 @@ inline MediaTypeMapper::ConstIterator MediaTypeMapper::begin() const
 inline MediaTypeMapper::ConstIterator MediaTypeMapper::end() const
 {
 	return _map.end();
-}
-
-
-inline const std::string& MediaTypeMapper::getDefault() const
-{
-	return _default;
 }
 
 

@@ -20,7 +20,6 @@
 
 #include "Poco/OSP/Web/Web.h"
 #include "Poco/OSP/BundleContext.h"
-#include "Poco/OSP/BundleEvent.h"
 #include "Poco/Timestamp.h"
 #include "Poco/Timespan.h"
 #include "Poco/Net/IPAddress.h"
@@ -28,7 +27,9 @@
 #include "Poco/BasicEvent.h"
 #include "Poco/SharedPtr.h"
 #include "Poco/Mutex.h"
+#include <atomic>
 #include <map>
+#include <memory>
 
 
 namespace Poco {
@@ -37,6 +38,7 @@ namespace Web {
 
 
 class WebSessionStore;
+class WebSessionRegistry;
 
 
 class OSPWeb_API WebSession
@@ -54,7 +56,8 @@ class OSPWeb_API WebSession
 	/// session manager.
 	///
 	/// Note that the iterator-based access methods (find(), begin(),
-	/// end()) are not thread-safe.
+	/// end()) are not thread-safe. While other threads may access
+	/// the session, use attributes(), which returns a copy.
 	///
 	/// When a new session is created, the session manager will generate a
 	/// CSRF synchronizer token, which can be used in forms to prevent
@@ -90,8 +93,8 @@ public:
 	bool has(const std::string& key) const;
 		/// Returns true iff the session has an attribute with the given value.
 
-	const Poco::Any& get(const std::string& key) const;
-		/// Returns the attribute with the given key.
+	[[nodiscard]] Poco::Any get(const std::string& key) const;
+		/// Returns a copy of the attribute with the given key.
 		///
 		/// Throws a Poco::NotFoundException
 		/// if the attribute does not exist.
@@ -147,8 +150,13 @@ public:
 	Attributes::const_iterator end() const;
 		/// Returns the end iterator for attributes.
 
+	[[nodiscard]] Attributes attributes() const;
+		/// Returns a copy of all attributes, taken while holding
+		/// the session's lock.
+
 	void clear();
-		/// Erases all attributes.
+		/// Erases all attributes except the CSRF synchronizer token,
+		/// also in the session store.
 
 	int timeout() const;
 		/// Returns the timeout of the session in seconds.
@@ -166,15 +174,23 @@ public:
 		/// Returns the CSRF synchronizer token for this session.
 
 	// UniqueExpireCache support
-	const Poco::Timestamp& getExpiration() const;
+	[[nodiscard]] Poco::Timestamp getExpiration() const;
 		/// Return the time when the session will expire.
 
 	static const std::string CSRF_TOKEN;
 		/// The name of the attribute storing the CSRF synchronizer token.
 
 protected:
-	void onBundleStopping(const void* pSender, BundleEvent& ev);
-		/// When the bundle owning the session is stopped, all attributes are cleared.
+	void registerWith(const std::shared_ptr<WebSessionRegistry>& pRegistry);
+		/// Adds the session to the registry of live sessions of the WebSessionManager,
+		/// unless it already is in one. The session removes itself when it is destroyed.
+
+	[[nodiscard]] Attributes releaseAttributes(const Bundle::ConstPtr& pBundle);
+		/// If the session is owned by the given bundle, removes all attributes
+		/// from memory (not from the session store) and returns them.
+		/// The WebSessionManager calls this for every live session when a bundle stops.
+		/// It is not virtual and uses only members of WebSession, so the manager may call
+		/// it while the destructor of the session waits to remove it from the registry.
 		///
 		/// After the bundle owning the session has been stopped and its libraries have
 		/// been unloaded, virtual destructors of objects stored in the session
@@ -188,11 +204,13 @@ protected:
 		/// Updates the expiration time.
 
 	void clearImpl();
-		/// Erases all attributes.
+		/// Erases all attributes. The caller holds the session's lock; values
+		/// that may hold sessions must be moved out before (see clear()), so
+		/// that they are destroyed after the lock is released.
 
 private:
 	std::string          _id;
-	Poco::Int64          _version;
+	std::atomic<Poco::Int64> _version;
 	Poco::Timespan       _timeout;
 	BundleContext::Ptr   _pContext;
 	Poco::Timestamp      _created;
@@ -200,9 +218,14 @@ private:
 	Poco::Net::IPAddress _clientAddress;
 	Attributes           _attrs;
 	Poco::AutoPtr<WebSessionStore> _pStore;
+	std::shared_ptr<WebSessionRegistry> _pRegistry;
 
 	mutable Poco::FastMutex _mutex;
 	mutable Poco::FastMutex _timeoutMutex;
+
+	friend class WebSessionManager;
+		// The manager creates, renews and registers the sessions: it calls registerWith()
+		// and releaseAttributes() and reads _pContext, none of which is public API.
 };
 
 
@@ -217,7 +240,7 @@ inline const std::string& WebSession::id() const
 
 inline Poco::Int64 WebSession::version() const
 {
-	return _version;
+	return _version.load();
 }
 
 
@@ -241,7 +264,7 @@ inline const Poco::Net::IPAddress& WebSession::clientAddress() const
 }
 
 
-inline const Poco::Timestamp& WebSession::getExpiration() const
+inline Poco::Timestamp WebSession::getExpiration() const
 {
 	Poco::FastMutex::ScopedLock lock(_timeoutMutex);
 

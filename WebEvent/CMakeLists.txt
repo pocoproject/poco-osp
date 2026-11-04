@@ -61,12 +61,6 @@ endif()
 
 target_link_libraries(${TARGET} PRIVATE Poco::OSPWebEvent Poco::OSPWeb Poco::OSP Poco::Zip Poco::Net Poco::Util Poco::XML Poco::JSON Poco::Foundation)
 
-# Copy Bundle Resources to build directory
-add_custom_command(TARGET ${TARGET}
-	POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/bundle ${CMAKE_CURRENT_BINARY_DIR}/bundle
-)
-
 # Build Bundle
 poco_osp_bundle(${TARGET}-bundle
 	DEPENDS ${LIBNAME} ${TARGET}
@@ -84,3 +78,7 @@ install(
 
 POCO_INSTALL(${LIBNAME})
 POCO_GENERATE_PACKAGE(${LIBNAME})
+
+if(POCO_OSP_ENABLE_TESTS)
+	add_subdirectory(testsuite)
+endif()

@@ -25,6 +25,10 @@ public:
 	~MediaTypeMapperTest();
 
 	void testLoad();
+	void testMapIgnoresCase();
+	void testMapReturnsDefaultType();
+	void testAddReplacesMapping();
+	void testMapWhileAdding();
 
 	void setUp();
 	void tearDown();

@@ -41,7 +41,11 @@
 
 
 #if !defined(OSPWeb_API)
-	#define OSPWeb_API
+	#if !defined(POCO_NO_GCC_API_ATTRIBUTE) && defined (__GNUC__) && (__GNUC__ >= 4)
+		#define OSPWeb_API __attribute__ ((visibility ("default")))
+	#else
+		#define OSPWeb_API
+	#endif
 #endif
 
 

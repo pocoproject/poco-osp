@@ -21,7 +21,8 @@ of the subscription message is:
 ----
 
 where <subjectList> is a comma-separated list of subject names not
-containing white space characters.
+containing white space characters. A comma inside brackets ([], () or {})
+belongs to the subject name. An empty subject name makes the message invalid.
 
 Subject names use a hierarchical, reverse DNS-style syntax, with the
 parts of the subject delimited by periods. Subject names must not
@@ -69,12 +70,14 @@ call to notify(), and <data> is the given data string, which
 typically should be a valid serialized JSON or XML document in UTF-8 
 encoding, although any valid UTF-8 string can be sent.
 
-A client can also sent notifications to other clients by sending
-a NOTIFY message to the server.
+If the osp.web.event.clientNotify configuration property is true, a client
+can also send notifications to other clients by sending a NOTIFY message
+to the server. Otherwise such messages are dropped.
 
 A client can send a NOTIFY message using the special subject
 "system.ping" to the server, and the server will respond with a 
-NOTIFY using the subject "system.pong". This can be used as a heartbeat
+NOTIFY using the subject "system.pong", whatever the setting of
+osp.web.event.clientNotify. This can be used as a heartbeat
 mechanism to verify that the connection to the server is alive.
 Any data sent with the ping message will be sent back with the pong
 message.
@@ -124,6 +127,31 @@ The delegate function then looks like:
 The Poco::OSP::WebEvent::WebEventService::NotificationEvent type is simply a 
 <[std::pair<std::string, std::string>]>, with the first item containing the
 subject name and the second item containing the data.
+
+To send a notification only to the connections of one user, use
+Poco::OSP::WebEvent::WebEventService::notifyUser(). The user a connection
+belongs to is determined when the connection is established, by the resolver
+installed with Poco::OSP::WebEvent::WebEventService::setUserResolver(), for
+example by looking up the web session referenced by the request's cookies:
+
+    pWebEventService->setUserResolver(
+        [](const Poco::Net::HTTPServerRequest& request)
+        {
+            return usernameFromSession(request); // empty if anonymous
+        });
+    pWebEventService->notifyUser("alice", "sample.event", "Some event data");
+----
+
+Connections for which the resolver returned an empty string, or that were
+established without a resolver, belong to no user and are never notified by
+notifyUser(). Pass nullptr to setUserResolver() to remove the resolver, for
+example when the bundle that installed it stops.
+
+Poco::OSP::WebEvent::WebEventService::listSubscribers() returns the user, page
+and client address of every connection. The page is the value of the "page"
+query parameter of the upgrade request (for example
+"/webevent?page=/app/index.html"), or its Referer header if there is no such
+parameter; browsers send no Referer with WebSocket upgrade requests.
 
 
 !! On the Client (JavaScript)
@@ -271,14 +299,48 @@ To subscribe to an event, embed the following JavaScript in a web page:
 
 !!! Security Considerations
 
-In the current implementation of the WebEventService, there is no way to prevent 
-potentially unauthorized clients from subscribing to events. Therefore, no sensitive
-data should ever be sent using event notifications. The following guidelines should be 
-observed:
+A browser does not restrict a WebSocket connection to the origin of the page
+that opens it, and it sends the user's cookies with the upgrade request. Any
+page the user visits can therefore try to connect to the WebEventService.
+The service checks the following before a connection is established:
 
-  - Do not include "sensitive" data in an event message. The definition of "sensitive" is
-    up to the specific implementation, but it's best to treat any application data
-    as sensitive.
+  - The Origin header. An upgrade request whose Origin is neither the
+    request's own (the host and port of its Host header) nor one of the
+    origins listed in osp.web.event.allowedOrigins is rejected with status
+    403. The request's own origin has the scheme of the connection (https
+    for a secure one), and the host and port of the Host header. Requests
+    without an Origin header come from clients other than browsers and are
+    accepted.
+  - The number of connections, if osp.web.event.maxWebSockets is set.
+
+The service does not authenticate or authorize clients itself. An application
+that must restrict access registers a delegate for the requestReceived event,
+which is fired for every upgrade request that passed the checks above. The
+delegate can inspect the request, for example its session cookie, and reject
+the connection by setting the status of the response to anything other than
+200 (OK).
+
+The resolver installed with setUserResolver() determines the user a
+connection belongs to, and notifyUser() delivers only to the connections of
+that user. The resolver runs for every connection that requestReceived has
+accepted; it identifies the user but rejects nothing.
+
+The page reported by listSubscribers() is taken from the request's "page"
+query parameter or its Referer header. It is supplied by the client, is not
+checked, and must be escaped before it is shown in a page.
+
+Clients cannot send notifications to other clients unless
+osp.web.event.clientNotify is set to true. When it is set, any connected
+client can notify any subject, and the delegates of notificationSent and
+subjectNotified cannot tell such a notification from one made by notify().
+
+Event messages reach every client that has subscribed to their subject. The
+following guidelines should be observed:
+
+  - Do not include "sensitive" data in an event message sent with notify().
+    The definition of "sensitive" is up to the specific implementation, but
+    it's best to treat any application data as sensitive. Use notifyUser()
+    for data meant for one user only.
   - Use cryptographic hashes or tokens to refer to actual data. For example, when notifying
     a client that a specific data object on the server has been modified, and the client
     needs to update it's representation of it, send a cryptographic hash identifying the object
@@ -289,8 +351,12 @@ observed:
 !!! Delivery Semantics and Flow Control
 
 Notifications are delivered to each subscriber through a per-subscriber send queue,
-drained by a pool of worker threads. A slow or stalled subscriber therefore does not
-delay delivery to other subscribers.
+drained by a pool of worker threads (see osp.web.event.workers). A worker sends one
+frame at a time and waits while the subscriber's connection does not take it. While
+fewer subscribers are stalled than there are workers, the other subscribers are served
+without delay. When every worker is held by a stalled subscriber, delivery to all
+subscribers waits until one of those subscribers is disconnected, which takes at most
+about eleven seconds: the send timeout of ten seconds, checked once a second.
 
 Delivery to a subscriber that cannot keep up is lossy:
 
@@ -303,8 +369,23 @@ Delivery to a subscriber that cannot keep up is lossy:
     osp.web.event.maxPendingFrames configuration property. When the limit is
     exceeded, the oldest queued frame for that subscriber is dropped and a warning
     is logged.
-  - A subscriber whose connection blocks sending for more than ten seconds is
-    disconnected and removed.
+  - A subscriber to which a frame has not been sent completely within ten seconds
+    is disconnected and removed, within about another second. The limit applies
+    to the whole frame, so a client that reads a few bytes at a time cannot hold
+    a worker longer.
+
+NOTE: On Windows, a blocking send of a frame to a subscriber that does not read
+completes at once: the system takes the whole frame, of any size, into its kernel
+buffers. There, neither osp.web.event.maxPendingFrames nor the send timeout limits
+the memory that such frames take.
+
+In the other direction, a client that has started a frame and does not send
+it completely within ten seconds is disconnected and removed as well, within
+about another second.
+
+When the server closes a connection, a worker waits at most two seconds for the
+client to confirm the close, within about another second; then the connection is
+closed without the confirmation.
 
 Server-side events (notificationSent, subjectNotified) are not affected by any of
 this and fire for every notification.
@@ -323,10 +404,17 @@ Specify 0 for an unlimited (as far as system resources allow) number of connecti
 Defaults to 0 (unlimited).
 
 
+!! osp.web.event.maxSubjects
+
+The maximum number of subjects one connection can subscribe to. A SUBSCRIBE
+message beyond the limit closes the connection. Specify 0 for no limit.
+Defaults to 64.
+
+
 !! osp.web.event.workers
 
-The number of worker threads used for sending and receiving WebSocket frames.
-Defaults to two times the number of processor cores.
+The number of worker threads used for sending and receiving WebSocket frames,
+at most 64. Defaults to two times the number of processor cores.
 
 
 !! osp.web.event.maxPendingFrames
@@ -336,6 +424,24 @@ When a subscriber cannot keep up and the limit is exceeded, the oldest queued
 frame for that subscriber is dropped. Specify 0 for unlimited queueing (which
 can exhaust memory if clients stall).
 Defaults to 256.
+
+
+!! osp.web.event.allowedOrigins
+
+A comma-separated list of origins (for example "https://app.example.com") from
+which browsers may connect, in addition to the origin of the service itself.
+Defaults to an empty list.
+
+Note that behind a proxy that terminates TLS, the service sees plain HTTP
+connections, and the public origin of the pages (for example
+"https://app.example.com") must be listed here.
+
+
+!! osp.web.event.clientNotify
+
+Set to true to pass NOTIFY messages sent by clients on to the other
+subscribers and to the server's delegates. Defaults to false, which drops such
+messages.
 
 
 !! osp.web.event.pingInterval

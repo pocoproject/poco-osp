@@ -48,7 +48,9 @@ class OSPWebEvent_API WebEventService: public Poco::OSP::Service
 	///     SUBSCRIBE <subjectList> WebEvent/1.0
 	///
 	/// where <subjectList> is a comma-separated list of subject names not
-	/// containing white space characters.
+	/// containing white space characters. A comma inside brackets ([], ()
+	/// or {}) belongs to the subject name. An empty subject name makes the
+	/// message invalid.
 	///
 	/// Subject names use a hierarchical, reverse DNS-style syntax, with the
 	/// parts of the subject delimited by periods. Subject names must not
@@ -94,12 +96,14 @@ class OSPWebEvent_API WebEventService: public Poco::OSP::Service
 	/// typically should be a valid serialized JSON or XML document in UTF-8
 	/// encoding, although any valid UTF-8 string can be sent.
 	///
-	/// A client can also sent notifications to other clients by sending
-	/// a NOTIFY message to the server.
+	/// If the osp.web.event.clientNotify configuration property is true, a
+	/// client can also send notifications to other clients by sending a
+	/// NOTIFY message to the server. Otherwise such messages are dropped.
 	///
 	/// A client can send a NOTIFY message using the special subject
 	/// "system.ping" to the server, and the server will respond with a
-	/// NOTIFY using the subject "system.pong". This can be used as a heartbeat
+	/// NOTIFY using the subject "system.pong", whatever the setting of
+	/// osp.web.event.clientNotify. This can be used as a heartbeat
 	/// mechanism to verify that the connection to the server is alive.
 	/// Any data sent with the ping message will be sent back with the pong
 	/// message.
@@ -127,7 +131,9 @@ public:
 		std::string page;
 			/// The URL (or path) of the document that opened the connection,
 			/// taken from the upgrade request's "page" query parameter, or
-			/// its Referer header as a fallback; may be empty.
+			/// its Referer header as a fallback; may be empty. The value is
+			/// supplied by the client and is not checked: escape it before
+			/// showing it in a page.
 
 		std::string clientAddress;
 			/// The client's address (host:port) at connection time.
@@ -135,38 +141,54 @@ public:
 	using SubscriberInfoVec = std::vector<SubscriberInfo>;
 
 	Poco::BasicEvent<const Poco::Net::HTTPServerRequest*> requestReceived;
-		/// Fired when a HTTP WebSocket upgrade request has been received.
-		/// This can be used for authentication and authorization, or to
-		/// reject the client's web socket connection for other reasons.
+		/// Fired when a HTTP WebSocket upgrade request has been received,
+		/// after its Origin header has been checked. This can be used for
+		/// authentication and authorization, or to reject the client's web
+		/// socket connection for other reasons.
 		/// If the delegate function sets the status code of the HTTP response
-		/// to anything other than 200 (OK), the WebSocket connection will not
-		/// be established.
+		/// (request.response()) to anything other than 200 (OK), the
+		/// WebSocket connection will not be established.
 
 	Poco::BasicEvent<const std::string> subscriptionRequestReceived;
 		/// Fired when a subscription request for a new subject arrives.
 		/// This event is fired once per subject subscription on a
 		/// socket. To find out the number of clients subscribed to a subject,
 		/// use the subscriberCount() call.
+		///
+		/// If a delegate throws, the exception is logged and the delegates
+		/// registered after it are not called for this event.
 
 	Poco::BasicEvent<const std::string> unsubscriptionRequestReceived;
 		/// Fired when an unsubscription request for a subject arrives.
 		/// This event is fired once per unsubscription on a socket.
 		/// To find out the number of clients subscribed to a subject,
 		/// use the subscriberCount() call.
+		///
+		/// If a delegate throws, the exception is logged and the delegates
+		/// registered after it are not called for this event.
 
 	Poco::BasicEvent<const NotificationEvent> notificationSent;
 		/// Fired when a notification has been sent, either by calling
 		/// notify(), or by a client sending a NOTIFY message to
-		/// the server.
+		/// the server while client notifications are enabled.
 		///
 		/// This event is fired for all subjects. It's the
 		/// responsibility of the delegate function to filter out
 		/// ignore events not of interest.
+		///
+		/// If a delegate throws, the exception is logged and the delegates
+		/// registered after it are not called for this notification. The
+		/// notification is delivered to the subscribers all the same.
 
 	virtual Poco::BasicEvent<const NotificationEvent>& subjectNotified(const std::string& subject) = 0;
 		/// Fired when a notification has been sent for the given
 		/// subject, either by calling notify(), or by a client sending a
-		/// NOTIFY message to the server.
+		/// NOTIFY message to the server while client notifications are
+		/// enabled.
+		///
+		/// If a delegate throws, the exception is logged and the delegates
+		/// registered after it are not called for this notification. The
+		/// notification is delivered to the subscribers all the same.
 
 	virtual void notify(const std::string& subjectName, const std::string& data) = 0;
 		/// Notify all registered subscribers to the given subject, using
@@ -229,7 +251,8 @@ public:
 		/// list, which the caller could not tell from every subscriber
 		/// having disconnected.
 		/// Must not be called from a delegate of one of this service's
-		/// events, as that would deadlock.
+		/// events: the event thread would wait for itself until the
+		/// timeout of five seconds and then throw the TimeoutException.
 
 	// Service
 	const std::type_info& type() const;

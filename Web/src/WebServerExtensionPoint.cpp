@@ -14,19 +14,23 @@
 
 #include "Poco/OSP/Web/WebServerExtensionPoint.h"
 #include "Poco/OSP/Web/WebServerDispatcher.h"
+#include "Poco/OSP/Web/LibraryRequestHandlerFactory.h"
+#include "Poco/OSP/Web/WebRequestHandlerFactory.h"
+#include "LibraryReference.h"
 #include "Poco/OSP/OSPException.h"
 #include "Poco/OSP/ExtensionPointService.h"
-#include "Poco/OSP/BundleEvents.h"
 #include "Poco/StringTokenizer.h"
 #include "Poco/String.h"
-#include "Poco/Delegate.h"
 #include "Poco/OSP/PreferencesService.h"
 #include "Poco/OSP/ServiceRef.h"
 #include "Poco/OSP/ServiceRegistry.h"
+#include "Poco/SharedPtr.h"
+#include "Poco/Bugcheck.h"
+#include <memory>
+#include <utility>
 
 
 using Poco::FastMutex;
-using Poco::Delegate;
 
 
 namespace Poco {
@@ -70,22 +74,10 @@ WebServerExtensionPoint::WebServerExtensionPoint(BundleContext::Ptr pContext, We
 	_pDispatcher(pDispatcher)
 {
 	poco_check_ptr (_pDispatcher);
-
-	_pContext->events().bundleStopped += Delegate<WebServerExtensionPoint, BundleEvent>(this, &WebServerExtensionPoint::onBundleStopped);
 }
 
 
-WebServerExtensionPoint::~WebServerExtensionPoint()
-{
-	try
-	{
-		_pContext->events().bundleStopped -= Delegate<WebServerExtensionPoint, BundleEvent>(this, &WebServerExtensionPoint::onBundleStopped);
-	}
-	catch (...)
-	{
-		poco_unexpected();
-	}
-}
+WebServerExtensionPoint::~WebServerExtensionPoint() = default;
 
 
 void WebServerExtensionPoint::handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem)
@@ -142,15 +134,10 @@ void WebServerExtensionPoint::handleRequestHandler(Bundle::ConstPtr pBundle, Poc
 		library = pBundle->symbolicName();
 
 	std::string libraryPath = _pContext->pathForLibrary(library);
-	if (!_loader.isLibraryLoaded(libraryPath))
-	{
-		_loader.loadLibrary(libraryPath, MANIFEST_NAME);
-		_libBundleMap[libraryPath] = pBundle;
-	}
-
-	FactoryPtr pFactory = _loader.create(className);
+	LibraryRequestHandlerFactory::LibraryPtr pLibrary = std::make_shared<LibraryReference<WebRequestHandlerFactory>>(_pLoader, libraryPath, MANIFEST_NAME);
+	std::unique_ptr<WebRequestHandlerFactory> pFactory(_pLoader->create(className));
 	pFactory->init(_pContext->contextForBundle(pBundle));
-	vPath.pFactory = pFactory;
+	vPath.pFactory = Poco::makeShared<LibraryRequestHandlerFactory>(pLibrary, std::move(pFactory));
 
 	_pDispatcher->addVirtualPath(vPath);
 }
@@ -213,27 +200,6 @@ void WebServerExtensionPoint::handleCommon(Bundle::ConstPtr pBundle, Poco::XML::
 		vPath.responseFormat = WebServerDispatcher::RESPONSE_FORMAT_JSON;
 	else
 		throw BundleException("Failed to parse extension point: Illegal attribute value " + responseFormat + " for attribute " + ATTR_RESPONSEFORMAT);
-}
-
-
-void WebServerExtensionPoint::onBundleStopped(const void* pSender, BundleEvent& ev)
-{
-	FastMutex::ScopedLock lock(_mutex);
-
-	Bundle::ConstPtr pBundle = ev.bundle();
-	LibBundleMap::iterator it = _libBundleMap.begin();
-	while (it != _libBundleMap.end())
-	{
-		if (it->second == pBundle)
-		{
-			_pDispatcher->removeBundle(it->second);
-			_loader.unloadLibrary(it->first);
-			LibBundleMap::iterator delIt(it);
-			++it;
-			_libBundleMap.erase(delIt);
-		}
-		else ++it;
-	}
 }
 
 

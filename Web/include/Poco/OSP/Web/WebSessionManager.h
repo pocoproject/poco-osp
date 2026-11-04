@@ -23,17 +23,22 @@
 #include "Poco/OSP/Web/WebSessionService.h"
 #include "Poco/OSP/Web/WebSessionStore.h"
 #include "Poco/OSP/BundleContext.h"
+#include "Poco/OSP/BundleEvent.h"
 #include "Poco/Net/HTTPServerRequest.h"
 #include "Poco/Net/HTTPCookie.h"
 #include "Poco/UniqueExpireCache.h"
 #include "Poco/Logger.h"
 #include "Poco/Mutex.h"
 #include <functional>
+#include <memory>
 
 
 namespace Poco {
 namespace OSP {
 namespace Web {
+
+
+class WebSessionRegistry;
 
 
 class OSPWeb_API WebSessionManager: public WebSessionService<Poco::Net::HTTPServerRequest>
@@ -45,7 +50,9 @@ class OSPWeb_API WebSessionManager: public WebSessionService<Poco::Net::HTTPServ
 	/// Note that the application name (appName) specified in get() and create()
 	/// can contain a domain name, separated by '@'. If a domain name is given,
 	/// it is used to set the domain for the session cookie. Similarly, a path
-	/// can be given, beginning with a slash.
+	/// can be given, beginning with a slash. If the appName contains no path,
+	/// the default path (see setDefaultPath()) is used, or "/" if no default
+	/// path has been set.
 	///
 	/// For example, if the appName is sample@.appinf.com, then the browser
 	/// will send the session cookie to all hosts with names in the appinf.com
@@ -74,7 +81,8 @@ public:
 		/// Returns the default domain for the session cookie.
 
 	void setDefaultPath(const std::string& path);
-		/// Sets the default path for the session cookie.
+		/// Sets the default path for the session cookie, used if the
+		/// application name does not contain a path.
 
 	const std::string& getDefaultPath() const;
 		/// Returns the default path for the session cookie.
@@ -93,16 +101,23 @@ public:
 		///
 		/// If set to true, the browser will only send the
 		/// cookie over HTTPS connections.
+		///
+		/// Session and CSRF cookies sent in the response to a request
+		/// received over HTTPS always have the secure attribute.
 
 	bool isCookieSecure() const;
 		/// Returns true if the session cookie has the secure
-		/// attribute set, otherwise false.
+		/// attribute set for all requests, otherwise false.
 
 	void setCookieSameSite(Poco::Net::HTTPCookie::SameSite sameSite);
 		/// Sets the SameSite attribute for the session cookie.
 		///
 		/// The default is Poco::Net::HTTPCookie::SAME_SITE_NOT_SPECIFIED.
 
+	[[nodiscard]] Poco::Net::HTTPCookie::SameSite getCookieSameSite() const;
+		/// Returns the SameSite attribute for the session cookie.
+
+	POCO_DEPRECATED("use getCookieSameSite() instead")
 	Poco::Net::HTTPCookie::SameSite setCookieSameSite() const;
 		/// Returns the SameSite attribute for the session cookie.
 
@@ -143,6 +158,11 @@ public:
 		/// holding the session manager mutex. fn must not call back into the
 		/// WebSessionManager.
 		///
+		/// Other threads may modify the sessions while fn runs, so fn must read
+		/// attributes with WebSession::attributes(), WebSession::getValue() or
+		/// WebSession::has(), which lock the session, and not with
+		/// WebSession::find(), WebSession::begin() or WebSession::end().
+		///
 		/// Note: if a WebSessionStore has been set, only sessions currently
 		/// present in the in-memory cache are enumerated (the store interface
 		/// does not support enumerating all sessions).
@@ -150,6 +170,20 @@ public:
 	void updateSessionTimeout(const std::string& appName, WebSession::Ptr pSession, int timeout, const Poco::Net::HTTPServerRequest& request);
 		/// Updates the session timeout for the given session and updates the
 		/// Set-Cookie header in the response for the given request.
+
+	[[nodiscard]] WebSession::Ptr renew(const std::string& appName, const Poco::Net::HTTPServerRequest& request, WebSession::Ptr pSession);
+		/// Replaces the given session with a new session that has a new ID
+		/// and a new CSRF token, and returns the new session.
+		///
+		/// The new session gets all other attributes and the timeout of the
+		/// given session. The given session is removed, and the session
+		/// cookie (and the CSRF cookie, if enabled) in the response for the
+		/// given request is replaced.
+		///
+		/// A login handler calls renew() after the user has been authenticated,
+		/// so that a session ID that was known before the login (for example,
+		/// one set by another party) cannot be used to access the session
+		/// of the logged-in user.
 
 	// WebSessionService
 	WebSession::Ptr find(const std::string& appName, const Poco::Net::HTTPServerRequest& request);
@@ -165,6 +199,11 @@ public:
 	static const std::string SERVICE_NAME;
 
 protected:
+	void onBundleStopping(const void* pSender, BundleEvent& ev);
+		/// Clears the attributes of every session owned by the stopping bundle that
+		/// this manager has created or loaded and that still exists, also if it is
+		/// no longer cached (see WebSession::releaseAttributes()).
+
 	WebSession::Ptr findImpl(const std::string& appName, const Poco::Net::HTTPServerRequest& request, BundleContext::Ptr pContext);
 	WebSession::Ptr findByIdImpl(const std::string& sessionId, BundleContext::Ptr pContext);
 	WebSession::Ptr createImpl(const std::string& appName, const Poco::Net::HTTPServerRequest& request, int expireSeconds, BundleContext::Ptr pContext);
@@ -173,8 +212,11 @@ protected:
 	std::string getId(const std::string& appName, const Poco::Net::HTTPServerRequest& request);
 	void addSessionCookie(const std::string& appName, const Poco::Net::HTTPServerRequest& request, WebSession::Ptr pSession);
 	void addCSRFCookie(const std::string& appName, const Poco::Net::HTTPServerRequest& request, WebSession::Ptr pSession);
-	Poco::Net::HTTPCookie createSessionCookie(const std::string& appName, WebSession::Ptr pSession);
-	Poco::Net::HTTPCookie createCSRFCookie(const std::string& appName, WebSession::Ptr pSession);
+	[[nodiscard]] Poco::Net::HTTPCookie createSessionCookie(const std::string& appName, const Poco::Net::HTTPServerRequest& request, WebSession::Ptr pSession);
+	[[nodiscard]] Poco::Net::HTTPCookie createCSRFCookie(const std::string& appName, const Poco::Net::HTTPServerRequest& request, WebSession::Ptr pSession);
+		/// Creates the CSRF cookie for the session. Creates and stores a new
+		/// CSRF token if the session has none. Must be called with the mutex locked.
+
 	std::string createToken(const Poco::Net::HTTPServerRequest& request);
 	std::string cookieName(const std::string& appName);
 	std::string cookieDomain(const std::string& appName);
@@ -188,6 +230,7 @@ private:
 	WebSessionStore::Ptr _pStore;
 	Poco::UInt32 _serial;
 	Poco::UniqueExpireCache<std::string, WebSession> _cache;
+	std::shared_ptr<WebSessionRegistry> _pSessionRegistry;
 	std::string _defaultDomain;
 	std::string _defaultPath;
 	std::string _csrfCookie;

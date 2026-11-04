@@ -13,6 +13,9 @@
 
 
 #include "Poco/OSP/Web/WebSessionManager.h"
+#include "WebSessionRegistry.h"
+#include "Poco/OSP/BundleEvent.h"
+#include "Poco/OSP/BundleEvents.h"
 #include "Poco/Net/HTTPServerRequest.h"
 #include "Poco/Net/HTTPServerResponse.h"
 #include "Poco/Net/NameValueCollection.h"
@@ -21,6 +24,14 @@
 #include "Poco/NumberFormatter.h"
 #include "Poco/SHA1Engine.h"
 #include "Poco/RandomStream.h"
+#include "Poco/Exception.h"
+#include "Poco/Timestamp.h"
+#include "Poco/Delegate.h"
+#include "Poco/Bugcheck.h"
+#include <memory>
+#include <vector>
+#include <string>
+#include <utility>
 
 
 using Poco::Net::NameValueCollection;
@@ -41,17 +52,27 @@ const std::string WebSessionManager::SERVICE_NAME("osp.web.session");
 WebSessionManager::WebSessionManager(Poco::OSP::BundleContext::Ptr pContext):
 	_pContext(pContext),
 	_serial(0),
+	_pSessionRegistry(std::make_shared<WebSessionRegistry>()),
 	_cookiePersistence(COOKIE_PERSISTENT),
 	_cookieSecure(false),
 	_verifyAddress(true),
 	_cookieSameSite(Poco::Net::HTTPCookie::SAME_SITE_NOT_SPECIFIED),
 	_logger(Poco::Logger::get("osp.web.session"))
 {
+	_pContext->events().bundleStopping += Poco::delegate(this, &WebSessionManager::onBundleStopping);
 }
 
 
 WebSessionManager::~WebSessionManager()
 {
+	try
+	{
+		_pContext->events().bundleStopping -= Poco::delegate(this, &WebSessionManager::onBundleStopping);
+	}
+	catch (...)
+	{
+		poco_unexpected();
+	}
 }
 
 
@@ -97,9 +118,15 @@ void WebSessionManager::setCookieSameSite(Poco::Net::HTTPCookie::SameSite sameSi
 }
 
 
-Poco::Net::HTTPCookie::SameSite WebSessionManager::setCookieSameSite() const
+Poco::Net::HTTPCookie::SameSite WebSessionManager::getCookieSameSite() const
 {
 	return _cookieSameSite;
+}
+
+
+Poco::Net::HTTPCookie::SameSite WebSessionManager::setCookieSameSite() const
+{
+	return getCookieSameSite();
 }
 
 
@@ -202,11 +229,41 @@ void WebSessionManager::forEachSession(const std::function<void(const std::strin
 void WebSessionManager::updateSessionTimeout(const std::string& appName, WebSession::Ptr pSession, int timeout, const Poco::Net::HTTPServerRequest& request)
 {
 	pSession->timeout(timeout);
-	request.response().replaceCookie(createSessionCookie(appName, pSession));
+
+	// createCSRFCookie() may create a token, which needs the lock.
+	FastMutex::ScopedLock lock(_mutex);
+	request.response().replaceCookie(createSessionCookie(appName, request, pSession));
 	if (!_csrfCookie.empty())
 	{
-		request.response().replaceCookie(createCSRFCookie(appName, pSession));
+		request.response().replaceCookie(createCSRFCookie(appName, request, pSession));
 	}
+}
+
+
+WebSession::Ptr WebSessionManager::renew(const std::string& appName, const Poco::Net::HTTPServerRequest& request, WebSession::Ptr pSession)
+{
+	FastMutex::ScopedLock lock(_mutex);
+
+	WebSession::Attributes attrs = pSession->attributes();
+	attrs[WebSession::CSRF_TOKEN] = createToken(request);
+	WebSession::Ptr pNewSession(new WebSession(createToken(request), 1, pSession->timeout(), request.clientAddress().host(), _pStore, pSession->_pContext, Poco::Timestamp(), attrs));
+	pNewSession->registerWith(_pSessionRegistry);
+	_cache.add(pNewSession->id(), pNewSession);
+	if (_pStore != nullptr)
+	{
+		_pStore->saveSession(pNewSession);
+	}
+	removeImpl(pSession);
+	request.response().replaceCookie(createSessionCookie(appName, request, pNewSession));
+	if (!_csrfCookie.empty())
+	{
+		request.response().replaceCookie(createCSRFCookie(appName, request, pNewSession));
+	}
+	if (_logger.debug())
+	{
+		_logger.debug("Session %s renewed as %s."s, pSession->id(), pNewSession->id());
+	}
+	return pNewSession;
 }
 
 
@@ -263,19 +320,20 @@ void WebSessionManager::removeForUser(const std::string& username)
 		_cache.forEach(
 			[&sessionsToRemove, &username](const std::string& id, const WebSession& session)
 			{
-				auto it = session.find("username"s);
-				if (it != session.end())
+				try
 				{
-					try
+					if (session.getValue<std::string>("username"s) == username)
 					{
-						if (Poco::AnyCast<std::string>(it->second) == username)
-						{
-							sessionsToRemove.push_back(id);
-						}
+						sessionsToRemove.push_back(id);
 					}
-					catch (...)
-					{
-					}
+				}
+				catch (Poco::NotFoundException&)
+				{
+					// A session without a username belongs to no user.
+				}
+				catch (Poco::BadCastException&)
+				{
+					// A username that is not a std::string matches no user.
 				}
 			}
 		);
@@ -285,6 +343,19 @@ void WebSessionManager::removeForUser(const std::string& username)
 	{
 		removeImpl(id);
 	}
+}
+
+
+void WebSessionManager::onBundleStopping(const void*, BundleEvent& ev)
+{
+	// The attributes are destroyed after the registry is unlocked, so that destroying
+	// them can release sessions. The libraries of the bundle that can have created them
+	// are still loaded: the WebServerDispatcher releases them when the bundle has stopped.
+	std::vector<WebSession::Attributes> released;
+	_pSessionRegistry->forEach([&released, &ev](WebSession& session)
+		{
+			released.push_back(session.releaseAttributes(ev.bundle()));
+		});
 }
 
 
@@ -319,8 +390,8 @@ WebSession::Ptr WebSessionManager::findImpl(const std::string& appName, const Po
 		}
 		else
 		{
-			_logger.notice("Client address mismatch for session %s (known address: %s, request address: %s). Session will be removed."s,
-				sessionId, pSession->clientAddress().toString(), request.clientAddress().host().toString());
+			_logger.notice("Client address mismatch for a session of %s (known address: %s, request address: %s). The session is removed."s,
+				cookieName(appName), pSession->clientAddress().toString(), request.clientAddress().host().toString());
 
 			// possible attack: same session ID from different host - invalidate session
 			removeImpl(pSession);
@@ -357,6 +428,7 @@ WebSession::Ptr WebSessionManager::findByIdImpl(const std::string& sessionId, Bu
 			std::pair<WebSession::Ptr, bool> result = _pStore->loadSession(pContext, sessionId);
 			if (result.second) pSession = result.first;
 		}
+		if (pSession != nullptr) pSession->registerWith(_pSessionRegistry);
 	}
 	return pSession;
 }
@@ -365,6 +437,7 @@ WebSession::Ptr WebSessionManager::findByIdImpl(const std::string& sessionId, Bu
 WebSession::Ptr WebSessionManager::createImpl(const std::string& appName, const Poco::Net::HTTPServerRequest& request, int expireSeconds, BundleContext::Ptr pContext)
 {
 	WebSession::Ptr pSession(new WebSession(createToken(request), createToken(request), 1, expireSeconds, request.clientAddress().host(), _pStore, pContext));
+	pSession->registerWith(_pSessionRegistry);
 	_cache.add(pSession->id(), pSession);
 	addSessionCookie(appName, request, pSession);
 	addCSRFCookie(appName, request, pSession);
@@ -417,7 +490,7 @@ std::string WebSessionManager::getId(const std::string& appName, const Poco::Net
 
 void WebSessionManager::addSessionCookie(const std::string& appName, const Poco::Net::HTTPServerRequest& request, WebSession::Ptr pSession)
 {
-	request.response().addCookie(createSessionCookie(appName, pSession));
+	request.response().replaceCookie(createSessionCookie(appName, request, std::move(pSession)));
 }
 
 
@@ -425,12 +498,12 @@ void WebSessionManager::addCSRFCookie(const std::string& appName, const Poco::Ne
 {
 	if (!_csrfCookie.empty())
 	{
-		request.response().addCookie(createCSRFCookie(appName, pSession));
+		request.response().replaceCookie(createCSRFCookie(appName, request, std::move(pSession)));
 	}
 }
 
 
-Poco::Net::HTTPCookie WebSessionManager::createSessionCookie(const std::string& appName, WebSession::Ptr pSession)
+Poco::Net::HTTPCookie WebSessionManager::createSessionCookie(const std::string& appName, const Poco::Net::HTTPServerRequest& request, WebSession::Ptr pSession)
 {
 	Poco::Net::HTTPCookie cookie(cookieName(appName), pSession->id());
 	if (_cookiePersistence == COOKIE_PERSISTENT)
@@ -440,21 +513,28 @@ Poco::Net::HTTPCookie WebSessionManager::createSessionCookie(const std::string& 
 	cookie.setPath(cookiePath(appName));
 	cookie.setDomain(cookieDomain(appName));
 	cookie.setHttpOnly();
-	cookie.setSecure(_cookieSecure);
+	cookie.setSecure(_cookieSecure || request.secure());
 	cookie.setSameSite(_cookieSameSite);
 	return cookie;
 }
 
 
-Poco::Net::HTTPCookie WebSessionManager::createCSRFCookie(const std::string& appName, WebSession::Ptr pSession)
+Poco::Net::HTTPCookie WebSessionManager::createCSRFCookie(const std::string& appName, const Poco::Net::HTTPServerRequest& request, WebSession::Ptr pSession)
 {
-	Poco::Net::HTTPCookie csrfCookie(_csrfCookie, pSession->csrfToken());
+	std::string csrfToken = pSession->getValue<std::string>(WebSession::CSRF_TOKEN, ""s);
+	if (csrfToken.empty())
+	{
+		// A session loaded from a store may have no token.
+		csrfToken = createToken(request);
+		pSession->set(WebSession::CSRF_TOKEN, csrfToken);
+	}
+	Poco::Net::HTTPCookie csrfCookie(_csrfCookie, csrfToken);
 	if (_cookiePersistence == COOKIE_PERSISTENT)
 	{
 		csrfCookie.setMaxAge(pSession->timeout());
 	}
 	csrfCookie.setPath(cookiePath(appName));
-	csrfCookie.setSecure(_cookieSecure);
+	csrfCookie.setSecure(_cookieSecure || request.secure());
 	csrfCookie.setSameSite(Poco::Net::HTTPCookie::SAME_SITE_STRICT);
 	return csrfCookie;
 }
@@ -511,13 +591,13 @@ std::string WebSessionManager::cookieDomain(const std::string& appName)
 
 std::string WebSessionManager::cookiePath(const std::string& appName)
 {
-	std::string result("/");
 	std::string::size_type pos = appName.find('/');
 	if (pos != std::string::npos)
-	{
-		result.assign(appName, pos, appName.size() - pos);
-	}
-	return result.empty() ? _defaultPath : result;
+		return appName.substr(pos);
+	else if (!_defaultPath.empty())
+		return _defaultPath;
+	else
+		return "/"s;
 }
 
 
