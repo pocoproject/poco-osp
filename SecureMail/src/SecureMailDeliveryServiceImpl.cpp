@@ -17,15 +17,62 @@
 
 
 #include "SecureMailDeliveryServiceImpl.h"
+#include "Poco/Net/NetException.h"
 #include "Poco/Net/SecureSMTPClientSession.h"
 #include "Poco/Net/SecureStreamSocket.h"
 #include "Poco/Net/SSLManager.h"
+#include "Poco/Net/SocketAddress.h"
+#include "Poco/Net/StreamSocket.h"
+#include "Poco/Util/AbstractConfiguration.h"
+#include "Poco/Bugcheck.h"
 #include "Poco/Format.h"
+#include "Poco/SharedPtr.h"
+#include <string>
 
 
 namespace Poco {
 namespace OSP {
 namespace Mail {
+
+
+namespace
+{
+	class ConnectedSMTPClientSession: public Poco::Net::SecureSMTPClientSession
+		/// A SecureSMTPClientSession on a connected socket that checks the server
+		/// certificate against the given host name after STARTTLS. The socket
+		/// constructor of SecureSMTPClientSession has no host name for that check.
+	{
+	public:
+		ConnectedSMTPClientSession() = delete;
+
+		ConnectedSMTPClientSession(const Poco::Net::StreamSocket& socket, const std::string& host):
+			Poco::Net::SecureSMTPClientSession(socket),
+			_host(host)
+		{
+		}
+
+		~ConnectedSMTPClientSession() override = default;
+
+		ConnectedSMTPClientSession(const ConnectedSMTPClientSession&) = delete;
+		ConnectedSMTPClientSession(ConnectedSMTPClientSession&&) = delete;
+		ConnectedSMTPClientSession& operator = (const ConnectedSMTPClientSession&) = delete;
+		ConnectedSMTPClientSession& operator = (ConnectedSMTPClientSession&&) = delete;
+
+		[[nodiscard]] bool startTLS(Poco::Net::Context::Ptr pContext)
+			/// Returns false if the server does not accept STARTTLS.
+		{
+			std::string response;
+			const int status = sendCommand("STARTTLS", response);
+			if (!isPositiveCompletion(status)) return false;
+
+			socket() = Poco::Net::SecureStreamSocket::attach(socket(), _host, pContext);
+			return true;
+		}
+
+	private:
+		std::string _host;
+	};
+}
 
 
 SecureMailDeliveryServiceImpl::SecureMailDeliveryServiceImpl(Mode mode, const MailDeliveryServiceImpl::Configuration& config, Poco::Logger& logger, Poco::Net::Context::Ptr pContext):
@@ -39,6 +86,30 @@ SecureMailDeliveryServiceImpl::SecureMailDeliveryServiceImpl(Mode mode, const Ma
 
 SecureMailDeliveryServiceImpl::~SecureMailDeliveryServiceImpl()
 {
+	try
+	{
+		stop();
+	}
+	catch (...)
+	{
+		poco_unexpected();
+	}
+}
+
+
+Poco::Net::Context::Ptr SecureMailDeliveryServiceImpl::createContext(const Poco::Util::AbstractConfiguration& settings)
+{
+	Poco::Net::Context::Params params;
+	params.privateKeyFile = settings.getString("osp.mail.tls.privateKey", "");
+	params.certificateFile = settings.getString("osp.mail.tls.certificate", "");
+	params.caLocation = settings.getString("osp.mail.tls.caLocation", "");
+	params.verificationMode = Poco::Net::Context::VERIFY_RELAXED;
+	params.loadDefaultCAs = true;
+	params.cipherList = settings.getString("osp.mail.tls.ciphers", params.cipherList);
+	Poco::Net::Context::Ptr pContext = new Poco::Net::Context(Poco::Net::Context::TLS_CLIENT_USE, params);
+	pContext->requireMinimumProtocol(Poco::Net::Context::PROTO_TLSV1_2);
+	pContext->enableExtendedCertificateVerification(settings.getBool("osp.mail.tls.extendedCertificateVerification", true));
+	return pContext;
 }
 
 
@@ -75,7 +146,10 @@ MailDeliveryServiceImpl::SMTPClientSessionPtr SecureMailDeliveryServiceImpl::cre
 MailDeliveryServiceImpl::SMTPClientSessionPtr SecureMailDeliveryServiceImpl::createSMTPClientSessionStartTLS(const MailDeliveryServiceImpl::Configuration& config)
 {
 	_logger.debug(Poco::format("Connecting to SMTP server %s, port %hu...", config.host, config.port));
-	Poco::SharedPtr<Poco::Net::SecureSMTPClientSession> pSecureSMTPClientSession = new Poco::Net::SecureSMTPClientSession(config.host, config.port);
+	Poco::Net::StreamSocket socket;
+	socket.connect(Poco::Net::SocketAddress(config.host, config.port), config.socketTimeout);
+	socket.setSendTimeout(config.socketTimeout);
+	Poco::SharedPtr<ConnectedSMTPClientSession> pSecureSMTPClientSession = new ConnectedSMTPClientSession(socket, config.host);
 	pSecureSMTPClientSession->setTimeout(config.socketTimeout);
 
 	_logger.debug("Starting TLS...");
@@ -84,10 +158,9 @@ MailDeliveryServiceImpl::SMTPClientSessionPtr SecureMailDeliveryServiceImpl::cre
 	else
 		pSecureSMTPClientSession->login(config.clientHost);
 
-	if (_pContext)
-		pSecureSMTPClientSession->startTLS(_pContext);
-	else
-		pSecureSMTPClientSession->startTLS();
+	Poco::Net::Context::Ptr pContext = _pContext;
+	if (pContext == nullptr) pContext = Poco::Net::SSLManager::instance().defaultClientContext();
+	if (!pSecureSMTPClientSession->startTLS(pContext)) throw Poco::Net::SMTPException("The SMTP server does not support STARTTLS", config.host);
 
 	_logger.debug("Logging in...");
 	if (config.clientHost.empty())
@@ -106,8 +179,10 @@ MailDeliveryServiceImpl::SMTPClientSessionPtr SecureMailDeliveryServiceImpl::cre
 
 	Poco::Net::Context::Ptr pContext = _pContext;
 	if (!pContext) pContext = Poco::Net::SSLManager::instance().defaultClientContext();
-	Poco::Net::SocketAddress addr(config.host, config.port);
-	Poco::Net::SecureStreamSocket sss(addr, config.host, pContext);
+	// The timeout of connect() also applies to the TLS handshake.
+	Poco::Net::SecureStreamSocket sss(config.host, pContext);
+	sss.connect(Poco::Net::SocketAddress(config.host, config.port), config.socketTimeout);
+	sss.setSendTimeout(config.socketTimeout);
 
 	Poco::SharedPtr<Poco::Net::SecureSMTPClientSession> pSecureSMTPClientSession = new Poco::Net::SecureSMTPClientSession(sss);
 	pSecureSMTPClientSession->setTimeout(config.socketTimeout);

@@ -25,7 +25,7 @@ public:
 	~BundleInstallHandler();
 		/// Destroys the BundleListHandler.
 		
-	void run();
+	void handle() override;
 	
 protected:
 	std::string bundlePath(const std::string& symbolicName);

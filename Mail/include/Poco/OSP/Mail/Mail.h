@@ -43,12 +43,16 @@
 
 
 #if !defined(OSPMail_API)
-	#define OSPMail_API
+	#if !defined(POCO_NO_GCC_API_ATTRIBUTE) && defined (__GNUC__) && (__GNUC__ >= 4)
+		#define OSPMail_API __attribute__ ((visibility ("default")))
+	#else
+		#define OSPMail_API
+	#endif
 #endif
 
 
 //
-// Automatically link OSP Web library.
+// Automatically link OSP Mail library.
 //
 #if defined(_MSC_VER)
 	#if !defined(POCO_NO_AUTOMATIC_LIBS) && !defined(OSPMail_EXPORTS)

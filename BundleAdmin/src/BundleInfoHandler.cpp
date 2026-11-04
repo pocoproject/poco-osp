@@ -10,8 +10,9 @@
 
 #include "BundleInfoHandler.h"
 #include "Poco/Net/HTMLForm.h"
+#include "Poco/Net/HTTPResponse.h"
 #include "Poco/NumberFormatter.h"
-#include <vector>
+#include <string>
 
 
 using Poco::OSP::BundleContext;
@@ -31,7 +32,7 @@ BundleInfoHandler::~BundleInfoHandler()
 }
 
 	
-void BundleInfoHandler::run()
+void BundleInfoHandler::handle()
 {
 	std::string symbolicName = form().get("symbolicName");
 	
@@ -40,6 +41,13 @@ void BundleInfoHandler::run()
 	{
 		if (form().has("action"))
 		{
+			// An action is only taken on a form of this server (see actions()), never
+			// on a link or a form of another site that the browser of the user follows.
+			if (!isSameOriginPost() || !hasValidCSRFToken(form().get("csrfToken", "")))
+			{
+				sendForbidden();
+				return;
+			}
 			if (performAction(pBundle, form().get("action")))
 				return;
 		}
@@ -66,7 +74,7 @@ void BundleInfoHandler::run()
 	}
 	else
 	{
-		beginPage("Unknown bundle.");
+		beginPage(text("unknownBundle"));
 		endPage();
 	}
 }
@@ -162,21 +170,22 @@ void BundleInfoHandler::actions(Poco::OSP::Bundle::Ptr pBundle)
 	bool stop      = false;
 	bool uninstall = false;
 	bool upgrade   = false;
+	const bool needed = isNeededByThisBundle(pBundle);
 	if (pBundle->state() == Bundle::BUNDLE_INSTALLED)
 	{
 		resolve   = true;
-		uninstall = true;
-		upgrade   = true;
+		uninstall = !needed;
+		upgrade   = !needed;
 	}
 	else if (pBundle->state() == Bundle::BUNDLE_RESOLVED)
 	{
 		start     = true;
-		uninstall = true;
-		upgrade   = true;
+		uninstall = !needed;
+		upgrade   = !needed;
 	}
 	else if (pBundle->state() == Bundle::BUNDLE_ACTIVE)
 	{
-		stop = pBundle != context()->thisBundle();
+		stop = !needed;
 	}
 	beginActionBar();
 	if (resolve) action(pBundle, "resolve", text("resolveBundle"));
@@ -190,6 +199,12 @@ void BundleInfoHandler::actions(Poco::OSP::Bundle::Ptr pBundle)
 
 bool BundleInfoHandler::performAction(Poco::OSP::Bundle::Ptr pBundle, const std::string& action)
 {
+	if ((action == "stop" || action == "confirmedStop" || action == "uninstall" || action == "confirmedUninstall") && isNeededByThisBundle(pBundle))
+	{
+		sendErrorResponse(Poco::Net::HTTPResponse::HTTP_CONFLICT, htmlize(text("neededBundle")));
+		return true;
+	}
+
 	if (action == "resolve")
 	{
 		pBundle->resolve();

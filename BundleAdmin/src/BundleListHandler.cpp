@@ -29,7 +29,7 @@ BundleListHandler::~BundleListHandler()
 }
 
 	
-void BundleListHandler::run()
+void BundleListHandler::handle()
 {
 	beginPage(text("installedBundles"));
 	beginTable();

@@ -11,6 +11,7 @@
 
 
 #include "Poco/OSP/Mail/MailDeliveryServiceImpl.h"
+#include "Poco/OSP/Mail/MailDeliveryService.h"
 #include "Poco/OSP/BundleActivator.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/OSP/Bundle.h"
@@ -18,7 +19,6 @@
 #include "Poco/OSP/ServiceRef.h"
 #include "Poco/OSP/ServiceFinder.h"
 #include "Poco/OSP/PreferencesService.h"
-#include "Poco/String.h"
 #include "Poco/ClassLibrary.h"
 
 
@@ -48,44 +48,17 @@ public:
 
 	void start(BundleContext::Ptr pContext)
 	{
-		_pContext = pContext;
 		_pPrefs = ServiceFinder::find<PreferencesService>(pContext);
 
 		bool enabled = _pPrefs->configuration()->getBool("osp.mail.enable", false);
 		bool secure = _pPrefs->configuration()->getBool("osp.mail.secure", false);
 		if (enabled && !secure)
 		{
-			MailDeliveryServiceImpl::Configuration config;
-			config.host = getStringConfig("osp.mail.host");
-			config.port = static_cast<Poco::UInt16>(getIntConfig("osp.mail.port"));
-			config.clientHost = getStringConfig("osp.mail.clientHost", "");
-			config.sender = _pPrefs->configuration()->getString("osp.mail.sender", "");
-			config.generateMID = _pPrefs->configuration()->getBool("osp.mail.generateMID", false);
-			config.socketTimeout = Poco::Timespan::SECONDS*getIntConfig("osp.mail.socketTimeout");
-			config.sessionTimeout = Poco::Timespan::SECONDS*getIntConfig("osp.mail.sessionTimeout");
-			std::string loginMethod = Poco::toLower(getStringConfig("osp.mail.login.method"));
-			config.loginMethod = Poco::Net::SMTPClientSession::AUTH_NONE;
-			if (loginMethod == "cram-md5")
-				config.loginMethod = Poco::Net::SMTPClientSession::AUTH_CRAM_MD5;
-			else if (loginMethod == "cram-sha1")
-				config.loginMethod = Poco::Net::SMTPClientSession::AUTH_CRAM_SHA1;
-			else if (loginMethod == "login")
-				config.loginMethod = Poco::Net::SMTPClientSession::AUTH_LOGIN;
-			else if (loginMethod == "plain")
-				config.loginMethod = Poco::Net::SMTPClientSession::AUTH_PLAIN;
-			else if (loginMethod == "xoauth2")
-				config.loginMethod = Poco::Net::SMTPClientSession::AUTH_XOAUTH2;
-			else if (loginMethod == "ntlm")
-				config.loginMethod = Poco::Net::SMTPClientSession::AUTH_NTLM;
-			else if (loginMethod != "none")
-				pContext->logger().warning("Invalid login method specified. Defaulting to none.");
-			config.username = _pPrefs->configuration()->getString("osp.mail.login.username", "");
-			config.password = _pPrefs->configuration()->getString("osp.mail.login.password", "");
-			config.maxQueued = getIntConfig("osp.mail.limits.maxQueued");
-			config.maxFailedLogins = getIntConfig("osp.mail.limits.maxFailedLogins");
+			const MailDeliveryServiceImpl::Configuration config = MailDeliveryServiceImpl::loadConfiguration(*_pPrefs->configuration(), pContext->thisBundle()->properties(), pContext->logger());
 
-			MailDeliveryServiceImpl::Ptr pMailDeliveryService = new MailDeliveryServiceImpl(config, pContext->logger());
-			_pMailDeliveryServiceRef = pContext->registry().registerService(MailDeliveryService::SERVICE_NAME, pMailDeliveryService, Properties());
+			_pMailDeliveryService = new MailDeliveryServiceImpl(config, pContext->logger());
+			_pMailDeliveryService->start();
+			_pMailDeliveryServiceRef = pContext->registry().registerService(MailDeliveryService::SERVICE_NAME, _pMailDeliveryService, Properties());
 		}
 		else
 		{
@@ -95,31 +68,16 @@ public:
 
 	void stop(BundleContext::Ptr pContext)
 	{
+		if (_pMailDeliveryService != nullptr) _pMailDeliveryService->stop();
 		if (_pMailDeliveryServiceRef) pContext->registry().unregisterService(_pMailDeliveryServiceRef);
 		_pMailDeliveryServiceRef = 0;
+		_pMailDeliveryService = nullptr;
 		_pPrefs = 0;
-		_pContext = 0;
-	}
-
-protected:
-	int getIntConfig(const std::string& key)
-	{
-		return _pPrefs->configuration()->getInt(key, _pContext->thisBundle()->properties().getInt(key));
-	}
-
-	std::string getStringConfig(const std::string& key)
-	{
-		return _pPrefs->configuration()->getString(key, _pContext->thisBundle()->properties().getString(key));
-	}
-
-	std::string getStringConfig(const std::string& key, const std::string& deflt)
-	{
-		return _pPrefs->configuration()->getString(key, _pContext->thisBundle()->properties().getString(key, deflt));
 	}
 
 private:
-	BundleContext::Ptr _pContext;
 	PreferencesService::Ptr _pPrefs;
+	MailDeliveryServiceImpl::Ptr _pMailDeliveryService;
 	ServiceRef::Ptr _pMailDeliveryServiceRef;
 };
 

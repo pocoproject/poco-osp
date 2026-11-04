@@ -16,17 +16,34 @@ The following features are provided by the BundleAdmin utility:
 
 !!! Accessing the BundleAdmin Utility
 
-The BundleAdmin utility can be accessed from anywhere on the network using a web browser such as
-Firefox, Internet Explorer or Safari. Since the BundleAdmin utility runs within the OSP web server,
+The BundleAdmin utility can be accessed from anywhere on the network using a web browser.
+Since the BundleAdmin utility runs within the OSP web server,
 the TCP port number on which the OSP web server runs must be known. The default port for the
 OSP web server is 22080, and the default port for the secure (HTTPS) web server is 22443.
 Within the OSP web server, the BundleAdmin utility lives under the path <[/bundleAdmin]>.
-Depending on your authentication/authorization setup, you may need a password to access the
-BundleAdmin utility. 
 Assuming a default installation running on your local host, the BundleAdmin utility can be 
 accessed by directing your browser to <http://localhost:22080/bundleAdmin>. 
-The default user name and password is "admin", and "admin", respectively.
-See the [[OSPAuth.html AuthService documentation]] for information on how to change the password.
+
+Access requires a user with the permission <[bundleAdmin]>, which the auth service checks.
+With the SimpleAuth bundle, the administrator user (<[auth.simple.admin.name]>, "admin" by
+default) has every permission. Its password is set with <[auth.simple.admin.passwordHash]>,
+which has no default: no login succeeds until it is configured.
+See the [[OSPAuth.html AuthService documentation]] for other ways to manage users.
+
+The pages log in users with HTTP Basic authentication. To log in users in a web session instead
+(with a login form of another bundle), set the bundle property <[web.session]> to the name of
+that session, for example in an extension bundle.
+
+A request that changes the state of a bundle (any button on the pages) must be a POST request
+from a page of the same server: its Origin header (or, without one, its Referer header) must
+name the server, and in a web session it must carry the CSRF token of the session, which the
+forms of the pages contain. A script that sends such requests must send one of the two headers.
+Other requests are answered with 403 Forbidden. Requests to stop, uninstall or upgrade the
+BundleAdmin bundle, or a bundle it depends on, are answered with 409 Conflict.
+A request that uploads a bundle file must state its length, which must not exceed the bundle
+property <[upload.maxSize]> (256 MB by default).
+The pages accept only GET, HEAD and POST requests; other methods are answered with
+405 Method Not Allowed.
 
 Upon successful login, the BundleAdmin utility shows a list of all bundles installed in the
 current application:
@@ -70,13 +87,9 @@ Also, a confirmation page will be shown if the <!Uninstall!> button is clicked.
 
 !! Upgrading a Bundle
 
-An installed bundle can be upgraded, which involves the following steps:
-
-  - stopping the bundle
-  - uninstalling the bundle
-  - uploading a new version of the bundle
-  - installing the new version of the bundle
-  
+An installed bundle in <*installed*> or <*resolved*> state can be upgraded with the <!Upgrade Bundle!>
+button: the uploaded bundle file replaces the installed bundle (see
+Poco::OSP::BundleInstallerService::replaceBundle()).
 The steps required to upgrade a bundle are the same as for installing a bundle.
 
 !! Installing a Bundle

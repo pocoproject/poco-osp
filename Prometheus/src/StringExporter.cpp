@@ -10,6 +10,7 @@
 
 #include "StringExporter.h"
 #include "Poco/NumberFormatter.h"
+#include <cmath>
 #include <vector>
 #include <ostream>
 

@@ -23,8 +23,9 @@ namespace Prometheus {
 
 
 class StringExporter: public Poco::Prometheus::Exporter
-	/// Simple exporter writing all metrics to a string, comma-separated,
-	/// in the form metric=value[, metric=value...].
+	/// Simple exporter writing all samples to a string, each followed by a space,
+	/// in the form name=value, or name{label="value",...}=value for a sample
+	/// with labels. Timestamps are not written.
 	/// This is useful for writing metrics to a log.
 {
 public:

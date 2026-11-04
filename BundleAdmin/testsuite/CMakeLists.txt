@@ -1,0 +1,27 @@
+# Sources
+file(GLOB SRCS_G "src/*.cpp")
+POCO_SOURCES_AUTO(TEST_SRCS ${SRCS_G})
+
+# Headers
+file(GLOB_RECURSE HDRS_G "src/*.h")
+POCO_HEADERS_AUTO(TEST_SRCS ${HDRS_G})
+
+# The log capture of the Web test suite.
+list(APPEND TEST_SRCS ${PROJECT_SOURCE_DIR}/Web/testsuite/src/LogCapture.cpp)
+
+add_executable(OSPBundleAdmin-testrunner ${TEST_SRCS})
+target_include_directories(OSPBundleAdmin-testrunner PRIVATE ${PROJECT_SOURCE_DIR}/Web/testsuite/src)
+# The tests load the request handler factories from the bundle library, with
+# the bundle properties of the bundle.
+add_dependencies(OSPBundleAdmin-testrunner com.appinf.osp.bundleadmin)
+target_compile_definitions(OSPBundleAdmin-testrunner PRIVATE
+	"BUNDLEADMIN_BUNDLE_LIBRARY=\"$<TARGET_FILE:com.appinf.osp.bundleadmin>\""
+	"BUNDLEADMIN_BUNDLE_PROPERTIES=\"${CMAKE_CURRENT_SOURCE_DIR}/../bundle/bundle.properties\""
+)
+add_test(
+	NAME OSPBundleAdmin
+	WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+	COMMAND OSPBundleAdmin-testrunner -ignore ${POCO_OSP_CPPIGNORE_FILE} -all
+)
+
+target_link_libraries(OSPBundleAdmin-testrunner PRIVATE Poco::OSPWeb Poco::OSP Poco::Net Poco::Zip Poco::Util Poco::XML Poco::Foundation Poco::CppUnit)

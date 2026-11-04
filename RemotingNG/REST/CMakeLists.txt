@@ -25,9 +25,9 @@ target_link_libraries(
 
 # Build Bundle
 poco_osp_bundle(${TARGET}-bundle
-	DEPENDS ${TARGET}
+	DEPENDS Poco::RemotingNGREST ${TARGET}
 	SPEC ${BUNDLE_SPEC}
-	CODE $<TARGET_FILE:${TARGET}>
+	CODE $<TARGET_FILE:Poco::RemotingNGREST> $<TARGET_FILE:${TARGET}>
 	DESTINATION ${POCO_OSP_BUNDLE_DIR}
 )
 

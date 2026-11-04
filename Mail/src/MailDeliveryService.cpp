@@ -15,6 +15,7 @@
 
 
 #include "Poco/OSP/Mail/MailDeliveryService.h"
+#include "Poco/Mutex.h"
 
 
 namespace Poco {
@@ -102,7 +103,10 @@ void MailDeliveryHandle::updateStatus(MailStatus status)
 
 void MailDeliveryHandle::updateStatus(const Poco::Exception& exc)
 {
-	_pException = exc.clone();
+	{
+		Poco::FastMutex::ScopedLock lock(_mutex);
+		_pException = exc.clone();
+	}
 	updateStatus(MAIL_FAILED);
 }
 

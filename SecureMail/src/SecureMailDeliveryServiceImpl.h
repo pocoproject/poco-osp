@@ -24,6 +24,7 @@
 
 #include "Poco/OSP/Mail/MailDeliveryServiceImpl.h"
 #include "Poco/Net/Context.h"
+#include "Poco/Util/AbstractConfiguration.h"
 
 
 namespace Poco {
@@ -42,8 +43,24 @@ public:
 		SMTP_OVER_TLS = 1
 	};
 
+	SecureMailDeliveryServiceImpl() = delete;
+
 	SecureMailDeliveryServiceImpl(Mode mode, const MailDeliveryServiceImpl::Configuration& config, Poco::Logger& logger, Poco::Net::Context::Ptr pContext = 0);
 	~SecureMailDeliveryServiceImpl();
+
+	SecureMailDeliveryServiceImpl(const SecureMailDeliveryServiceImpl&) = delete;
+	SecureMailDeliveryServiceImpl(SecureMailDeliveryServiceImpl&&) = delete;
+	SecureMailDeliveryServiceImpl& operator = (const SecureMailDeliveryServiceImpl&) = delete;
+	SecureMailDeliveryServiceImpl& operator = (SecureMailDeliveryServiceImpl&&) = delete;
+
+	[[nodiscard]] static Poco::Net::Context::Ptr createContext(const Poco::Util::AbstractConfiguration& settings);
+		/// Creates the TLS client context from the osp.mail.tls.* settings.
+		///
+		/// The context requires TLS 1.2 or later, trusts the certificates in caLocation
+		/// and the default CA certificates, presents the client certificate and private key
+		/// if they are given, uses the cipher list if it is given, and checks that the
+		/// server certificate names the mail server unless extendedCertificateVerification
+		/// is false.
 
 	// Service
 	const std::type_info& type() const;

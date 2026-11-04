@@ -21,9 +21,9 @@ target_link_libraries(${TARGET} PRIVATE Poco::RemotingNGTCP Poco::RemotingNG Poc
 
 # Build Bundle
 poco_osp_bundle(${TARGET}-bundle
-	DEPENDS ${TARGET}
+	DEPENDS Poco::RemotingNGTCP ${TARGET}
 	SPEC ${BUNDLE_SPEC}
-	CODE $<TARGET_FILE:${TARGET}>
+	CODE $<TARGET_FILE:Poco::RemotingNGTCP> $<TARGET_FILE:${TARGET}>
 	DESTINATION ${POCO_OSP_BUNDLE_DIR}
 )
 
@@ -33,3 +33,7 @@ install(
 	COMPONENT    Bundles
 	FILES_MATCHING PATTERN "${TARGET}*.bndl"
 )
+
+if(POCO_OSP_ENABLE_TESTS)
+	add_subdirectory(testsuite)
+endif()

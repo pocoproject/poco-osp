@@ -15,6 +15,10 @@
 			<symbolicName>poco.net</symbolicName>
 			<version>[1.0.0,2.0.0)</version>
 		</dependency>
+		<dependency>
+			<symbolicName>poco.remotingng</symbolicName>
+			<version>[1.0.0,2.0.0)</version>
+		</dependency>
 	</manifest>
 	<code>
 		${bin}/*.dll,

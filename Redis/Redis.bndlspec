@@ -6,10 +6,6 @@
     <version>1.11.8</version>
     <vendor>Aleph ONE</vendor>
     <copyright>(c) 2021-2025, Aleph ONE Software Engineering LLC</copyright>
-    <activator>
-      <class>RedisBundleActivator</class>
-      <library>poco.redis</library>
-    </activator>
     <lazyStart>false</lazyStart>
     <runLevel>000</runLevel>
   </manifest>

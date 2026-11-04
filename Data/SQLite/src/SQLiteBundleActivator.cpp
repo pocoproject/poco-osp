@@ -50,8 +50,8 @@ public:
 				Poco::Data::SQLite::Connector::enableSharedCache(sharedCache);
 			}
 		
-			bool heapLimit = pPrefs->configuration()->getInt("data.sqlite.softHeapLimit", 0);
-			if (heapLimit)
+			int heapLimit = pPrefs->configuration()->getInt("data.sqlite.softHeapLimit", 0);
+			if (heapLimit > 0)
 			{
 				Poco::Data::SQLite::Connector::enableSoftHeapLimit(heapLimit);
 			}

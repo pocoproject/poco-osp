@@ -25,7 +25,7 @@ public:
 	~BundleListHandler();
 		/// Destroys the BundleListHandler.
 		
-	void run();
+	void handle() override;
 };
 
 

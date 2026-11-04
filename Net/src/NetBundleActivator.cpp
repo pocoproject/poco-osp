@@ -19,6 +19,7 @@
 #include "Poco/Net/FTPStreamFactory.h"
 #include "Poco/Net/HTTPSessionInstantiator.h"
 #include "Poco/Net/HTTPClientSession.h"
+#include "Poco/String.h"
 #include "Poco/ClassLibrary.h"
 
 
@@ -62,17 +63,31 @@ public:
 			if (!proxyConfig.host.empty())
 			{
 				Poco::Net::HTTPClientSession::setGlobalProxyConfig(proxyConfig);
+				_proxyConfigured = true;
 			}
+			Poco::secureClear(proxyConfig.password);
 		}
 	}
 		
 	void stop(BundleContext::Ptr pContext)
 	{
+		if (_proxyConfigured)
+		{
+			// HTTPClientSession keeps the configuration, password included, in a
+			// static object that it returns as a const reference; replacing it
+			// alone would leave the password in freed memory.
+			Poco::secureClear(const_cast<Poco::Net::ProxyConfig&>(Poco::Net::HTTPClientSession::getGlobalProxyConfig()).password);
+			Poco::Net::HTTPClientSession::setGlobalProxyConfig(Poco::Net::ProxyConfig());
+			_proxyConfigured = false;
+		}
 		HTTPSessionInstantiator::unregisterInstantiator();
 		HTTPStreamFactory::unregisterFactory();
 		FTPStreamFactory::unregisterFactory();
 		Poco::Net::uninitializeNetwork();
 	}
+
+private:
+	bool _proxyConfigured = false;
 };
 
 

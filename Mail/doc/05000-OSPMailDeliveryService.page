@@ -67,6 +67,8 @@ track progress.
 
 Note that the mail message queue is kept in main memory, so any messages
 remaining in the queue when the application terminates will not be delivered.
+When the service stops, the messages remaining in the queue fail
+(Poco::OSP::Mail::MailDeliveryHandle::MAIL_FAILED).
 
 The size of the queue can be limited by a configuration setting. The default
 limit is 100 messages. The Poco::OSP::Mail::MailDeliveryService::sendMessage()
@@ -98,13 +100,26 @@ The port number of the outgoing SMTP server. Default is 25.
 
 !! osp.mail.sender
 
-The sender's email address. Must be specified.
+The sender's email address, for messages without a sender. Must be specified.
+The service does not change the messages passed to sendMessage().
+
+
+!! osp.mail.clientHost
+
+The host name the service sends in the EHLO command. If not specified, the
+name of the local host is sent.
+
+
+!! osp.mail.generateMID
+
+If true, and osp.mail.clientHost is specified, the service sends a message
+without a Message-ID header field with a generated one. Default is false.
 
 
 !! osp.mail.login.method
 
 The method for authenticating against the outgoing SMTP server.
-Must be one of the following (case sensitive):
+Must be one of the following (not case sensitive):
 
   - cram-md5
   - cram-sha1
@@ -115,7 +130,20 @@ Must be one of the following (case sensitive):
   - none (default)
 
 If any method other than "none" is specified, a username and
-password must be configured.
+password must be configured. An invalid method is logged as a warning,
+and "none" is used.
+
+NOTE: The <*com.appinf.osp.mail*> bundle connects without TLS: the messages,
+and with the methods plain, login and xoauth2 the password or the token, are
+sent in clear text. Use the secure mail bundle (see osp.mail.secure) to send
+them over TLS.
+
+NOTE: On Windows, POCO's ntlm login with an empty username and password uses
+the credentials of the process (SSPI), for which the SMTP session needs the
+host name of the server. The service connects the session through a socket,
+to apply osp.mail.socketTimeout to the connect, and POCO's session created
+from a socket has no host name. That form of login is therefore not
+available; configure a username and password.
 
 
 !! osp.mail.login.username
@@ -132,14 +160,14 @@ token.
 
 !! osp.mail.socketTimeout
 
-The timeout for the TCP connection to the outgoing SMTP server in seconds.
-Default is 60 seconds.
+The timeout in seconds for connecting to the outgoing SMTP server, for the
+TLS handshake, and for every send and receive operation. Default is 60 seconds.
 
 
 !! osp.mail.sessionTimeout
 
-The timeout waiting for responses from the outgoing SMTP server in seconds.
-Defaults is 30 seconds. Must be smaller than the specified socket timeout.
+The time in seconds after which the connection to the outgoing SMTP server is
+closed when no message has been delivered. Default is 30 seconds.
 
 
 !! osp.mail.limits.maxQueued
@@ -149,6 +177,61 @@ The maximum number of queued mail messages. Defaults to 100.
 
 !! osp.mail.limits.maxFailedLogins
 
-The maximum number of failed logins to the outgoing SMTP server. If this
-limit is exceeded, queued messages will be discarded. After each failed
-login, the service will wait some time before trying again.
+The number of failed logins to the outgoing SMTP server after which the
+message to be delivered fails. The next message gets the same number of
+attempts. After each failed login, the service waits 10 seconds before
+trying again. Default is 10.
+
+
+!!! Secure Mail Delivery
+
+The <*com.appinf.osp.mail.secure*> bundle provides a MailDeliveryService that
+sends messages over TLS. It is used instead of the service of the
+<*com.appinf.osp.mail*> bundle if osp.mail.secure is true. It uses all the
+settings above, and the following ones.
+
+
+!! osp.mail.secure
+
+Set to true to use the secure MailDeliveryService. Default is false.
+
+
+!! osp.mail.tls.mode
+
+How the connection to the outgoing SMTP server is secured:
+
+  - starttls (default): the service connects without TLS and sends STARTTLS
+    before it logs in. If the server does not accept STARTTLS, the delivery
+    fails; the service never logs in or sends a message without TLS.
+  - smtpovertls: the connection starts with TLS (typically port 465).
+
+An invalid mode is logged as a warning, and starttls is used.
+
+
+!! osp.mail.tls.caLocation
+
+A file or directory with the certificates of the certificate authorities that
+the service trusts in addition to the default ones of the system.
+
+
+!! osp.mail.tls.certificate
+
+The file with the client certificate, if the server requires one.
+
+
+!! osp.mail.tls.privateKey
+
+The file with the private key of the client certificate.
+
+
+!! osp.mail.tls.ciphers
+
+The list of ciphers in OpenSSL format. If not specified, the default list of
+Poco::Net::Context is used.
+
+
+!! osp.mail.tls.extendedCertificateVerification
+
+If true (default), the service checks that the certificate of the server
+names the host given in osp.mail.host. The service always requires TLS 1.2
+or later.

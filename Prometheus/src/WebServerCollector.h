@@ -13,10 +13,13 @@
 
 
 #include "Poco/Prometheus/Collector.h"
-#include "Poco/Prometheus/CallbackMetric.h"
+#include "Poco/Prometheus/Metric.h"
 #include "Poco/OSP/Web/WebServerService.h"
 #include "Poco/AutoPtr.h"
+#include "Poco/Mutex.h"
+#include <functional>
 #include <memory>
+#include <vector>
 
 
 namespace Poco {
@@ -25,27 +28,47 @@ namespace Prometheus {
 
 
 class WebServerCollector: public Poco::Prometheus::Collector
+	/// Exports the connection and thread metrics of the web servers, with one
+	/// sample per server in each metric. The label "server" names the server
+	/// in the form protocol://host:port.
 {
 public:
-	explicit WebServerCollector(Poco::AutoPtr<Poco::OSP::Web::WebServerService> pWebServerService);
-		/// Creates a default WebServerCollector.
+	using WebServerPtr = Poco::AutoPtr<Poco::OSP::Web::WebServerService>;
 
-	~WebServerCollector() = default;
+	WebServerCollector();
+		/// Creates a WebServerCollector without web servers and registers it
+		/// with the default registry.
+
+	~WebServerCollector() override;
 		/// Destroys the WebServerCollector.
+
+	WebServerCollector(const WebServerCollector&) = delete;
+	WebServerCollector(WebServerCollector&&) = delete;
+	WebServerCollector& operator = (const WebServerCollector&) = delete;
+	WebServerCollector& operator = (WebServerCollector&&) = delete;
+
+	void addServer(const WebServerPtr& pWebServerService);
+		/// Adds the samples of the given web server.
+
+	void removeServer(const WebServerPtr& pWebServerService);
+		/// Removes the samples of the given web server.
 
 	// Collector
 	void exportTo(Poco::Prometheus::Exporter& exporter) const override;
-		/// Writes the given Metric to the Exporter.
-
-protected:
-	void buildMetrics();
+		/// Writes the metrics of all web servers to the Exporter.
 
 private:
-	using GaugePtr = std::unique_ptr<Poco::Prometheus::CallbackIntGauge>;
-	using CounterPtr = std::unique_ptr<Poco::Prometheus::CallbackIntCounter>;
-	std::vector<GaugePtr> _gauges;
-	std::vector<CounterPtr> _counters;
-	Poco::AutoPtr<Poco::OSP::Web::WebServerService> _pWebServerService;
+	struct ServerMetric
+	{
+		std::unique_ptr<Poco::Prometheus::Metric> pMetric;
+		std::function<int(const Poco::OSP::Web::WebServerService&)> value;
+	};
+
+	void addMetric(Poco::Prometheus::Metric::Type type, const std::string& name, const std::string& help, std::function<int(const Poco::OSP::Web::WebServerService&)> value);
+
+	std::vector<ServerMetric> _metrics;
+	std::vector<WebServerPtr> _servers;
+	mutable Poco::FastMutex _mutex;
 };
 
 

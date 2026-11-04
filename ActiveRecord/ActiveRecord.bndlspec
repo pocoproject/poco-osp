@@ -6,10 +6,6 @@
     <version>1.11.10</version>
     <vendor>Applied Informatics</vendor>
     <copyright>(c) 2020-2026, Applied Informatics Software Engineering GmbH</copyright>
-    <activator>
-      <class>ActiveRecordBundleActivator</class>
-      <library>poco.activerecord</library>
-    </activator>
     <lazyStart>false</lazyStart>
     <runLevel>000</runLevel>
     <dependency>

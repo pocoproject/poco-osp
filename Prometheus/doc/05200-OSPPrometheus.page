@@ -1,0 +1,103 @@
+OSP Prometheus Metrics
+Open Service Platform
+
+!!! Introduction
+
+The <*poco.prometheus*> bundle exports metrics of the OSP process in the
+Prometheus text format: the process metrics, the threads of the default thread
+pool and of the web server thread pool, the connections of the web servers,
+the requests that the web server dispatcher has handled and the number of active
+web sessions. The metrics of the web servers have the label "server", whose
+value is protocol://host:port.
+
+The bundle serves the metrics with its own HTTP server, and can also write
+them to the log at a fixed interval.
+
+NOTE: The metrics server listens on all interfaces by default, without TLS,
+and without authentication unless prometheus.permission is set. The
+metrics show the load of the process and of its web servers. Set
+prometheus.host to 127.0.0.1 if only local clients may read them.
+With prometheus.permission, the user names and passwords of the OSP users
+are sent in clear text (HTTP Basic authentication), unless a proxy in front
+of the metrics server terminates TLS.
+
+
+!!! Configuring the Prometheus Bundle
+
+The bundle is configured using the global application configuration file.
+The following configuration properties are available:
+
+
+!! prometheus.enable
+
+Set to true to collect and export the metrics. Default is false.
+
+
+!! prometheus.host
+
+The address the metrics server listens on. Default is 0.0.0.0 (all interfaces).
+
+
+!! prometheus.port
+
+The port of the metrics server. Default is 9100. With 0, the metrics server
+is not started.
+
+
+!! prometheus.path
+
+The path of the metrics. Default is /metrics. Requests for other paths are
+answered with 404 Not Found.
+
+
+!! prometheus.permission
+
+The permission a user needs to read the metrics. If set, a request must carry
+HTTP Basic credentials, which the auth service checks (see
+osp.web.authServiceName). The answer is 401 Unauthorized without valid
+credentials, 403 Forbidden for a user without the permission, and
+503 Service Unavailable while the auth service is not available. Default is
+empty: every client can read the metrics.
+
+
+!! osp.web.authServiceName
+
+The name of the auth service that checks the credentials. Default is "osp.auth".
+
+
+!! prometheus.server.maxQueued
+
+The maximum number of queued connections of the metrics server. Default is 8.
+
+
+!! prometheus.server.maxThreads
+
+The maximum number of threads of the metrics server. Default is 2.
+
+
+!! prometheus.server.keepAlive
+
+Set to true to keep the connections of the metrics server open for further
+requests. Default is false.
+
+
+!! prometheus.server.keepAliveTime
+
+The time in seconds after which an idle connection is closed. Default is 10.
+
+
+!! prometheus.server.maxKeepAlive
+
+The maximum number of requests on one connection. Default is 10.
+
+
+!! prometheus.log.enable
+
+Set to true to write the metrics to the logger "Metrics" at information level.
+Default is false.
+
+
+!! prometheus.log.interval
+
+The interval in seconds at which the metrics are written to the log.
+Default is 30.

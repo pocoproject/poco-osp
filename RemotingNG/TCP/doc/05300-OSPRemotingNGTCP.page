@@ -1,0 +1,55 @@
+OSP Remoting NG TCP Transport
+Open Service Platform
+
+!!! Introduction
+
+The <*com.appinf.osp.remotingng.tcp*> bundle registers the Remoting NG TCP
+transport and, if a listener is configured, exports services over it: every
+service registered with the property <[remoting.tcp.enable]> set to true whose
+object is a Poco::RemotingNG::RemoteObject is registered with the ORB, and
+the URI of the object is stored in the service property <[remoting.tcp.uri]>.
+A service that cannot be exported is logged as an error; its registration
+succeeds.
+
+
+!!! Configuring the Bundle
+
+The bundle is configured using the global application configuration file.
+The following configuration properties are available:
+
+
+!! remoting.tcp.listener
+
+The endpoint of the listener, in one of these forms:
+
+  - <host>:<port> for a TCP socket, with an IPv6 address in brackets. With
+    port 0, the system chooses a free port, which the URIs of the exported
+    services carry.
+  - On POSIX systems, an absolute path (starting with "/") for a local (UNIX
+    domain) socket. A socket file that exists at the path is removed when the
+    bundle starts; any other file at the path is kept, and the bundle does not
+    start.
+
+The port is a decimal number. A value in another form, such as a Windows path
+or a service name as the port, is rejected, and the bundle does not start.
+
+Without the setting, no listener is created and no service is exported.
+
+
+!! remoting.tcp.listener.mode
+
+The file mode of a local socket, in octal. Default is 0660: the owner and
+the group of the process can connect.
+
+NOTE: The directory of the socket must not be writable by other users. A user
+who can write to it can replace the socket file.
+
+
+!! remoting.tcp.connection.idleTimeout
+
+The time in seconds after which an idle connection is closed. Default is 60.
+
+
+!! remoting.tcp.connection.handshakeTimeout
+
+The time in seconds for the handshake of a new connection. Default is 8.

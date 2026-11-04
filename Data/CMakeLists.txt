@@ -1,29 +1,11 @@
 set(TARGET "poco.data")
 set(BUNDLE_SPEC "${CMAKE_CURRENT_SOURCE_DIR}/Data.bndlspec")
 
-# Sources
-file(GLOB SRCS_G "src/*.cpp")
-POCO_SOURCES_AUTO(SRCS ${SRCS_G})
-
-# Dynamic Library
-add_library(${TARGET} MODULE ${SRCS})
-set_target_properties(${TARGET}
-	PROPERTIES
-	PREFIX ""
-)
-
-# On macOS, use .dylib instead of .so
-if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
-	set_target_properties(${TARGET} PROPERTIES SUFFIX ".dylib")
-endif()
-
-target_link_libraries(${TARGET} PRIVATE Poco::OSP Poco::Zip Poco::Data Poco::Util Poco::XML Poco::JSON Poco::Foundation)
-
 # Build Bundle
 poco_osp_bundle(${TARGET}-bundle
-	DEPENDS Poco::Data ${TARGET}
+	DEPENDS Poco::Data
 	SPEC ${BUNDLE_SPEC}
-	CODE $<TARGET_FILE:Poco::Data> $<TARGET_FILE:${TARGET}>
+	CODE $<TARGET_FILE:Poco::Data>
 	DESTINATION ${POCO_OSP_BUNDLE_DIR}
 )
 

@@ -26,7 +26,7 @@ public:
 	~BundleInfoHandler();
 		/// Destroys the BundleInfoHandler.
 
-	void run();
+	void handle() override;
 
 protected:
 	using BundleVec = std::vector<Poco::OSP::Bundle::Ptr>;

@@ -30,6 +30,8 @@
 #include "Poco/Exception.h"
 #include "Poco/Notification.h"
 #include "Poco/BasicEvent.h"
+#include "Poco/Mutex.h"
+#include <atomic>
 
 
 namespace Poco {
@@ -118,8 +120,9 @@ private:
 
 	MailMessagePtr _pMessage;
 	Poco::Event _event;
-	MailStatus  _status;
+	std::atomic<MailStatus> _status;
 	ExceptionPtr _pException;
+	mutable Poco::FastMutex _mutex;
 
 	friend class MailDeliveryServiceImpl;
 };
@@ -167,6 +170,7 @@ inline MailDeliveryHandle::MailStatus MailDeliveryHandle::status() const
 
 inline ExceptionPtr MailDeliveryHandle::exception() const
 {
+	Poco::FastMutex::ScopedLock lock(_mutex);
 	return _pException;
 }
 

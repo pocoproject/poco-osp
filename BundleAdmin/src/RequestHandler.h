@@ -14,6 +14,7 @@
 
 #include "Poco/Net/AbstractHTTPRequestHandler.h"
 #include "Poco/OSP/BundleContext.h"
+#include "Poco/OSP/Web/WebSession.h"
 #include "Poco/Util/MapConfiguration.h"
 #include "Poco/AutoPtr.h"
 #include <ostream>
@@ -28,6 +29,15 @@ protected:
 
 	~RequestHandler();
 		/// Destroys the RequestHandler.
+
+	void run() override;
+		/// Calls handle(). If handle() throws an exception before the response
+		/// has been sent, sends a 500 Internal Server Error page with the
+		/// escaped message of the exception. An exception after the response
+		/// has been sent is logged.
+
+	virtual void handle() = 0;
+		/// Handles the request.
 	
 	Poco::OSP::BundleContext::Ptr context() const;
 		/// Returns the bundle context.
@@ -130,7 +140,8 @@ protected:
 		/// Writes an action button.
 		
 	void sendTemplate(const std::string& templateName);
-		/// Sends a template.
+		/// Sends a template, with the template arguments inserted (see expandArgs()).
+		/// The arguments must be valid HTML.
 		
 	void linkBundle(Poco::OSP::Bundle::ConstPtr pBundle, const std::string& name);
 		/// Writes a link to a bundle.
@@ -138,13 +149,55 @@ protected:
 	void linkBundle(const std::string& symbolicName);
 		/// Writes a link to a bundle.
 
+	[[nodiscard]] bool isSameOriginPost();
+		/// Returns true if the request is a POST request, and its Origin header
+		/// field (or, without one, its Referer header field) names the origin
+		/// of the request itself.
+
+	[[nodiscard]] bool hasValidCSRFToken(const std::string& token);
+		/// Returns true if the request does not belong to the web session named
+		/// by the bundle property web.session, or if token is the CSRF token of
+		/// that session.
+
+	[[nodiscard]] bool isNeededByThisBundle(Poco::OSP::Bundle::Ptr pBundle);
+		/// Returns true if pBundle is this bundle, or a bundle that this bundle depends
+		/// on, directly or through other bundles: stopping, uninstalling or replacing it
+		/// would stop the code that handles the request.
+
+	void sendForbidden();
+		/// Sends a 403 Forbidden response for a request that would change
+		/// the state of a bundle, but is not allowed to.
+
+	[[nodiscard]] std::string csrfTokenOfSession();
+		/// Returns the CSRF token of the web session of the request named by the
+		/// bundle property web.session, or an empty string if the request has no
+		/// such session.
+
 	std::string text(const std::string& id);
-		/// Returns a text fragment from the resources.
+		/// Returns a text fragment from the resources, with the template
+		/// arguments inserted (see expandArgs()).
+
+	[[nodiscard]] std::string expandArgs(const std::string& text);
+		/// Replaces every ${name} in text for which a template argument exists
+		/// with the value of the argument. The values, which can contain text from
+		/// bundle manifests, are inserted as they are, without expanding them again.
 
 	static std::string htmlize(const std::string& str);
-		/// Escapes characters in str to make it valid HTML.
+		/// Escapes characters in str to make it valid HTML, also in attribute values.
+
+	[[nodiscard]] static std::string encodeQueryValue(const std::string& str);
+		/// Encodes str for a parameter value in the query of a URI.
 			
 private:
+	[[nodiscard]] Poco::OSP::Web::WebSession::Ptr session();
+		/// Returns the web session of the request named by the bundle property
+		/// web.session, or a null pointer if the request has no such session
+		/// or no web session manager is registered.
+
+	void logIncompleteResponse(const std::string& reason);
+		/// Logs an error that ended the request after a part of the response
+		/// had been sent.
+
 	Poco::OSP::BundleContext::Ptr _pContext;
 	std::ostream* _pStream;
 	Poco::AutoPtr<Poco::Util::MapConfiguration> _pTemplateArgs;
