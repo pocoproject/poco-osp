@@ -95,6 +95,10 @@ public:
 
 	void unregisterService(ServiceRef::Ptr pServiceRef);
 		/// Unregisters the service specified by pServiceRef.
+		///
+		/// Throws a Poco::NotFoundException if that service is not
+		/// registered, also if another service of the same name has
+		/// been registered after it was unregistered.
 
 	ServiceRef::ConstPtr findByName(const std::string& name) const;
 		/// Looks up a service with the given name.
@@ -120,7 +124,7 @@ public:
 		///     subExpr       ::= "(" expr ")"
 		///     relOp         ::= "==" | "!=" | "<" | "<=" | ">" | ">="
 		///     value         ::= numLiteral | boolLiteral | stringLiteral
-		///     numLiteral    ::= [sign] digit*"."digit*["E"["+" | "-"]digit*]
+		///     numLiteral    ::= (digit+ ["." digit*] | "." digit+) [("E" | "e") ["+" | "-"] digit+]
 		///     boolLiteral   ::= "true" | "false"
 		///     stringLiteral ::= '"' char* '"'
 		///     matchExpr     ::= stringLiteral | regExpr
@@ -163,8 +167,8 @@ public:
 		///
 		/// Both delegates must accept a const Poco::OSP::ServiceRef::Ptr& as argument.
 
-	const ServiceMap& services() const;
-		/// Returns a const reference to the map of registered services.
+	[[nodiscard]] ServiceMap services() const;
+		/// Returns a copy of the map of registered services.
 
 	static const std::string PROP_NAME;
 	static const std::string PROP_TYPE;
@@ -173,6 +177,12 @@ public:
 private:
 	ServiceRegistry(const ServiceRegistry&);
 	ServiceRegistry& operator = (const ServiceRegistry&);
+
+	void removeService(const std::string& name, const ServiceRef* pServiceRef);
+		/// Unregisters the service with the given name, if pServiceRef
+		/// is null or the registered ServiceRef of that name.
+		///
+		/// Throws a Poco::NotFoundException otherwise.
 
 	ServiceMap    _services;
 	Poco::Logger& _logger;
@@ -195,12 +205,6 @@ inline std::vector<ServiceRef::Ptr> ServiceRegistry::find(const std::string& que
 	std::vector<ServiceRef::Ptr> result;
 	find(query, result);
 	return result;
-}
-
-
-inline const ServiceRegistry::ServiceMap& ServiceRegistry::services() const
-{
-	return _services;
 }
 
 

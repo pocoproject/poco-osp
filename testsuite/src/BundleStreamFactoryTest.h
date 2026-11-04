@@ -24,8 +24,10 @@ public:
 	BundleStreamFactoryTest(const std::string& name);
 	~BundleStreamFactoryTest();
 
-	void testStreamFactory();
-	void testB();
+	void testOpenReadsBundleResource();
+	void testOpenOfMissingResourceOrBundleThrowsNotFound();
+	void testUriWithoutPathIsRejected();
+	void testDefaultOpenerUsesRegisteredFactory();
 
 	void setUp();
 	void tearDown();

@@ -22,6 +22,7 @@
 #include "Poco/OSP/SystemEvents.h"
 #include "Poco/OSP/BundleFilter.h"
 #include "Poco/Util/Subsystem.h"
+#include <memory>
 
 
 namespace Poco {
@@ -61,7 +62,9 @@ class OSP_API OSPSubsystem: public Poco::Util::Subsystem
 	///                              ${application.dir}data)
 	///   - osp.skipBundles:         comma/semicolon-separated list of glob
 	///                              patterns matching bundle symbolic names
-	///                              to exclude from loading
+	///                              to exclude from loading; ignored if a
+	///                              bundle filter has been set with
+	///                              setBundleFilter()
 	///
 	/// The following configuration properties are set:
 	///   - osp.version: OSP Version from osp.core bundle (only if osp.core bundle is present)
@@ -111,10 +114,10 @@ protected:
 		/// Resolves and starts all loaded bundles.
 	
 private:
-	CodeCache*        _pCodeCache;
-	ServiceRegistry*  _pServiceRegistry;
-	BundleLoader*     _pBundleLoader;
-	BundleRepository* _pBundleRepository;
+	std::unique_ptr<CodeCache>        _pCodeCache;
+	std::unique_ptr<ServiceRegistry>  _pServiceRegistry;
+	std::unique_ptr<BundleLoader>     _pBundleLoader;
+	std::unique_ptr<BundleRepository> _pBundleRepository;
 	BundleFilter::Ptr _pBundleFilter;
 	SystemEvents      _systemEvents;
 	bool              _clearCache;
@@ -128,7 +131,7 @@ private:
 //
 inline BundleLoader& OSPSubsystem::bundleLoader()
 {
-	poco_check_ptr(_pBundleLoader);
+	poco_check_ptr(_pBundleLoader.get());
 	
 	return *_pBundleLoader;
 }
@@ -136,7 +139,7 @@ inline BundleLoader& OSPSubsystem::bundleLoader()
 
 inline ServiceRegistry& OSPSubsystem::serviceRegistry()
 {
-	poco_check_ptr (_pServiceRegistry);
+	poco_check_ptr (_pServiceRegistry.get());
 	
 	return *_pServiceRegistry;
 }

@@ -55,7 +55,7 @@ public:
 		/// default URIStreamOpener instance.	
 
 	static void unregisterFactory();
-		/// Registers the BundleStreamFactory with the
+		/// Unregisters the BundleStreamFactory from the
 		/// default URIStreamOpener instance.	
 
 private:

@@ -17,6 +17,8 @@
 #include "Poco/Logger.h"
 #include "Poco/Path.h"
 #include "Poco/File.h"
+#include "Poco/FileStream.h"
+#include "Poco/Exception.h"
 
 
 using Poco::FastMutex;
@@ -59,7 +61,6 @@ Preferences::~Preferences()
 			Logger::get(PreferencesService::SERVICE_NAME).error(std::string("Failed to save preferences: ")
 				+ exc.displayText());
 		}
-		_pConfig->release();
 	}
 	catch (...)
 	{
@@ -74,7 +75,29 @@ void Preferences::save()
 	
 	if (_dirty)
 	{
-		_pConfig->save(_path);
+		// The preferences are written to a temporary file that replaces the
+		// preferences file when complete, so a failed save keeps the previous ones.
+		File tmpFile(_path + ".tmp");
+		try
+		{
+			Poco::FileOutputStream ostr(tmpFile.path());
+			_pConfig->save(ostr);
+			ostr.close();
+			if (!ostr.good()) throw WriteFileException(tmpFile.path());
+			tmpFile.renameTo(_path);
+		}
+		catch (...)
+		{
+			try
+			{
+				if (tmpFile.exists()) tmpFile.remove();
+			}
+			catch (...)
+			{
+				// the exception being handled is reported, not the failed cleanup
+			}
+			throw;
+		}
 		_dirty = false;
 	}
 }
@@ -95,14 +118,19 @@ bool Preferences::getRaw(const std::string& key, std::string& value) const
 
 void Preferences::setRaw(const std::string& key, const std::string& value)		
 {
-	Poco::FastMutex::ScopedLock lock(_mutex);
-
 	std::string oldValue;
-	if (_pConfig->hasProperty(key))
-		oldValue = _pConfig->getRawString(key);
+	{
+		Poco::FastMutex::ScopedLock lock(_mutex);
 
+		if (_pConfig->hasProperty(key))
+			oldValue = _pConfig->getRawString(key);
+	}
+
+	// Fired without the lock, so that a delegate can read the preferences.
 	PreferencesEvent propertyChangedEvent(key, oldValue, value);
 	propertyChanged(this, propertyChangedEvent);
+
+	Poco::FastMutex::ScopedLock lock(_mutex);
 
 	_pConfig->setString(key, value);
 	_dirty = true;

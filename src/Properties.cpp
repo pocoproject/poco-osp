@@ -16,7 +16,9 @@
 #include "Poco/Exception.h"
 #include "Poco/NumberParser.h"
 #include "Poco/NumberFormatter.h"
+#include "Poco/Mutex.h"
 #include <algorithm>
+#include <functional>
 
 
 using Poco::NumberParser;
@@ -35,9 +37,11 @@ Properties::Properties()
 }
 
 
-Properties::Properties(const Properties& props):
-	_props(props._props)
+Properties::Properties(const Properties& props)
 {
+	Poco::FastMutex::ScopedLock lock(props._mutex);
+
+	_props = props._props;
 }
 
 
@@ -56,6 +60,14 @@ Properties& Properties::operator = (const Properties& props)
 
 void Properties::swap(Properties& props)
 {
+	if (this == &props) return;
+
+	// Locked in the same order whichever object swap() is called on,
+	// so that two threads swapping the same objects cannot deadlock.
+	const bool thisFirst = std::less<const Properties*>()(this, &props);
+	Poco::FastMutex::ScopedLock firstLock(thisFirst ? _mutex : props._mutex);
+	Poco::FastMutex::ScopedLock secondLock(thisFirst ? props._mutex : _mutex);
+
 	std::swap(_props, props._props);
 }
 

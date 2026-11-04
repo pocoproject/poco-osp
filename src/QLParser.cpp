@@ -46,16 +46,15 @@ QLParser::~QLParser()
 
 QLExpr::Ptr QLParser::parse()
 {
+	const Token* pNext = _tokenizer.next();
+	if (pNext->is(Token::EOF_TOKEN)) return new QLTrueExpr;
+
 	QLExpr::Ptr pExpr;
-	const Token* pNext = parseExpr(_tokenizer.next(), pExpr);
+	pNext = parseExpr(pNext, pExpr);
 	if (pNext->is(Token::EOF_TOKEN))
-	{
-		if (pExpr)
-			return pExpr;
-		else
-			return new QLTrueExpr;
-	}
-	else throw SyntaxException("Extra tokens after expression", pNext->asString());
+		return pExpr;
+	else
+		throw SyntaxException("Extra tokens after expression", pNext->asString());
 }
 
 
@@ -64,6 +63,7 @@ const Token* QLParser::parseExpr(const Token* next, QLExpr::Ptr& pExpr)
 	next = parseAndExpr(next, pExpr);
 	while (next->is(Token::OPERATOR_TOKEN) && next->asInteger() == OperatorToken::OP_OR)
 	{
+		countLogicalOperator();
 		next = _tokenizer.next();
 		QLExpr::Ptr pRight;
 		next = parseAndExpr(next, pRight);
@@ -78,12 +78,21 @@ const Token* QLParser::parseAndExpr(const Token* next, QLExpr::Ptr& pExpr)
 	next = parseRelExpr(next, pExpr);
 	while (next->is(Token::OPERATOR_TOKEN) && next->asInteger() == OperatorToken::OP_AND)
 	{
+		countLogicalOperator();
 		next = _tokenizer.next();
 		QLExpr::Ptr pRight;
 		next = parseRelExpr(next, pRight);
 		pExpr = new QLAndExpr(pExpr, pRight);
 	}
 	return next;
+}
+
+
+void QLParser::countLogicalOperator()
+{
+	// A chain of "&&" or "||" becomes a tree as deep as the chain is long,
+	// which evaluate() and the destructors walk recursively.
+	if (++_logicalOperators > MAX_LOGICAL_OPERATORS) throw SyntaxException("Too many && and || operators in expression");
 }
 
 
@@ -97,8 +106,12 @@ const Token* QLParser::parseRelExpr(const Token* next, QLExpr::Ptr& pExpr)
 	}
 	if (next->is(Token::OPERATOR_TOKEN) && next->asInteger() == OperatorToken::OP_OPENPARENT)
 	{
+		// Queries also come from users (the shell's services command):
+		// the nesting depth bounds the recursion of the parser.
+		if (++_depth > MAX_NESTING_DEPTH) throw SyntaxException("Expression nested too deeply");
 		next = _tokenizer.next();
 		next = parseExpr(next, pExpr);
+		--_depth;
 		if (next->is(Token::OPERATOR_TOKEN) && next->asInteger() == OperatorToken::OP_CLOSPARENT)
 			next = _tokenizer.next();
 		else
@@ -151,6 +164,7 @@ const Token* QLParser::parseRelExpr(const Token* next, QLExpr::Ptr& pExpr)
 			pExpr = new QLExistsExpr(prop);
 		}
 	}
+	else throw SyntaxException("Expected property name or '('", next->tokenString());
 	if (neg)
 	{
 		pExpr = new QLNotExpr(pExpr);

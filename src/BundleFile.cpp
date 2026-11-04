@@ -35,22 +35,33 @@ namespace OSP {
 
 namespace
 {
-	class BundleFileInputStream: public ZipIOS, public std::istream
+	struct BundleFileStream
+		/// Holds the file stream of a BundleFileInputStream. As the first
+		/// base class, it is constructed before ZipIOS uses the stream,
+		/// and destroyed after it.
+	{
+		explicit BundleFileStream(const std::string& path):
+			fileStream(path)
+		{
+		}
+
+		Poco::FileInputStream fileStream;
+	};
+
+
+	class BundleFileInputStream: private BundleFileStream, public ZipIOS, public std::istream
 	{
 	public:
 		BundleFileInputStream(const std::string& path, const ZipLocalFileHeader& fileEntry):
-			ZipIOS(_istr, fileEntry, true), 
-			std::istream(&_buf),
-			_istr(path)
+			BundleFileStream(path),
+			ZipIOS(fileStream, fileEntry, true),
+			std::istream(&_buf)
 		{
 		}
 		
 		~BundleFileInputStream()
 		{
 		}
-		
-	private:
-		Poco::FileInputStream _istr;
 	};
 }
 
@@ -90,7 +101,6 @@ void BundleFile::list(const std::string& path, std::vector<std::string>& files) 
 	poco_assert (_pArchive);
 	
 	files.clear();
-	int depth = 0;
 	std::string parent;
 	if (!path.empty())
 	{
@@ -99,34 +109,22 @@ void BundleFile::list(const std::string& path, std::vector<std::string>& files) 
 		parentPath.makeDirectory();
 		parent = parentPath.toString(Path::PATH_UNIX);
 	}
-	ZipArchive::FileHeaders::const_iterator it;
-	ZipArchive::FileHeaders::const_iterator end(_pArchive->headerEnd());
-	if (path.empty())
-	{
-		it = _pArchive->headerBegin();
-	}
-	else
-	{
-		it = _pArchive->findHeader(parent);
-		if (it != end) ++it;
-		depth = Path(parent).depth();
-	}
-	
+
+	// The names are taken from the paths of all entries below parent:
+	// an archive need not have entries for its directories.
 	std::set<std::string> fileSet;
-	while (it != end && isSubdirectoryOf(it->first, parent))
+	for (ZipArchive::FileHeaders::const_iterator it = _pArchive->headerBegin(); it != _pArchive->headerEnd(); ++it)
 	{
-		Path p(it->first, Path::PATH_UNIX);
-		p.makeFile();
-		if (p.depth() == depth)
+		if (isSubdirectoryOf(it->first, parent))
 		{
-			std::string name = p.getFileName();
-			if (fileSet.find(name) == fileSet.end())
+			const std::string::size_type endPos = it->first.find('/', parent.size());
+			const std::string::size_type length = endPos == std::string::npos ? std::string::npos : endPos - parent.size();
+			const std::string name(it->first, parent.size(), length);
+			if (!name.empty() && fileSet.insert(name).second)
 			{
 				files.push_back(name);
-				fileSet.insert(name);
 			}
 		}
-		++it;
 	}
 }
 
@@ -135,18 +133,11 @@ Poco::Timestamp BundleFile::lastModified(const std::string& path) const
 {
 	poco_assert (_pArchive);
 
-	ZipArchive::FileInfos::const_iterator it(_pArchive->fileInfoBegin());
-	ZipArchive::FileInfos::const_iterator end(_pArchive->fileInfoEnd());
-	while (it != end)
-	{
-		if (it->first == path)
-		{
-			return it->second.lastModifiedAt().timestamp();
-		}
-		++it;
-	}
-
-	throw Poco::NotFoundException(path);
+	ZipArchive::FileHeaders::const_iterator it = _pArchive->findHeader(path);
+	if (it != _pArchive->headerEnd())
+		return it->second.lastModifiedAt().timestamp();
+	else
+		throw Poco::NotFoundException(path);
 }
 
 

@@ -23,6 +23,7 @@
 #include "Poco/AutoPtr.h"
 #include "Poco/Any.h"
 #include "Poco/RegularExpression.h"
+#include "Poco/Glob.h"
 
 
 namespace Poco {
@@ -206,17 +207,22 @@ class OSP_API QLMatchExpr: public QLExpr
 {
 public:
 	QLMatchExpr(const std::string& prop, const std::string& expr);
+		/// Creates the QLMatchExpr for the given Poco::Glob pattern.
+		///
+		/// Throws a Poco::SyntaxException if the pattern contains
+		/// more than MAX_WILDCARDS '*' characters.
+
 	~QLMatchExpr();
 
 	bool evaluate(const Properties& props) const;
 
-protected:
-	bool match(std::string::const_iterator itp, const std::string::const_iterator& endp, std::string::const_iterator its, const std::string::const_iterator& ends) const;
-	bool matchSet(std::string::const_iterator& itp, const std::string::const_iterator& endp, char c) const;
+	static constexpr int MAX_WILDCARDS = 16;
+		/// The maximum number of '*' characters in a pattern.
 
 private:
 	std::string _prop;
-	std::string _expr;
+	mutable Poco::Glob _glob;
+		// Poco::Glob::match() is not const, but does not change the Glob.
 };
 
 

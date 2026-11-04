@@ -18,6 +18,7 @@
 #include "Poco/OSP/Properties.h"
 #include "Poco/Delegate.h"
 #include "Poco/Exception.h"
+#include <vector>
 
 
 using Poco::OSP::ServiceRegistry;
@@ -86,7 +87,7 @@ ServiceRegistryTest::~ServiceRegistryTest()
 }
 
 
-void ServiceRegistryTest::testRegistry()
+void ServiceRegistryTest::testRegisterFindAndUnregisterServices()
 {
 	ServiceRegistry reg;
 	reg.serviceRegistered   += Delegate<ServiceRegistryTest, ServiceEvent>(this, &ServiceRegistryTest::handleEvent);
@@ -192,6 +193,85 @@ void ServiceRegistryTest::testRegistry()
 }
 
 
+void ServiceRegistryTest::testServicesReturnsCopy()
+{
+	ServiceRegistry reg;
+	Service::Ptr pService = new TestService;
+	reg.registerService("Service1", pService, Properties());
+
+	const ServiceRegistry::ServiceMap& services = reg.services();
+	reg.unregisterService("Service1");
+
+	assertTrue (services.size() == 1);
+	assertTrue (services.find("Service1") != services.end());
+	assertTrue (reg.services().empty());
+}
+
+
+void ServiceRegistryTest::testUnregisterOfUnknownServiceThrowsNotFound()
+{
+	ServiceRegistry reg;
+	try
+	{
+		reg.unregisterService("Service1");
+		fail("unknown service - must throw");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+
+	ServiceRef::Ptr pRef = reg.registerService("Service1", new TestService, Properties());
+	reg.unregisterService(pRef);
+	assertTrue (reg.findByName("Service1") == nullptr);
+	try
+	{
+		reg.unregisterService(pRef);
+		fail("service already unregistered - must throw");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+}
+
+
+void ServiceRegistryTest::testUnregisterOfStaleRefKeepsServiceOfSameName()
+{
+	ServiceRegistry reg;
+	ServiceRef::Ptr pOldRef = reg.registerService("Service1", new TestService, Properties());
+	reg.unregisterService(pOldRef);
+	ServiceRef::Ptr pNewRef = reg.registerService("Service1", new TestService, Properties());
+
+	try
+	{
+		reg.unregisterService(pOldRef);
+		fail("service already unregistered - must throw");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+	assertTrue (reg.findByName("Service1") == pNewRef);
+}
+
+
+void ServiceRegistryTest::testFindWithSyntaxErrorKeepsResults()
+{
+	ServiceRegistry reg;
+	reg.registerService("Service1", new TestService, Properties());
+	std::vector<ServiceRef::Ptr> results;
+	assertEqual (1, static_cast<int>(reg.find("name == \"Service1\"", results)));
+
+	try
+	{
+		reg.find("name ==", results);
+		fail("syntax error - must throw");
+	}
+	catch (Poco::SyntaxException&)
+	{
+	}
+	assertTrue (results.size() == 1);
+}
+
+
 void ServiceRegistryTest::handleEvent(const void* sender, Poco::OSP::ServiceEvent& event)
 {
 	_events.push_back(event);
@@ -212,7 +292,11 @@ CppUnit::Test* ServiceRegistryTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("ServiceRegistryTest");
 
-	CppUnit_addTest(pSuite, ServiceRegistryTest, testRegistry);
+	CppUnit_addTest(pSuite, ServiceRegistryTest, testRegisterFindAndUnregisterServices);
+	CppUnit_addTest(pSuite, ServiceRegistryTest, testServicesReturnsCopy);
+	CppUnit_addTest(pSuite, ServiceRegistryTest, testUnregisterOfUnknownServiceThrowsNotFound);
+	CppUnit_addTest(pSuite, ServiceRegistryTest, testUnregisterOfStaleRefKeepsServiceOfSameName);
+	CppUnit_addTest(pSuite, ServiceRegistryTest, testFindWithSyntaxErrorKeepsResults);
 
 	return pSuite;
 }

@@ -14,6 +14,7 @@
 
 #include "Poco/OSP/Auth/AuthService.h"
 #include "Poco/OSP/ServiceFactory.h"
+#include <string>
 
 
 namespace Poco {
@@ -28,6 +29,16 @@ AuthService::AuthService()
 
 AuthService::~AuthService()
 {
+}
+
+
+bool AuthService::authenticateAccount(const std::string& userName, const std::string& credentials,
+	std::string& accountName) const
+{
+	if (!authenticate(userName, credentials)) return false;
+
+	accountName = userName;
+	return true;
 }
 
 

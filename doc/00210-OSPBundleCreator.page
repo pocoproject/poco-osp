@@ -80,6 +80,12 @@ file.
 The <[symbolicName]> element specifies the bundle's symbolic name.
 Is is mandatory.
 
+The symbolic name and the version, joined by an underscore, are the name of
+the bundle file and of the intermediary bundle directory.
+The Bundle Creator tool therefore rejects a symbolic name or version that is
+empty, starts with a period, or contains a slash, a backslash, a colon or a
+control character.
+
 
 ! The version Element
 
@@ -193,7 +199,9 @@ fully overrides this element.
 
 The <[files]> element contains a comma-separated list of files that must be
 part of the bundle. Glob expressions (see Poco::Glob) can be used.
-Directories are copied recursively.
+Directories are copied recursively. Files and directories are copied into the
+bundle's root directory by their name; directories with the same name are
+merged, but two files with the same path in the bundle are an error.
 
 This element is optional.
 

@@ -29,6 +29,7 @@
 #include "Poco/StringTokenizer.h"
 #include "Poco/Glob.h"
 #include "Poco/Exception.h"
+#include <memory>
 #include <vector>
 
 
@@ -71,10 +72,6 @@ private:
 
 
 OSPSubsystem::OSPSubsystem():
-	_pCodeCache(0),
-	_pServiceRegistry(0),
-	_pBundleLoader(0),
-	_pBundleRepository(0),
 	_clearCache(false),
 	_cancelInit(false)
 {
@@ -83,10 +80,13 @@ OSPSubsystem::OSPSubsystem():
 
 OSPSubsystem::~OSPSubsystem()
 {
-	delete _pCodeCache;
-	delete _pServiceRegistry;
-	delete _pBundleLoader;
-	delete _pBundleRepository;
+	// In reverse order of creation, and before _systemEvents, which the
+	// bundle contexts refer to: the repository uses the loader, the loader
+	// the registry and the code cache.
+	_pBundleRepository.reset();
+	_pBundleLoader.reset();
+	_pServiceRegistry.reset();
+	_pCodeCache.reset();
 }
 
 
@@ -130,7 +130,7 @@ void OSPSubsystem::initialize(Poco::Util::Application& app)
 		languageTag = LanguageTag(app.config().getString("osp.language"));
 	}
 	
-	_pCodeCache = new CodeCache(codeCache, sharedCodeCache);
+	_pCodeCache = std::make_unique<CodeCache>(codeCache, sharedCodeCache);
 	if (_clearCache)
 	{
 		try
@@ -146,10 +146,10 @@ void OSPSubsystem::initialize(Poco::Util::Application& app)
 		}
 	}
 	
-	_pServiceRegistry  = new ServiceRegistry;
+	_pServiceRegistry  = std::make_unique<ServiceRegistry>();
 	BundleFactory::Ptr pBundleFactory(new BundleFactory(languageTag));
 	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(*_pServiceRegistry, _systemEvents, dataPath));
-	_pBundleLoader     = new BundleLoader(*_pCodeCache, pBundleFactory, pBundleContextFactory, autoUpdateCodeCache);
+	_pBundleLoader     = std::make_unique<BundleLoader>(*_pCodeCache, pBundleFactory, pBundleContextFactory, autoUpdateCodeCache);
 
 	if (!_pBundleFilter)
 	{
@@ -157,7 +157,7 @@ void OSPSubsystem::initialize(Poco::Util::Application& app)
 		if (!skipBundles.empty())
 			_pBundleFilter = new GlobBundleFilter(skipBundles);
 	}
-	_pBundleRepository = new BundleRepository(bundleRepository, *_pBundleLoader, _pBundleFilter);
+	_pBundleRepository = std::make_unique<BundleRepository>(bundleRepository, *_pBundleLoader, _pBundleFilter);
 	
 	BundleStreamFactory::registerFactory(*_pBundleLoader);
 	
@@ -206,7 +206,7 @@ void OSPSubsystem::startBundles(Poco::Util::Application& app)
 	
 void OSPSubsystem::uninitialize()
 {
-	if (_pBundleLoader)
+	if (_pBundleLoader != nullptr)
 	{
 		BundleStreamFactory::unregisterFactory();
 

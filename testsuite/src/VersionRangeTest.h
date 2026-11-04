@@ -24,7 +24,12 @@ public:
 	VersionRangeTest(const std::string& name);
 	~VersionRangeTest();
 
-	void testVersionRange();
+	void testClosedRangeIncludesBounds();
+	void testOpenRangeExcludesBounds();
+	void testSingleVersionRange();
+	void testEmptyRangeContainsNoVersion();
+	void testToString();
+	void testAssignAndSwap();
 
 	void setUp();
 	void tearDown();

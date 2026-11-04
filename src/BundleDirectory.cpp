@@ -105,6 +105,8 @@ Poco::Path BundleDirectory::buildPath(const std::string& path) const
 			if (dir != ".")
 				fullPath.pushDirectory(dir);
 		}
+		if (resPath.getFileName() == "..")
+			throw Poco::InvalidArgumentException("Resource path must not contain references to a parent directory", path);
 		fullPath.setFileName(resPath.getFileName());
 	}
 	return fullPath;

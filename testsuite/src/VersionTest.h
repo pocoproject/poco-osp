@@ -28,6 +28,10 @@ public:
 	void testCompare();
 	void testToString();
 	void testParse();
+	void testParseRejectsMalformed();
+	void testCompareIgnoresDesignation();
+	void testAssignFromStringKeepsValueOnError();
+	void testSwap();
 
 	void setUp();
 	void tearDown();

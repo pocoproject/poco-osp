@@ -47,6 +47,10 @@ public:
 
 	void save();
 		/// Saves the preferences to the file system.
+		///
+		/// The preferences are written to a temporary file first,
+		/// which then replaces the preferences file. If saving fails,
+		/// the previous preferences file is kept.
 
 protected:
 	bool getRaw(const std::string& key, std::string& value) const;
@@ -59,7 +63,7 @@ private:
 	Preferences();
 
 	std::string _path;
-	Poco::Util::PropertyFileConfiguration* _pConfig;
+	Poco::AutoPtr<Poco::Util::PropertyFileConfiguration> _pConfig;
 	bool _dirty;
 	mutable Poco::FastMutex _mutex;
 };

@@ -52,6 +52,10 @@ public:
 		/// The Poco::URIStreamOpener class is used to
 		/// open a stream for the given URI.
 		///
+		/// Any URI that the default URIStreamOpener knows is
+		/// opened, including "file" URIs, so callers must not
+		/// pass a URI from an untrusted source unchecked.
+		///
 		/// Returns a pointer to the installed bundle.
 
 	Bundle::Ptr installBundle(std::istream& istr);
@@ -67,7 +71,8 @@ public:
 	Bundle::Ptr replaceBundle(const std::string& symbolicName, const std::string& uri);
 		/// Upgrades or replaces a bundle from the given URI.
 		/// The Poco::URIStreamOpener class is used to
-		/// open a stream for the given URI.
+		/// open a stream for the given URI, as with
+		/// installBundle(const std::string&).
 		///
 		/// Returns a pointer to the installed bundle.
 

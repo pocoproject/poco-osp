@@ -37,6 +37,7 @@
 #include "Poco/Instantiator.h"
 #endif
 #include <map>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -65,6 +66,7 @@ public:
 		Bundle::Ptr             pBundle;
 		BundleContext::Ptr      pContext;
 		ActivatorClassLoaderPtr pClassLoader;
+		std::optional<bool>     deleteOnUninstall;
 	};
 	using BundleMap = std::map<std::string, BundleInfo>;
 	using BundleSet = std::set<Bundle*>;
@@ -77,8 +79,8 @@ public:
 	};
 
 	Poco::BasicEvent<const BundleError> bundleError;
-		/// Fired when an error occurs while resolving
-		/// or starting a bundle.
+		/// Fired when an error occurs while resolving,
+		/// starting or stopping a bundle.
 
 	BundleLoader(CodeCache& codeCache, BundleFactory::Ptr pBundleFactory, BundleContextFactory::Ptr pBundleContextFactory, const std::string& osName, const std::string& osArch, bool autoUpdateCodeCache = true);
 		/// Creates the BundleLoader.
@@ -140,6 +142,12 @@ public:
 		/// known to the loader, filtered by the
 		/// given BundleFilter.
 
+	void listRequiringBundles(Bundle::ConstPtr pBundle, std::vector<Bundle::Ptr>& bundles) const;
+		/// Fills the given vector with the resolved bundles that
+		/// require the given bundle, directly or through other
+		/// bundles, in the order in which they can be stopped:
+		/// a bundle comes before the bundles it requires.
+
 	void resolveAllBundles();
 		/// Resolves all bundles.
 		///
@@ -163,6 +171,9 @@ public:
 		/// Stops all bundles.
 		///
 		/// Bundles are stopped in order of their depedencies.
+		/// A bundle that fails to stop is logged and reported
+		/// with the bundleError event, and the remaining bundles
+		/// are stopped.
 
 	void unloadAllBundles(bool unloadLibraries = true);
 		/// Stops and unloads all bundles. If unloadLibraries is
@@ -171,6 +182,21 @@ public:
 		/// are not unloaded from the process. This avoids crashes in
 		/// libraries with non-trivial static destruction (e.g. V8)
 		/// during process shutdown.
+		///
+		/// A bundle that fails to stop is reported as with
+		/// stopAllBundles() and stays loaded.
+
+	void setDeleteOnUninstall(Bundle::ConstPtr pBundle, bool deleteOnUninstall);
+		/// Sets whether uninstalling the given bundle deletes its
+		/// file or directory. The BundleRepository sets this for the
+		/// bundles in its primary path.
+		///
+		/// By default, the file or directory is kept, and an information
+		/// message says so. If false has been set, it is kept without the
+		/// message: the caller takes care of it, as the BundleRepository
+		/// does for a bundle that it replaces.
+		///
+		/// Throws a BundleException if the bundle is not loaded.
 
 	BundleEvents& events();
 		/// Returns a reference to the BundleEvents
@@ -219,6 +245,19 @@ public:
 protected:
 	void resolveBundle(Bundle* pBundle);
 		/// Resolves the given bundle.
+		///
+		/// The bundles it requires are resolved on the way, with
+		/// _mutex held. Their bundleResolving and bundleResolved
+		/// events are fired in the order in which they occurred,
+		/// once _mutex has been released.
+
+	void resolveBundleImpl(Bundle* pBundle);
+		/// Resolves the given bundle. Requires _mutex to be held.
+
+	void fireResolveEvent(BundleEvent& event);
+		/// Fires the given bundleResolving or bundleResolved event.
+		/// While resolveBundle() holds _mutex in the calling thread,
+		/// the event is collected and fired by resolveBundle().
 
 	Bundle::ModuleProviders resolveModules(Bundle* pBundle) const;
 		/// Determines the bundles providing the required modules.
@@ -238,11 +277,36 @@ protected:
 	void startBundle(Bundle* pBundle);
 		/// Starts the given bundle.
 
+	class StartingBundle
+		/// Records, for the calling thread, the bundle whose start is
+		/// in progress, for the error message of startAllBundles().
+		///
+		/// When the start succeeds, the bundle recorded before is
+		/// recorded again. When it fails, the record is kept: it names
+		/// the bundle whose start has failed, which is a required bundle
+		/// if the start of that one has failed.
+	{
+	public:
+		StartingBundle() = delete;
+		explicit StartingBundle(const Bundle& bundle);
+		StartingBundle(const StartingBundle&) = delete;
+		StartingBundle(StartingBundle&&) = delete;
+		~StartingBundle();
+
+		StartingBundle& operator = (const StartingBundle&) = delete;
+		StartingBundle& operator = (StartingBundle&&) = delete;
+
+	private:
+		std::string _previous;
+		int _uncaughtExceptions;
+	};
+
 	void stopBundle(Bundle* pBundle);
 		/// Stops the given bundle.
 
 	void uninstallBundle(Bundle* pBundle);
-		/// Uninstalls the given bundle.
+		/// Uninstalls the given bundle. Its file or directory is
+		/// deleted if setDeleteOnUninstall() has set true for it.
 
 	void resolveDependency(Bundle* pBundle, const BundleManifest::Dependency& dependency, Bundle::ResolvedDependencies* pResolved = nullptr);
 		/// Resolves a single dependency of a bundle.
@@ -349,6 +413,13 @@ protected:
 	void handleStartError(Bundle::Ptr pBundle, const std::string& errorMsg, Poco::Exception& exc);
 		/// Logs a bundle start error and fires the bundleError event.
 
+	void stopBundleOnShutdown(Bundle::Ptr pBundle);
+		/// Stops the bundle. If stopping fails, reports the error
+		/// with handleStopError(); the bundle is then still active.
+
+	void handleStopError(Bundle::Ptr pBundle, Poco::Exception& exc);
+		/// Logs a bundle stop error and fires the bundleError event.
+
 private:
 	BundleLoader();
 	BundleLoader(const BundleLoader&);
@@ -367,7 +438,8 @@ private:
 	BundleMap                 _bundles;
 	BundleIdMap               _bundleIds;
 	BundleSet                 _resolvingBundles;
-	std::string               _lastBundleStarted;
+	int                       _resolveDepth = 0;
+	std::vector<BundleEvent>  _deferredResolveEvents;
 	Poco::Logger&             _logger;
 	mutable Poco::Mutex       _mutex;
 

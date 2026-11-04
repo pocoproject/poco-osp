@@ -16,6 +16,9 @@
 #include "Poco/OSP/Properties.h"
 #include "Poco/NumberParser.h"
 #include "Poco/String.h"
+#include "Poco/Glob.h"
+#include "Poco/Exception.h"
+#include <algorithm>
 #include <typeinfo>
 
 
@@ -350,8 +353,11 @@ bool QLGeExpr::evaluateImpl(const Properties& props) const
 
 QLMatchExpr::QLMatchExpr(const std::string& prop, const std::string& expr):
 	_prop(prop),
-	_expr(expr)
+	_glob(expr)
 {
+	// Queries also come from users (the shell's services command).
+	if (std::count(expr.begin(), expr.end(), '*') > MAX_WILDCARDS)
+		throw Poco::SyntaxException("Too many wildcards in pattern", expr);
 }
 
 
@@ -363,96 +369,7 @@ QLMatchExpr::~QLMatchExpr()
 bool QLMatchExpr::evaluate(const Properties& props) const
 {
 	std::string prop(props.get(_prop, ""s));
-	return match(_expr.begin(), _expr.end(), prop.begin(), prop.end());
-}
-
-
-bool QLMatchExpr::match(std::string::const_iterator itp, const std::string::const_iterator& endp, std::string::const_iterator its, const std::string::const_iterator& ends) const
-{
-	while (itp != endp)
-	{
-		if (its == ends)
-		{
-			while (itp != endp && *itp == '*') ++itp;
-			break;
-		}
-		switch (*itp)
-		{
-		case '?':
-			++itp; ++its;
-			break;
-		case '*':
-			if (++itp != endp)
-			{
-				while (its != ends && !match(itp, endp, its, ends)) ++its;
-				return its != ends;
-			}
-			return true;
-		case '[':
-			if (++itp != endp) 
-			{
-				bool invert = *itp == '!';
-				if (invert) ++itp;
-				if (itp != endp)
-				{
-					bool mtch = matchSet(itp, endp, *its++);
-					if ((invert && mtch) || (!invert && !mtch)) return false;
-					break;
-				}
-			}
-			throw Poco::SyntaxException("bad range syntax in pattern");
-		case '\\':
-			if (++itp == endp) throw Poco::SyntaxException("backslash must be followed by character in pattern");
-			// fallthrough
-		default:
-			if (*itp != *its) return false;
-			++itp; ++its;
-		}
-	}
-	return itp == endp && its == ends;
-}
-
-
-bool QLMatchExpr::matchSet(std::string::const_iterator& itp, const std::string::const_iterator& endp, char c) const
-{
-	while (itp != endp)
-	{
-		switch (*itp)
-		{
-		case ']':
-			++itp; 
-			return false;
-		case '\\':
-			if (++itp == endp) throw Poco::SyntaxException("backslash must be followed by character in glob pattern");
-		}
-		char first = *itp;
-		char last  = first;
-		if (++itp != endp && *itp == '-')
-		{
-			if (++itp != endp)
-				last = *itp++;
-			else
-				throw Poco::SyntaxException("bad range syntax in glob pattern");
-		}
-		if (first <= c && c <= last)
-		{
-			while (itp != endp)
-			{
-				switch (*itp)
-				{
-				case ']':
-					++itp;
-					return true;
-				case '\\':
-					if (++itp == endp) break;
-				default:
-					++itp;
-				}
-			}
-			throw Poco::SyntaxException("range must be terminated by closing bracket in glob pattern");
-		}
-	}
-	return false;
+	return _glob.match(prop);
 }
 
 

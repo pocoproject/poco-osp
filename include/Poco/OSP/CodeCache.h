@@ -80,10 +80,24 @@ public:
 	void installLibrary(const std::string& name, std::istream& istr);
 		/// Installs the library with the given name, which
 		/// must not contain an extension, into the code cache.
+		///
+		/// The library is copied to a temporary file in the cache
+		/// directory first, which then replaces the installed library.
+		/// Throws an exception, and leaves the installed library as it
+		/// was, if the library cannot be read completely from istr or
+		/// cannot be written.
+		///
+		/// Throws a Poco::InvalidArgumentException if the name
+		/// cannot be used as a file name (see
+		/// BundleManifest::isValidFileName()).
 
 	void uninstallLibrary(const std::string& name);
 		/// Removes the library with the given name from
 		/// the cache directory.
+		///
+		/// Throws a Poco::InvalidArgumentException if the name
+		/// cannot be used as a file name (see
+		/// BundleManifest::isValidFileName()).
 
 	std::string pathFor(const std::string& name, bool appendSuffix = true);
 		/// Returns the full path for the library with the given name.

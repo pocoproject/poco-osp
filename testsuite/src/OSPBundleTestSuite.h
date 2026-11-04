@@ -21,10 +21,18 @@
 class OSPBundleTestSuite
 {
 public:
+	static constexpr const char* TEST_BUNDLES_VARIABLE = "POCO_OSP_TEST_BUNDLES";
+		/// The environment variable that holds the absolute path
+		/// of the test bundles in the build directory.
+
 	static CppUnit::Test* suite();
 
-	static std::string findBundlesPath();
-	static std::string findBundle(const std::string& name);
+	[[nodiscard]] static std::string findBundlesPath();
+		/// Returns the path of the test bundles, or an empty string
+		/// if the environment variable is not set.
+
+	[[nodiscard]] static std::string findBundle(const std::string& name);
+		/// Returns the path of the test bundle with the given name.
 };
 
 

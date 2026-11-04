@@ -52,6 +52,10 @@ class OSP_API ServiceListener: public Poco::RefCountedObject
 	/// When the ServiceListener is created and there are already services
 	/// registered that match the query, the serviceRegistered delegate
 	/// is immediately called for each service.
+	///
+	/// Each service is reported once. A service that is unregistered while
+	/// the ServiceListener is being created is reported as unregistered
+	/// after it has been reported as registered.
 {
 public:
 	using Ptr = Poco::AutoPtr<ServiceListener>;
@@ -81,6 +85,8 @@ protected:
 private:
 	ServiceRegistry& _registry;
 	std::set<ServiceRef::Ptr> _refs;
+	std::set<ServiceRef::Ptr> _unregisteredWhileInitializing;
+	bool _initializing = true;
 	QLExpr::Ptr _pExpr;
 	Poco::FastMutex _mutex;
 

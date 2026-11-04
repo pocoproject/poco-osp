@@ -12,7 +12,6 @@
 #include "ServiceTest.h"
 #include "ServiceRegistryTest.h"
 #include "ServiceListenerTest.h"
-#include "WebEventServiceTest.h"
 
 
 CppUnit::Test* ServiceTestSuite::suite()
@@ -22,7 +21,6 @@ CppUnit::Test* ServiceTestSuite::suite()
 	pSuite->addTest(ServiceTest::suite());
 	pSuite->addTest(ServiceRegistryTest::suite());
 	pSuite->addTest(ServiceListenerTest::suite());
-	pSuite->addTest(WebEventServiceTest::suite());
 
 	return pSuite;
 }

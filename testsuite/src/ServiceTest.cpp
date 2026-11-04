@@ -20,7 +20,12 @@
 #include "Poco/OSP/ServiceRegistry.h"
 #include "Poco/OSP/LanguageTag.h"
 #include "Poco/OSP/SystemEvents.h"
+#include "Poco/OSP/PreferencesService.h"
+#include "Poco/OSP/ServiceFinder.h"
+#include "Poco/OSP/Properties.h"
 #include "Poco/Util/MapConfiguration.h"
+#include "Poco/TemporaryFile.h"
+#include "Poco/Exception.h"
 #include "OSPBundleTestSuite.h"
 
 
@@ -34,6 +39,8 @@ using Poco::OSP::BundleLoader;
 using Poco::OSP::CodeCache;
 using Poco::OSP::ServiceRegistry;
 using Poco::OSP::LanguageTag;
+using Poco::OSP::PreferencesService;
+using Poco::OSP::ServiceFinder;
 using Poco::AutoPtr;
 using Poco::Util::MapConfiguration;
 using Poco::Util::AbstractConfiguration;
@@ -61,6 +68,7 @@ namespace
 		using ServiceImpl::config;
 		using ServiceImpl::setConfig;
 		using ServiceImpl::context;
+		using ServiceImpl::logger;
 	};
 
 	// Service that uses SERVICE_NAME as default (for unique name testing)
@@ -220,7 +228,8 @@ void ServiceTest::testServiceConfigMerge()
 void ServiceTest::testServiceBundleConfig()
 {
 	// Set up bundle infrastructure
-	CodeCache cc("codeCache");
+	Poco::TemporaryFile codeCacheDir;
+	CodeCache cc(codeCacheDir.path());
 	ServiceRegistry reg;
 	LanguageTag lang("en", "US");
 
@@ -229,7 +238,7 @@ void ServiceTest::testServiceBundleConfig()
 	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
 	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
 
-	// Load a test bundle (bundle1 has properties in its manifest)
+	// Load a test bundle (bundle1 has properties in bundle.properties)
 	Bundle::Ptr pBundle = loader.createBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle1_1.0.0"));
 	loader.loadBundle(pBundle);
 	loader.resolveAllBundles();
@@ -279,27 +288,101 @@ void ServiceTest::testServiceBundleConfig()
 }
 
 
-void ServiceTest::testServiceUniqueName()
+void ServiceTest::testServiceNameAfterPreviousInstance()
 {
-	// First instance gets clean SERVICE_NAME
+	// an instance created after the previous one is gone (a bundle that is
+	// stopped and started again) is found under the default name
 	UniqueNameService::Ptr pService1 = new UniqueNameService;
-	assert(pService1->name() == UniqueNameService::SERVICE_NAME);
+	assertTrue (pService1->name() == UniqueNameService::SERVICE_NAME);
+	pService1 = nullptr;
 
-	// Second instance gets _1 suffix
 	UniqueNameService::Ptr pService2 = new UniqueNameService;
-	assert(pService2->name() == UniqueNameService::SERVICE_NAME + "_1");
+	assertTrue (pService2->name() == UniqueNameService::SERVICE_NAME);
 
-	// Third instance gets _2 suffix
-	UniqueNameService::Ptr pService3 = new UniqueNameService;
-	assert(pService3->name() == UniqueNameService::SERVICE_NAME + "_2");
+	UniqueNameService::Ptr pService3 = new UniqueNameService("custom.unique");
+	assertTrue (pService3->name() == "custom.unique");
+}
 
-	// Custom name is unchanged (no suffix)
-	UniqueNameService::Ptr pService4 = new UniqueNameService("custom.unique");
-	assert(pService4->name() == "custom.unique");
 
-	// Fourth default instance gets _3 suffix
-	UniqueNameService::Ptr pService5 = new UniqueNameService;
-	assert(pService5->name() == UniqueNameService::SERVICE_NAME + "_3");
+void ServiceTest::testLoggerIsNamedAfterService()
+{
+	TestService::Ptr pService = new TestService("test.logger.service");
+	assertEqual ("test.logger.service", pService->logger().name());
+}
+
+
+void ServiceTest::testServiceConfigIncludesConfigurationOfPreferencesService()
+{
+	Poco::TemporaryFile codeCacheDir;
+	CodeCache cc(codeCacheDir.path());
+	ServiceRegistry reg;
+	LanguageTag lang("en", "US");
+
+	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
+	Poco::OSP::SystemEvents systemEvents;
+	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
+	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+
+	AutoPtr<MapConfiguration> pGlobalConf = new MapConfiguration;
+	pGlobalConf->setString("global.key", "globalValue");
+	pGlobalConf->setString("bundle.key1", "fromGlobal");
+	Poco::TemporaryFile prefsDir;
+	reg.registerService(PreferencesService::SERVICE_NAME, new PreferencesService(prefsDir.path(), pGlobalConf), Poco::OSP::Properties());
+
+	Bundle::Ptr pBundle = loader.loadBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle1_1.0.0"));
+	pBundle->resolve();
+	pBundle->start();
+	BundleContext::Ptr pContext = loader.contextForBundle(pBundle);
+
+	TestService::Ptr pService = new TestService(TestService::DEFAULT_NAME, pContext);
+	assertEqual ("globalValue", pService->config()->getString("global.key"));
+	// the bundle's properties come after the global configuration
+	assertEqual ("bundleValue1", pService->config()->getString("bundle.key1"));
+
+	loader.unloadAllBundles();
+}
+
+
+void ServiceTest::testServiceFinderFindsServiceOfType()
+{
+	Poco::TemporaryFile codeCacheDir;
+	CodeCache cc(codeCacheDir.path());
+	ServiceRegistry reg;
+	LanguageTag lang("en", "US");
+
+	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
+	Poco::OSP::SystemEvents systemEvents;
+	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
+	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
+
+	Bundle::Ptr pBundle = loader.loadBundle(OSPBundleTestSuite::findBundle("com.appinf.osp.bundle1_1.0.0"));
+	pBundle->resolve();
+	pBundle->start();
+	BundleContext::Ptr pContext = loader.contextForBundle(pBundle);
+
+	try
+	{
+		ServiceFinder::find<UniqueNameService>(pContext);
+		fail("service not registered - must throw");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+
+	UniqueNameService::Ptr pService = new UniqueNameService;
+	reg.registerService(UniqueNameService::SERVICE_NAME, pService, Poco::OSP::Properties());
+	assertTrue (ServiceFinder::find<UniqueNameService>(pContext) == pService);
+
+	try
+	{
+		ServiceFinder::findByName<TestService>(pContext, UniqueNameService::SERVICE_NAME);
+		fail("service of another type - must throw");
+	}
+	catch (Poco::BadCastException&)
+	{
+	}
+
+	loader.unloadAllBundles();
 }
 
 
@@ -323,7 +406,10 @@ CppUnit::Test* ServiceTest::suite()
 	CppUnit_addTest(pSuite, ServiceTest, testServiceSetConfigWithRemove);
 	CppUnit_addTest(pSuite, ServiceTest, testServiceConfigMerge);
 	CppUnit_addTest(pSuite, ServiceTest, testServiceBundleConfig);
-	CppUnit_addTest(pSuite, ServiceTest, testServiceUniqueName);
+	CppUnit_addTest(pSuite, ServiceTest, testServiceNameAfterPreviousInstance);
+	CppUnit_addTest(pSuite, ServiceTest, testLoggerIsNamedAfterService);
+	CppUnit_addTest(pSuite, ServiceTest, testServiceConfigIncludesConfigurationOfPreferencesService);
+	CppUnit_addTest(pSuite, ServiceTest, testServiceFinderFindsServiceOfType);
 
 	return pSuite;
 }

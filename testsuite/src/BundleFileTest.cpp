@@ -12,11 +12,16 @@
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
 #include "Poco/OSP/BundleFile.h"
+#include "Poco/OSP/OSPException.h"
 #include "Poco/File.h"
 #include "Poco/Path.h"
+#include "Poco/DateTime.h"
+#include "Poco/TemporaryFile.h"
 #include "Poco/Exception.h"
 #include <fstream>
+#include <ios>
 #include <memory>
+#include <vector>
 
 
 using Poco::OSP::BundleFile;
@@ -34,10 +39,10 @@ BundleFileTest::~BundleFileTest()
 }
 
 
-void BundleFileTest::testResource()
+void BundleFileTest::testGetResourceOpensEntry()
 {
 	std::string s;
-	BundleStorage::Ptr pBF(new BundleFile("testBundle.zip"));
+	BundleStorage::Ptr pBF(new BundleFile(_bundlePath));
 
 	std::unique_ptr<std::istream> istr1(pBF->getResource("META-INF/manifest.mf"));
 	assert (istr1.get() != 0);
@@ -54,9 +59,9 @@ void BundleFileTest::testResource()
 }
 
 
-void BundleFileTest::testDirectory()
+void BundleFileTest::testListReturnsDirectoryEntries()
 {
-	BundleStorage::Ptr pBF(new BundleFile("testBundle.zip"));
+	BundleStorage::Ptr pBF(new BundleFile(_bundlePath));
 	std::vector<std::string> files;
 	pBF->list("", files);
 	assert (files.size() == 2);
@@ -64,6 +69,124 @@ void BundleFileTest::testDirectory()
 	pBF->list("META-INF", files);
 	assert (files.size() == 1);
 	assert (files[0] == "manifest.mf");
+}
+
+
+void BundleFileTest::testListWithoutDirectoryEntries()
+{
+	// A ZIP file holding META-INF/manifest.mf, res/a.txt and res/sub/b.txt,
+	// without entries for the directories.
+	static const unsigned char NO_DIRS_ZIP[] =
+	{
+		0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x5c, 0x7a, 0xdf,
+		0x5a, 0x20, 0x16, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x4d, 0x45,
+		0x54, 0x41, 0x2d, 0x49, 0x4e, 0x46, 0x2f, 0x6d, 0x61, 0x6e, 0x69, 0x66, 0x65, 0x73, 0x74, 0x2e,
+		0x6d, 0x66, 0x4d, 0x61, 0x6e, 0x69, 0x66, 0x65, 0x73, 0x74, 0x2d, 0x56, 0x65, 0x72, 0x73, 0x69,
+		0x6f, 0x6e, 0x3a, 0x20, 0x31, 0x2e, 0x30, 0x0a, 0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x21, 0x5c, 0x07, 0xa1, 0xea, 0xdd, 0x02, 0x00, 0x00, 0x00, 0x02, 0x00,
+		0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x72, 0x65, 0x73, 0x2f, 0x61, 0x2e, 0x74, 0x78, 0x74, 0x61,
+		0x0a, 0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x5c, 0xc4,
+		0xf2, 0xc7, 0xf6, 0x02, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x72,
+		0x65, 0x73, 0x2f, 0x73, 0x75, 0x62, 0x2f, 0x62, 0x2e, 0x74, 0x78, 0x74, 0x62, 0x0a, 0x50, 0x4b,
+		0x01, 0x02, 0x14, 0x03, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x5c, 0x7a, 0xdf,
+		0x5a, 0x20, 0x16, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xa4, 0x01, 0x00, 0x00, 0x00, 0x00, 0x4d, 0x45, 0x54, 0x41,
+		0x2d, 0x49, 0x4e, 0x46, 0x2f, 0x6d, 0x61, 0x6e, 0x69, 0x66, 0x65, 0x73, 0x74, 0x2e, 0x6d, 0x66,
+		0x50, 0x4b, 0x01, 0x02, 0x14, 0x03, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x5c,
+		0x07, 0xa1, 0xea, 0xdd, 0x02, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xa4, 0x01, 0x48, 0x00, 0x00, 0x00, 0x72, 0x65,
+		0x73, 0x2f, 0x61, 0x2e, 0x74, 0x78, 0x74, 0x50, 0x4b, 0x01, 0x02, 0x14, 0x03, 0x14, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x5c, 0xc4, 0xf2, 0xc7, 0xf6, 0x02, 0x00, 0x00, 0x00, 0x02,
+		0x00, 0x00, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xa4,
+		0x01, 0x71, 0x00, 0x00, 0x00, 0x72, 0x65, 0x73, 0x2f, 0x73, 0x75, 0x62, 0x2f, 0x62, 0x2e, 0x74,
+		0x78, 0x74, 0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x03, 0x00, 0xb4, 0x00,
+		0x00, 0x00, 0x9e, 0x00, 0x00, 0x00, 0x00, 0x00
+	};
+
+	const std::string noDirsPath(Poco::Path(_scratchPath, "noDirs.zip").toString());
+	{
+		std::ofstream ostr(noDirsPath, std::ios::binary);
+		ostr.write(reinterpret_cast<const char*>(&NO_DIRS_ZIP[0]), sizeof(NO_DIRS_ZIP));
+	}
+	BundleStorage::Ptr pBF(new BundleFile(noDirsPath));
+	std::vector<std::string> files;
+
+	pBF->list("", files);
+	assertTrue (files == std::vector<std::string>({"META-INF", "res"}));
+
+	pBF->list("res", files);
+	assertTrue (files == std::vector<std::string>({"a.txt", "sub"}));
+
+	pBF->list("res/sub/", files);
+	assertTrue (files == std::vector<std::string>({"b.txt"}));
+
+	pBF->list("missing", files);
+	assertTrue (files.empty());
+}
+
+
+void BundleFileTest::testLastModifiedIsTimeOfEntry()
+{
+	BundleStorage::Ptr pBF(new BundleFile(_bundlePath));
+	// the time of the entry in the archive, not of the archive file
+	assertEqual (2007, Poco::DateTime(pBF->lastModified("META-INF/manifest.mf")).year());
+}
+
+
+void BundleFileTest::testLastModifiedOfMissingEntryThrows()
+{
+	BundleStorage::Ptr pBF(new BundleFile(_bundlePath));
+	try
+	{
+		pBF->lastModified("nonexistent");
+		fail("missing entry - must throw");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+}
+
+
+void BundleFileTest::testListWithTrailingSlash()
+{
+	BundleStorage::Ptr pBF(new BundleFile(_bundlePath));
+	std::vector<std::string> files;
+	pBF->list("META-INF/", files);
+	assertTrue (files == std::vector<std::string>({"manifest.mf"}));
+}
+
+
+void BundleFileTest::testStorageOpenReturnsBundleFile()
+{
+	BundleStorage::Ptr pStorage(BundleStorage::open(_bundlePath));
+	assertTrue (dynamic_cast<BundleFile*>(pStorage.get()) != nullptr);
+	std::unique_ptr<std::istream> pStream(pStorage->getResource("bundle.properties"));
+	assertTrue (pStream != nullptr);
+}
+
+
+void BundleFileTest::testStorageOpenRejectsPathThatIsNoBundle()
+{
+	try
+	{
+		BundleStorage::Ptr pStorage(BundleStorage::open(Poco::Path(_scratchPath, "missing.bndl").toString()));
+		fail("missing bundle - must throw");
+	}
+	catch (Poco::OSP::BundleLoadException&)
+	{
+	}
+
+#if defined(POCO_OS_FAMILY_UNIX)
+	// a character device is neither a file nor a directory
+	try
+	{
+		BundleStorage::Ptr pStorage(BundleStorage::open("/dev/null"));
+		fail("neither a file nor a directory - must throw");
+	}
+	catch (Poco::OSP::BundleLoadException&)
+	{
+	}
+#endif
 }
 
 
@@ -99,17 +222,22 @@ void BundleFileTest::setUp()
 		0xa8, 0x00, 0x00, 0x00, 0x00, 0x00
 	};
 
-	std::ofstream ostr("testBundle.zip", std::ios::binary);
+	_scratchPath = Poco::TemporaryFile::tempName();
+	File(_scratchPath).createDirectories();
+	_bundlePath = Poco::Path(_scratchPath, "testBundle.zip").toString();
+	std::ofstream ostr(_bundlePath, std::ios::binary);
 	ostr.write(reinterpret_cast<const char*>(&TEST_BUNDLE_ZIP[0]), sizeof(TEST_BUNDLE_ZIP));
 }
 
 
 void BundleFileTest::tearDown()
 {
-	File f("testBundle.zip");
-	if (f.exists())
+	try
 	{
-		f.remove(true);
+		File(_scratchPath).remove(true);
+	}
+	catch (Poco::Exception&)
+	{
 	}
 }
 
@@ -118,8 +246,14 @@ CppUnit::Test* BundleFileTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("BundleFileTest");
 
-	CppUnit_addTest(pSuite, BundleFileTest, testResource);
-	CppUnit_addTest(pSuite, BundleFileTest, testDirectory);
+	CppUnit_addTest(pSuite, BundleFileTest, testGetResourceOpensEntry);
+	CppUnit_addTest(pSuite, BundleFileTest, testListReturnsDirectoryEntries);
+	CppUnit_addTest(pSuite, BundleFileTest, testListWithoutDirectoryEntries);
+	CppUnit_addTest(pSuite, BundleFileTest, testLastModifiedIsTimeOfEntry);
+	CppUnit_addTest(pSuite, BundleFileTest, testLastModifiedOfMissingEntryThrows);
+	CppUnit_addTest(pSuite, BundleFileTest, testListWithTrailingSlash);
+	CppUnit_addTest(pSuite, BundleFileTest, testStorageOpenReturnsBundleFile);
+	CppUnit_addTest(pSuite, BundleFileTest, testStorageOpenRejectsPathThatIsNoBundle);
 
 	return pSuite;
 }

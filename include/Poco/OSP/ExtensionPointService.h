@@ -136,11 +136,15 @@ protected:
 private:
 	ExtensionPointService();
 
-	using XPMap = std::map<std::string, ExtensionPoint::Ptr>;
-	using BundleMap = std::multimap<Bundle::Ptr, std::string>;
+	struct XPInfo
+	{
+		ExtensionPoint::Ptr pExtensionPoint;
+		Bundle::Ptr pBundle;
+			/// The bundle that has registered the extension point.
+	};
+	using XPMap = std::map<std::string, XPInfo>;
 
 	XPMap           _xpMap;
-	BundleMap       _bundleMap;
 	BundleEvents&   _events;
 	Poco::Logger&   _logger;
 	Poco::FastMutex _mutex;

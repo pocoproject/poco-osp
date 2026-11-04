@@ -24,8 +24,12 @@ public:
 	BundleDirectoryTest(const std::string& name);
 	~BundleDirectoryTest();
 
-	void testResource();
-	void testDirectory();
+	void testGetResourceOpensFile();
+	void testGetResourceRejectsInvalidPath();
+	void testListReturnsDirectoryEntries();
+	void testParentDirectoryIsRejected();
+	void testLastModifiedIsTimeOfFile();
+	void testStorageOpenReturnsBundleDirectory();
 
 	void setUp();
 	void tearDown();
@@ -33,6 +37,8 @@ public:
 	static CppUnit::Test* suite();
 
 private:
+	std::string _bundlePath;
+		/// A unique temporary directory that holds the bundle.
 };
 
 

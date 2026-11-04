@@ -12,6 +12,12 @@
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
 #include "Poco/OSP/Properties.h"
+#include "Poco/Exception.h"
+#include "Poco/Types.h"
+#include <atomic>
+#include <string>
+#include <thread>
+#include <vector>
 
 
 using Poco::OSP::Properties;
@@ -27,7 +33,7 @@ PropertiesTest::~PropertiesTest()
 }
 
 
-void PropertiesTest::testProperties()
+void PropertiesTest::testGettersAreCaseInsensitiveAndUseDefaults()
 {
 	Properties props;
 	
@@ -103,6 +109,132 @@ void PropertiesTest::testProperties()
 }
 
 
+void PropertiesTest::testTypedSettersRoundTrip()
+{
+	Properties props;
+	props.set("b", true);
+	props.set("i", 42);
+	props.set("l", static_cast<Poco::Int64>(9000000000LL));
+	props.set("d", 0.25);
+	props.set("c", "text");
+
+	assertTrue (props.getBool("b"));
+	assertEqual ("true", props.get("b"));
+	assertEqual (42, props.getInt("i"));
+	assertTrue (props.getInt64("l") == 9000000000LL);
+	assertTrue (props.getInt64("missing", 7) == 7);
+	assertTrue (props.getFloat("d") == 0.25);
+	assertEqual ("text", props.get("c"));
+
+	// any value other than "false" is true
+	props.set("zero", "0");
+	assertTrue (props.getBool("zero"));
+	props.set("b", false);
+	assertFalse (props.getBool("b"));
+}
+
+
+void PropertiesTest::testNumberGetterOfNonNumberThrowsSyntaxException()
+{
+	Properties props;
+	props.set("s", "foo");
+	try
+	{
+		props.getInt("s");
+		fail("not a number - must throw");
+	}
+	catch (Poco::SyntaxException&)
+	{
+	}
+	try
+	{
+		props.getInt64("s");
+		fail("not a number - must throw");
+	}
+	catch (Poco::SyntaxException&)
+	{
+	}
+	try
+	{
+		props.getFloat("s");
+		fail("not a number - must throw");
+	}
+	catch (Poco::SyntaxException&)
+	{
+	}
+	try
+	{
+		props.getInt("s", 1);
+		fail("not a number - must throw");
+	}
+	catch (Poco::SyntaxException&)
+	{
+	}
+}
+
+
+void PropertiesTest::testKeysDifferingInCaseAreOneKey()
+{
+	Properties props;
+	props.set("Foo", "1");
+	props.set("foo", "2");
+	assertTrue (props.keys() == std::vector<std::string>({"Foo"}));
+	assertEqual ("2", props.get("FOO"));
+}
+
+
+void PropertiesTest::testCopyAssignAndSwap()
+{
+	Properties props;
+	props.set("a", "1");
+
+	Properties copy(props);
+	props.set("a", "2");
+	assertEqual ("1", copy.get("a"));
+
+	Properties assigned;
+	assigned.set("b", "3");
+	assigned = props;
+	assertEqual ("2", assigned.get("a"));
+	assertFalse (assigned.has("b"));
+
+	Properties other;
+	other.set("c", "4");
+	swap(props, other);
+	assertTrue (props.keys() == std::vector<std::string>({"c"}));
+	assertTrue (other.keys() == std::vector<std::string>({"a"}));
+}
+
+
+void PropertiesTest::testCopyAndSwapWhileModified()
+{
+	Properties props;
+	props.set("key", "value");
+
+	std::atomic<bool> done(false);
+	std::thread writer([&]()
+	{
+		for (int i = 0; i < ITERATIONS; ++i)
+		{
+			props.set("key" + std::to_string(i % KEYS), "value");
+		}
+		done = true;
+	});
+	Properties other;
+	bool copiesComplete = true;
+	while (!done)
+	{
+		Properties copy(props);
+		copiesComplete = copiesComplete && copy.has("key");
+		copy.swap(other);
+		other.swap(copy);
+	}
+	writer.join();
+	assertTrue (copiesComplete);
+	assertTrue (props.has("key0"));
+}
+
+
 void PropertiesTest::setUp()
 {
 }
@@ -117,7 +249,12 @@ CppUnit::Test* PropertiesTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("PropertiesTest");
 
-	CppUnit_addTest(pSuite, PropertiesTest, testProperties);
+	CppUnit_addTest(pSuite, PropertiesTest, testGettersAreCaseInsensitiveAndUseDefaults);
+	CppUnit_addTest(pSuite, PropertiesTest, testTypedSettersRoundTrip);
+	CppUnit_addTest(pSuite, PropertiesTest, testNumberGetterOfNonNumberThrowsSyntaxException);
+	CppUnit_addTest(pSuite, PropertiesTest, testKeysDifferingInCaseAreOneKey);
+	CppUnit_addTest(pSuite, PropertiesTest, testCopyAssignAndSwap);
+	CppUnit_addTest(pSuite, PropertiesTest, testCopyAndSwapWhileModified);
 
 	return pSuite;
 }

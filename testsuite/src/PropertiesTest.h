@@ -24,7 +24,12 @@ public:
 	PropertiesTest(const std::string& name);
 	~PropertiesTest();
 
-	void testProperties();
+	void testGettersAreCaseInsensitiveAndUseDefaults();
+	void testTypedSettersRoundTrip();
+	void testNumberGetterOfNonNumberThrowsSyntaxException();
+	void testKeysDifferingInCaseAreOneKey();
+	void testCopyAssignAndSwap();
+	void testCopyAndSwapWhileModified();
 
 	void setUp();
 	void tearDown();
@@ -32,6 +37,8 @@ public:
 	static CppUnit::Test* suite();
 
 private:
+	static constexpr int ITERATIONS = 10000;
+	static constexpr int KEYS = 100;
 };
 
 

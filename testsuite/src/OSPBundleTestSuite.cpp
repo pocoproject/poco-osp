@@ -16,47 +16,17 @@
 #include "BundleRepositoryTest.h"
 #include "Poco/Environment.h"
 #include "Poco/Path.h"
-#include "Poco/File.h"
 
 
 std::string OSPBundleTestSuite::findBundlesPath()
 {
-	using Poco::Path;
-	using Poco::File;
-
-	std::string bundles("bundles");
-	if (Poco::Environment::has("MACCHINA_BASE"))
-	{
-		Path p(Poco::Environment::get("MACCHINA_BASE"));
-		p.makeDirectory();
-		p.pushDirectory("platform");
-		p.pushDirectory("OSP");
-		p.pushDirectory("testsuite");
-		p.pushDirectory("bundles");
-		File f(p);
-		if (f.exists())
-			return p.toString();
-	}
-	std::string cwd(Path::current());
-	Path cwdPath(cwd);
-	Path p(cwdPath, bundles);
-	while (p.depth() > 0)
-	{
-		File f(p);
-		if (f.exists())
-			return p.toString();
-		p.popDirectory();
-	}
-	return std::string();
+	return Poco::Environment::get(TEST_BUNDLES_VARIABLE, "");
 }
 
 
 std::string OSPBundleTestSuite::findBundle(const std::string& name)
 {
-	std::string bundlesPath = findBundlesPath();
-	if (bundlesPath.empty())
-		return std::string();
-	return Poco::Path(bundlesPath, name).toString();
+	return Poco::Path(findBundlesPath(), name).toString();
 }
 
 

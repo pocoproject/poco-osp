@@ -26,7 +26,11 @@ public:
 	ServiceRegistryTest(const std::string& name);
 	~ServiceRegistryTest();
 
-	void testRegistry();
+	void testRegisterFindAndUnregisterServices();
+	void testServicesReturnsCopy();
+	void testUnregisterOfUnknownServiceThrowsNotFound();
+	void testUnregisterOfStaleRefKeepsServiceOfSameName();
+	void testFindWithSyntaxErrorKeepsResults();
 
 	void setUp();
 	void tearDown();

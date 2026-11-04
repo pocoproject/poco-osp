@@ -57,6 +57,10 @@ public:
 	BundleManifest(std::istream& istr);
 		/// Creates the BundleManifest by parsing the
 		/// META-INF/manifest.mf file.
+		///
+		/// Throws a ManifestException if Manifest-Version, Bundle-Name,
+		/// Bundle-SymbolicName or Bundle-Version is missing, or if a
+		/// header has a value that is not valid.
 
 	const std::string& name() const;
 		/// Returns the name of the bundle.
@@ -130,6 +134,20 @@ public:
 	Poco::Util::AbstractConfiguration& rawManifest() const;
 		/// Returns a reference to the configuration containing
 		/// the raw manifest data.
+
+	[[nodiscard]] static bool isValidFileName(const std::string& name);
+		/// Returns true if name can be used as a single file or
+		/// directory name: it is not empty, does not start with a
+		/// period (so it is neither "." nor ".."), and contains no
+		/// '/', '\\', ':', NUL or other control character.
+		///
+		/// The bundle's symbolic name, the designation of its version
+		/// and the name of its activator library become parts of file
+		/// system paths (the bundle's data directories, the file name
+		/// of an installed bundle, the code cache), and so do the names
+		/// of the libraries in the bundle. The manifest is rejected if
+		/// one of its names fails this check, and the code cache rejects
+		/// such library names.
 
 	static const std::string VERSION;
 	static const std::string MANIFEST_VERSION;

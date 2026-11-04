@@ -5,7 +5,7 @@ Open Service Platform
 
 Welcome to the OSP tutorial. This tutorial shows you how to create
 an application that uses OSP, and how to create OSP bundles.
-You can find the source code, project files and makefiles for the 
+You can find the source code and the CMake files for the
 tutorials in the <[samples]> directory in the OSP source tree.
 
 
@@ -18,7 +18,10 @@ to any application based on the Poco::Util::Application or
 Poco::Util::ServerApplication class.
 
 The <*BundleContainer*> sample shows how an application can use the
-OSP framework, using the Poco::OSP::OSPSubsystem class.
+OSP framework, using the Poco::OSP::OSPSubsystem class. It starts the
+bundles, stops them again and exits, which shows what a bundle does when
+it starts and stops. The <*BundleServer*> sample keeps the bundles running
+until it is asked to terminate (for example, with CTRL-C).
 
     #include "Poco/Util/Application.h"
     #include "Poco/Util/Option.h"
@@ -27,6 +30,7 @@ OSP framework, using the Poco::OSP::OSPSubsystem class.
     #include "Poco/Util/AbstractConfiguration.h"
     #include "Poco/OSP/OSPSubsystem.h"
     #include "Poco/OSP/ServiceRegistry.h"
+    #include "Poco/SharedLibrary.h"
     #include <iostream>
     
     
@@ -44,8 +48,7 @@ OSP framework, using the Poco::OSP::OSPSubsystem class.
     {
     public:
         BundleContainerApplication():
-            _pOSP(new OSPSubsystem),
-            _showHelp(false)
+            _pOSP(new OSPSubsystem)
         {
             addSubsystem(_pOSP);
         }
@@ -58,6 +61,11 @@ OSP framework, using the Poco::OSP::OSPSubsystem class.
     protected:
         void initialize(Application& self)
         {
+            // The following is a workaround for Windows so that DLLs
+            // loaded from bundles will also look for DLLs in the
+            // directory the .exe is located.
+            Poco::SharedLibrary::setSearchPath(config().getString("application.dir"));
+
             loadConfiguration(); // load default configuration files, if present
             Application::initialize(self);
         }
@@ -71,7 +79,7 @@ OSP framework, using the Poco::OSP::OSPSubsystem class.
                     .required(false)
                     .repeatable(false)
                     .callback(OptionCallback<BundleContainerApplication>(
-                    	this, &BundleContainerApplication::handleHelp)));
+                        this, &BundleContainerApplication::handleHelp)));
     
             options.addOption(
                 Option("config-file", "f", "load configuration data from a file")
@@ -79,12 +87,11 @@ OSP framework, using the Poco::OSP::OSPSubsystem class.
                     .repeatable(true)
                     .argument("file")
                     .callback(OptionCallback<BundleContainerApplication>(
-                    	this, &BundleContainerApplication::handleConfig)));
+                        this, &BundleContainerApplication::handleConfig)));
         }
         
         void handleHelp(const std::string& name, const std::string& value)
         {
-            _showHelp = true;
             displayHelp();
             stopOptionsProcessing();
             _pOSP->cancelInit();
@@ -92,7 +99,8 @@ OSP framework, using the Poco::OSP::OSPSubsystem class.
     
         void handleConfig(const std::string& name, const std::string& value)
         {
-            loadConfiguration(value);
+            // Above the default configuration file that initialize() loads.
+            loadConfiguration(value, PRIO_APPLICATION);
         }
     
         void displayHelp()
@@ -100,21 +108,17 @@ OSP framework, using the Poco::OSP::OSPSubsystem class.
             HelpFormatter helpFormatter(options());
             helpFormatter.setCommand(commandName());
             helpFormatter.setUsage("OPTIONS");
-            helpFormatter.setHeader("A container for Open Service Platform bundles.");
+            helpFormatter.setHeader("Starts the Open Service Platform bundles, stops them again and exits.");
             helpFormatter.format(std::cout);
         }
     
         int main(const std::vector<std::string>& args)
         {
-            if (!_showHelp)
-            {
-            }
             return Application::EXIT_OK;
         }
     
     private:
         OSPSubsystem* _pOSP;
-        bool _showHelp;
     };
     
     
@@ -124,20 +128,30 @@ OSP framework, using the Poco::OSP::OSPSubsystem class.
 The Poco::OSP::OSPSubsystem requires a configuration file telling it where
 bundle files can be found and where the shared libraries of bundles should
 be cached. A sample configuration file (which also contains a configuration
-for the logging framework) is shown below:
+for the logging framework) is shown below. The settings of a file given
+with the <[--config-file]> option take precedence over this file.
 
     #
     # OSP Configuration
     #
     osp.codeCache        = ${application.dir}codeCache
-    osp.bundleRepository = ${application.configDir}../bundles
+    osp.bundleRepository = ${application.configDir}bundles;${application.configDir}../bundles;${application.configDir}../../bundles
     osp.data             = ${application.configDir}data
     
+    #
+    # Web Server Configuration
+    #
+    # The web servers accept connections from this computer only. To accept
+    # connections from the network, set the addresses to 0.0.0.0 (all
+    # interfaces) or to the address of one interface.
+    osp.web.server.host       = 127.0.0.1
+    osp.web.server.secureHost = 127.0.0.1
+
     #
     # Logging Configuration
     #
     logging.loggers.root.channel  = c1
-    logging.loggers.root.level = information 
+    logging.loggers.root.level = information
     logging.formatters.f1.class = PatternFormatter
     logging.formatters.f1.pattern = %s: [%p] %t
     logging.channels.c1.class = ConsoleChannel
@@ -145,8 +159,8 @@ for the logging framework) is shown below:
 ----
 
 When running the BundleContainer to develop and test new bundles, be sure
-to start the BundleContainer executable with the <[/clean]> option, to ensure
-that always the latest version of your bundle is actually loaded.
+to start the BundleContainer executable with the <[--clean]> option (<[/clean]>
+on Windows), to ensure that always the latest version of your bundle is actually loaded.
 
 
 !!! The First Bundle
@@ -263,19 +277,19 @@ to invoke the Bundle Creator Tool:
         <manifest>
             <name>Service Listener Sample</name>
             <symbolicName>com.appinf.osp.samples.servicelistener</symbolicName>
-            <version>1.0.0</version>
+            <version>1.0.1</version>
             <vendor>Applied Informatics</vendor>
-            <copyright>(c) 2007, Applied Informatics Software Engineering GmbH</copyright>
+            <copyright>(c) 2007-2026, Applied Informatics Software Engineering GmbH</copyright>
             <activator>
                 <class>ServiceListenerBundleActivator</class>
-                <library>ServiceListener</library>
+                <library>com.appinf.osp.samples.servicelistener</library>
             </activator>
             <lazyStart>false</lazyStart>
             <runLevel>100</runLevel>
         </manifest>
         <code>
-            bin/*.dll,
-            bin/*.pdb,
+            ${bin}/*.dll,
+            ${bin}/*.pdb,
             bin/${osName}/${osArch}/*.so,
             bin/${osName}/${osArch}/*.dylib
         </code>
@@ -429,19 +443,19 @@ Following is the bundle specification for this bundle:
         <manifest>
             <name>Greeting Service Sample</name>
             <symbolicName>com.appinf.osp.samples.greetingservice</symbolicName>
-            <version>1.0.0</version>
+            <version>1.0.1</version>
             <vendor>Applied Informatics</vendor>
-            <copyright>(c) 2007, Applied Informatics Software Engineering GmbH</copyright>
+            <copyright>(c) 2007-2026, Applied Informatics Software Engineering GmbH</copyright>
             <activator>
                 <class>GreetingServiceBundleActivator</class>
-                <library>GreetingService</library>
+                <library>com.appinf.osp.samples.greetingservice</library>
             </activator>
             <lazyStart>false</lazyStart>
             <runLevel>400</runLevel>
         </manifest>
         <code>
-            bin/*.dll,
-            bin/*.pdb,
+            ${bin}/*.dll,
+            ${bin}/*.pdb,
             bin/${osName}/${osArch}/*.so,
             bin/${osName}/${osArch}/*.dylib
         </code>
@@ -534,23 +548,23 @@ the Greeting Service bundle as required.
         <manifest>
             <name>Greeter Sample</name>
             <symbolicName>com.appinf.osp.samples.greeter</symbolicName>
-            <version>1.0.0</version>
+            <version>1.0.1</version>
             <vendor>Applied Informatics</vendor>
-            <copyright>(c) 2007, Applied Informatics Software Engineering GmbH</copyright>
+            <copyright>(c) 2007-2026, Applied Informatics Software Engineering GmbH</copyright>
             <activator>
                 <class>GreeterBundleActivator</class>
-                <library>Greeter</library>
+                <library>com.appinf.osp.samples.greeter</library>
             </activator>
             <lazyStart>false</lazyStart>
             <runLevel>400</runLevel>
             <dependency>
                 <symbolicName>com.appinf.osp.samples.greetingservice</symbolicName>
-                <version>1.0.0</version>
+                <version>1.0.1</version>
             </dependency>
         </manifest>
         <code>
-            bin/*.dll,
-            bin/*.pdb,
+            ${bin}/*.dll,
+            ${bin}/*.pdb,
             bin/${osName}/${osArch}/*.so,
             bin/${osName}/${osArch}/*.dylib
         </code>
@@ -583,9 +597,12 @@ the BundleContainer application to see the change in the output of the Greeter b
 On Unix platform, you can change the language used by an OSP application by
 setting the <[LANG]> environment variable to an appropriate value before
 starting the OSP application (e.g., BundleContainer).
+A locale name such as <[de_AT.UTF-8]> can be used as well; its encoding and
+modifier are ignored. If <[LANG]> is not set, or set to <[C]> or <[POSIX]>,
+the language is <[en-US]>.
 
 Example:
-    > export LANG=de-AT
+    > export LANG=de_AT.UTF-8
     > ./BundleContainer
 ----
 
@@ -598,8 +615,8 @@ Visual C++ Program Database files for all DLLs contained in a bundle are also pa
 the bundle. Then, simple specify the main OSP executable (e.g., BundleContainer) as
 the command to run when debugging the project.
 
-Be sure to run the BundleContainer with the <[/clean]> option, to ensure that always
-the newest version of your bundle is actually loaded.
+Be sure to run the BundleContainer with the <[--clean]> option (<[/clean]> on Windows),
+to ensure that always the newest version of your bundle is actually loaded.
 
 <%
 <img src="images/OSPDebugging.png" width="580" height="398" alt="Regional and Language Options Control Panel" border="0">

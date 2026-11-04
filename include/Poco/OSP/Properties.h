@@ -108,7 +108,7 @@ public:
 		/// Returns deflt if key does not exist.
 
 	double getFloat(const std::string& key) const;
-		/// Returns the given value as an integer.
+		/// Returns the given value as a floating-point number.
 		///
 		/// Throws a Poco::NotFoundException if the given key
 		/// does not exist and a Poco::SyntaxException if

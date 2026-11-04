@@ -17,6 +17,7 @@
 #include "Poco/OSP/OSP.h"
 #include "CppUnit/TestCase.h"
 #include "Poco/OSP/ServiceRef.h"
+#include "Poco/OSP/ServiceRegistry.h"
 #include <set>
 
 
@@ -26,7 +27,12 @@ public:
 	ServiceListenerTest(const std::string& name);
 	~ServiceListenerTest();
 
-	void testListener();
+	void testListenerReportsMatchingServices();
+	void testFailedConstructionLeavesNoDelegates();
+	void testServiceUnregisteredDuringCreationIsReportedAsUnregistered();
+	void testDestroyedListenerReportsNothing();
+	void testListenerWithInvalidQueryThrows();
+	void testPropertyChangeIsNotReported();
 
 	void setUp();
 	void tearDown();
@@ -36,9 +42,12 @@ public:
 protected:
 	void handleRegistered(const Poco::OSP::ServiceRef::Ptr& pServiceRef);
 	void handleUnregistered(const Poco::OSP::ServiceRef::Ptr& pServiceRef);
+	void handleRegisteredThrows(const Poco::OSP::ServiceRef::Ptr& pServiceRef);
+	void handleRegisteredUnregistersService2(const Poco::OSP::ServiceRef::Ptr& pServiceRef);
 
 private:
 	std::set<Poco::OSP::ServiceRef::Ptr> _refs;
+	Poco::OSP::ServiceRegistry* _pRegistry = nullptr;
 };
 
 

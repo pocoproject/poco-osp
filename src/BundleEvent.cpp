@@ -13,6 +13,8 @@
 
 
 #include "Poco/OSP/BundleEvent.h"
+#include <memory>
+#include <utility>
 
 
 namespace Poco {
@@ -21,16 +23,14 @@ namespace OSP {
 
 BundleEvent::BundleEvent(Bundle::Ptr pBundle, EventKind what):
 	_pBundle(pBundle),
-	_what(what),
-	_pException(0)
+	_what(what)
 {
 }
 
 
 BundleEvent::BundleEvent(Bundle* pBundle, EventKind what):
 	_pBundle(pBundle, true),
-	_what(what),
-	_pException(0)
+	_what(what)
 {
 }
 
@@ -46,24 +46,22 @@ BundleEvent::BundleEvent(Bundle* pBundle, const Poco::Exception& exception):
 BundleEvent::BundleEvent(const BundleEvent& event):
 	_pBundle(event._pBundle),
 	_what(event._what),
-	_pException(event._pException)
+	_pException(event._pException != nullptr ? event._pException->clone() : nullptr)
 {
 }
 
 
-BundleEvent::~BundleEvent()
-{
-	delete _pException;
-}
+BundleEvent::~BundleEvent() = default;
 
 
 BundleEvent& BundleEvent::operator = (const BundleEvent& event)
 {
 	if (this != &event)
 	{
+		std::unique_ptr<Poco::Exception> pException(event._pException != nullptr ? event._pException->clone() : nullptr);
 		_pBundle    = event._pBundle;
 		_what       = event._what;
-		_pException = event._pException;
+		_pException = std::move(pException);
 	}
 	return *this;
 }

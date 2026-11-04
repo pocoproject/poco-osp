@@ -14,7 +14,7 @@
 
 #include "Poco/OSP/LanguageTag.h"
 #include "Poco/Environment.h"
-#include <cctype>
+#include "Poco/Ascii.h"
 #if defined(_WIN32)
 #if defined(POCO_WIN32_UTF8)
 #include "Poco/UnicodeConverter.h"
@@ -54,8 +54,11 @@ LanguageTag::~LanguageTag()
 std::string LanguageTag::toString() const
 {
 	std::string result(_primaryTag);
-	result += '-';
-	result += _subTags;
+	if (!_subTags.empty())
+	{
+		result += '-';
+		result += _subTags;
+	}
 	return result;
 }
 
@@ -80,7 +83,13 @@ void LanguageTag::init()
 
 	if (_primaryTag.empty())
 	{
-		init(Poco::Environment::get("LANG", "en-US"));
+		init(Poco::Environment::get("LANG", ""));
+	}
+	// The C and POSIX locales name no language.
+	if (_primaryTag.empty() || _primaryTag == "c" || _primaryTag == "posix")
+	{
+		_primaryTag = "en";
+		_subTags = "US";
 	}
 }
 
@@ -90,14 +99,15 @@ void LanguageTag::init(const std::string& tag)
 	std::string::const_iterator it = tag.begin();
 	std::string::const_iterator end = tag.end();
 	
-	while (it != end && *it != '-' && *it != '_')
+	// A locale name such as "de_AT.UTF-8@euro" ends with an encoding and a modifier.
+	while (it != end && *it != '-' && *it != '_' && *it != '.' && *it != '@')
 	{
-		_primaryTag += std::tolower(*it++);
+		_primaryTag += static_cast<char>(Poco::Ascii::toLower(*it++));
 	}
-	if (it != end) ++it;
-	while (it != end && *it != '-' && *it != '_' && *it != '.')
+	if (it != end && (*it == '-' || *it == '_')) ++it;
+	while (it != end && *it != '-' && *it != '_' && *it != '.' && *it != '@')
 	{
-		_subTags += std::toupper(*it++);
+		_subTags += static_cast<char>(Poco::Ascii::toUpper(*it++));
 	}
 }
 

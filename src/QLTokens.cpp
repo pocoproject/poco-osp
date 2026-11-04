@@ -15,6 +15,7 @@
 #include "Poco/OSP/QLTokens.h"
 #include "Poco/Exception.h"
 #include <cctype>
+#include <string>
 
 
 using Poco::Token;
@@ -46,6 +47,15 @@ void QLToken::syntaxError(const std::string& expected, const std::string& actual
 	msg.append(", got: ");
 	msg.append(actual);
 	throw Poco::SyntaxException(msg);
+}
+
+
+std::string QLToken::characterText(int ch)
+{
+	if (ch == std::char_traits<char>::eof())
+		return "end of expression";
+	else
+		return std::string(1, static_cast<char>(ch));
 }
 
 
@@ -105,7 +115,7 @@ bool OperatorToken::start(char c, std::istream& istr)
 
 void OperatorToken::finish(std::istream& istr)
 {
-	int next = (char) istr.peek();
+	const int next = istr.peek();
 	switch (_value[0])
 	{
 	case '(':
@@ -121,13 +131,13 @@ void OperatorToken::finish(std::istream& istr)
 		if (next == '&')
 			_value += (char) istr.get();
 		else
-			syntaxError("&", std::string(1, next));
+			syntaxError("&", characterText(next));
 		break;
 	case '|':
 		if (next == '|')
 			_value += (char) istr.get();
 		else
-			syntaxError("|", std::string(1, next));
+			syntaxError("|", characterText(next));
 		break;
 	case '=':
 		if (next == '~' || next == '=') _value += (char) istr.get();
@@ -183,7 +193,7 @@ bool IdentifierToken::start(char c, std::istream& istr)
 
 void IdentifierToken::finish(std::istream& istr)
 {
-	int next = (char) istr.peek();
+	int next = istr.peek();
 	while ((next >= 'A' && next <= 'Z') ||
 		   (next >= 'a' && next <= 'z') ||
 		   (next >= '0' && next <= '9') ||
@@ -413,8 +423,7 @@ void NumberLiteralToken::finish(std::istream& istr)
 		}
 		else
 		{
-			std::string s(1, (char) next);
-			syntaxError("digit", s);
+			syntaxError("digit", characterText(next));
 		}
 	}
 }

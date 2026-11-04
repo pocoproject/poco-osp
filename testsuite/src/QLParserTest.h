@@ -24,7 +24,23 @@ public:
 	QLParserTest(const std::string& name);
 	~QLParserTest();
 
-	void testParser();
+	void testPropertyPresence();
+	void testStringComparison();
+	void testNumericAndBooleanComparison();
+	void testBooleanOperatorsAndPrecedence();
+	void testGlobMatchOfWholeValue();
+	void testRegexMatch();
+	void testMalformedQueryIsSyntaxError();
+	void testInvalidRegexIsRejected();
+	void testMissingPropertyComparesAsEmptyString();
+	void testNumberComparedWithStringComparesText();
+	void testEscapedQuoteInString();
+	void testMissingOperandIsSyntaxError();
+	void testDeepNestingIsRejected();
+	void testLongOperatorChainIsRejected();
+	void testGlobMatch();
+	void testGlobPatternWithTooManyWildcardsIsSyntaxError();
+	void testIncompleteTokenAtEndIsReportedAsEndOfExpression();
 
 	void setUp();
 	void tearDown();

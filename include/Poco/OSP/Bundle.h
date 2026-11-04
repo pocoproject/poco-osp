@@ -110,7 +110,7 @@ public:
 		/// resolved.
 		///
 		/// In other words, the bundle's state must be one of
-		/// BUNDLE_RESOLVED, BUNDLE_STARTING, BUNDLE_ACTIVE, BUNDLE_STOPPED.
+		/// BUNDLE_RESOLVED, BUNDLE_STARTING, BUNDLE_ACTIVE, BUNDLE_STOPPING.
 
 	bool isActive() const;
 		/// Returns true iff the bundle's state is BUNDLE_ACTIVE.
@@ -162,9 +162,14 @@ public:
 		/// if the manifest does not specify an activator library.
 
 	BundleActivator* activator() const;
-		/// If the bundle is active and has an activator,
+		/// If the bundle has been started and has an activator,
 		/// returns a pointer to the bundle's activator.
-		/// Otherwise, returns NULL.
+		/// Otherwise, returns NULL. The pointer stays set
+		/// after the bundle has been stopped. It is reset to
+		/// NULL when the bundle is unloaded or uninstalled and
+		/// the activator is destroyed. In a static build
+		/// (POCO_OSP_STATIC), the activator is not destroyed, and
+		/// the pointer stays set.
 
 	bool lazyStart() const;
 		/// Returns true if lazy start has been specified for
@@ -280,9 +285,14 @@ public:
 		/// Starts the bundle. The bundle's state must be
 		/// BUNDLE_RESOLVED.
 		///
+		/// Calls of start(), stop() and uninstall() for the same
+		/// bundle from several threads are serialized. A required
+		/// bundle that another thread is starting is waited for,
+		/// not started a second time.
+		///
 		/// Puts the bundle in BUNDLE_STARTING state, loads
 		/// the bundle's activator and invokes it, and
-		/// finally puts the bundle in BUNDLE_RUNNING state.
+		/// finally puts the bundle in BUNDLE_ACTIVE state.
 
 	void stop();
 		/// Stops the bundle. The bundle's state must be
@@ -293,7 +303,12 @@ public:
 	void uninstall();
 		/// Uninstalls the bundle. The bundle must be in
 		/// BUNDLE_INSTALLED or BUNDLE_RESOLVED state.
-		/// The bundle is also removed from the bundle repository.
+		///
+		/// The bundle's file or directory is deleted only if it is
+		/// in the primary path of the BundleRepository, the path
+		/// that BundleRepository::installBundle() installs into by
+		/// default. The file or directory of a bundle in another
+		/// path, such as a development tree, is kept.
 
 	ResolvedDependencies resolvedDependencies() const;
 		/// Returns a vector containing information about all
@@ -406,7 +421,7 @@ private:
 	Bundle& operator = (const Bundle&);
 
 	int                     _id;
-	State                   _state;
+	std::atomic<State>      _state;
 	BundleLoader&           _loader;
 	BundleStorage::Ptr      _pStorage;
 	LanguageTag             _language;
@@ -422,6 +437,10 @@ private:
 	ResolvedDependencies    _resolvedDependencies;
 	ModuleProviders         _moduleProviders;
 	mutable Poco::FastMutex _resolutionMutex;
+	Poco::Mutex             _lifecycleMutex;
+		/// Serializes start(), stop() and uninstall(), which take the
+		/// BundleLoader's mutex while holding it. Not taken by resolve(),
+		/// which runs for required bundles with the BundleLoader's mutex held.
 
 	friend class BundleLoader;
 	friend class BundleFactory;
@@ -445,10 +464,11 @@ inline Bundle::State Bundle::state() const
 
 inline bool Bundle::isResolved() const
 {
-	return _state == BUNDLE_RESOLVED
-	    || _state == BUNDLE_STARTING
-	    || _state == BUNDLE_ACTIVE
-	    || _state == BUNDLE_STOPPING;
+	const State state = _state;
+	return state == BUNDLE_RESOLVED
+	    || state == BUNDLE_STARTING
+	    || state == BUNDLE_ACTIVE
+	    || state == BUNDLE_STOPPING;
 }
 
 
@@ -460,9 +480,10 @@ inline bool Bundle::isActive() const
 
 inline bool Bundle::isStarted() const
 {
-	return _state == BUNDLE_STARTING
-	    || _state == BUNDLE_ACTIVE
-	    || _state == BUNDLE_STOPPING;
+	const State state = _state;
+	return state == BUNDLE_STARTING
+	    || state == BUNDLE_ACTIVE
+	    || state == BUNDLE_STOPPING;
 }
 
 

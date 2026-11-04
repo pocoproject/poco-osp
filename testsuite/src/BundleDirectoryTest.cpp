@@ -14,9 +14,11 @@
 #include "Poco/OSP/BundleDirectory.h"
 #include "Poco/File.h"
 #include "Poco/Path.h"
+#include "Poco/TemporaryFile.h"
 #include "Poco/Exception.h"
 #include <fstream>
 #include <memory>
+#include <vector>
 
 
 using Poco::OSP::BundleDirectory;
@@ -35,10 +37,10 @@ BundleDirectoryTest::~BundleDirectoryTest()
 }
 
 
-void BundleDirectoryTest::testResource()
+void BundleDirectoryTest::testGetResourceOpensFile()
 {
 	std::string s;
-	BundleStorage::Ptr pBD(new BundleDirectory("testBundle"));
+	BundleStorage::Ptr pBD(new BundleDirectory(_bundlePath));
 
 	std::unique_ptr<std::istream> istr1(pBD->getResource("META-INF/manifest.mf"));
 	assert (istr1.get() != 0);
@@ -50,41 +52,32 @@ void BundleDirectoryTest::testResource()
 	std::getline(*istr2, s);
 	assert (s == "foo: bar");
 
-	std::istream* istr3(pBD->getResource("nonexistent"));
-	assert (istr3 == 0);
+	std::unique_ptr<std::istream> istr3(pBD->getResource("nonexistent"));
+	assertTrue (istr3 == nullptr);
+}
 
-	try
-	{
-		std::istream* istr3(pBD->getResource("/foo.bar"));
-		fail("invalid resource path - must throw");
-	}
-	catch (Poco::Exception&)
-	{
-	}
 
-	try
+void BundleDirectoryTest::testGetResourceRejectsInvalidPath()
+{
+	BundleStorage::Ptr pBD(new BundleDirectory(_bundlePath));
+	const std::vector<std::string> paths = {"/foo.bar", "foo/../../bar", "foo\\..\\bar"};
+	for (const auto& path: paths)
 	{
-		std::istream* istr3(pBD->getResource("foo/../../bar"));
-		fail("invalid resource path - must throw");
-	}
-	catch (Poco::Exception&)
-	{
-	}
-
-	try
-	{
-		std::istream* istr3(pBD->getResource("foo\\..\\bar"));
-		fail("invalid resource path - must throw");
-	}
-	catch (Poco::Exception&)
-	{
+		try
+		{
+			std::unique_ptr<std::istream> pStream(pBD->getResource(path));
+			failmsg("resource path '" + path + "' must be rejected");
+		}
+		catch (Poco::InvalidArgumentException&)
+		{
+		}
 	}
 }
 
 
-void BundleDirectoryTest::testDirectory()
+void BundleDirectoryTest::testListReturnsDirectoryEntries()
 {
-	BundleStorage::Ptr pBD(new BundleDirectory("testBundle"));
+	BundleStorage::Ptr pBD(new BundleDirectory(_bundlePath));
 	std::vector<std::string> files;
 	pBD->list("", files);
 	assert (files.size() == 2);
@@ -95,14 +88,57 @@ void BundleDirectoryTest::testDirectory()
 }
 
 
+void BundleDirectoryTest::testParentDirectoryIsRejected()
+{
+	BundleStorage::Ptr pBD(new BundleDirectory(_bundlePath));
+	std::vector<std::string> files;
+	const std::vector<std::string> paths = {"..", "./..", "x/../..", "META-INF/../.."};
+	for (const auto& path: paths)
+	{
+		try
+		{
+			pBD->list(path, files);
+			failmsg("list of '" + path + "' must be rejected");
+		}
+		catch (Poco::InvalidArgumentException&)
+		{
+		}
+	}
+
+	try
+	{
+		pBD->lastModified("..");
+		fail("parent directory - must throw");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+}
+
+
+void BundleDirectoryTest::testLastModifiedIsTimeOfFile()
+{
+	BundleStorage::Ptr pBD(new BundleDirectory(_bundlePath));
+	Path manifestPath(Path::forDirectory(_bundlePath));
+	manifestPath.pushDirectory("META-INF");
+	manifestPath.setFileName("manifest.mf");
+	assertTrue (pBD->lastModified("META-INF/manifest.mf") == File(manifestPath).getLastModified());
+}
+
+
+void BundleDirectoryTest::testStorageOpenReturnsBundleDirectory()
+{
+	BundleStorage::Ptr pStorage(BundleStorage::open(_bundlePath));
+	assertTrue (dynamic_cast<BundleDirectory*>(pStorage.get()) != nullptr);
+	std::unique_ptr<std::istream> pStream(pStorage->getResource("bundle.properties"));
+	assertTrue (pStream != nullptr);
+}
+
+
 void BundleDirectoryTest::setUp()
 {
-	File baseDir("testBundle");
-	if (baseDir.exists())
-	{
-		baseDir.remove(true);
-	}
-	Path basePath("testBundle");
+	_bundlePath = Poco::TemporaryFile::tempName();
+	Path basePath(_bundlePath);
 	basePath.makeDirectory();
 	Path metaPath(basePath, std::string("META-INF"));
 	metaPath.makeDirectory();
@@ -121,10 +157,12 @@ void BundleDirectoryTest::setUp()
 
 void BundleDirectoryTest::tearDown()
 {
-	File f("testBundle");
-	if (f.exists())
+	try
 	{
-		f.remove(true);
+		File(_bundlePath).remove(true);
+	}
+	catch (Poco::Exception&)
+	{
 	}
 }
 
@@ -133,8 +171,12 @@ CppUnit::Test* BundleDirectoryTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("BundleDirectoryTest");
 
-	CppUnit_addTest(pSuite, BundleDirectoryTest, testResource);
-	CppUnit_addTest(pSuite, BundleDirectoryTest, testDirectory);
+	CppUnit_addTest(pSuite, BundleDirectoryTest, testGetResourceOpensFile);
+	CppUnit_addTest(pSuite, BundleDirectoryTest, testGetResourceRejectsInvalidPath);
+	CppUnit_addTest(pSuite, BundleDirectoryTest, testListReturnsDirectoryEntries);
+	CppUnit_addTest(pSuite, BundleDirectoryTest, testParentDirectoryIsRejected);
+	CppUnit_addTest(pSuite, BundleDirectoryTest, testLastModifiedIsTimeOfFile);
+	CppUnit_addTest(pSuite, BundleDirectoryTest, testStorageOpenReturnsBundleDirectory);
 
 	return pSuite;
 }

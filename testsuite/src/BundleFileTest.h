@@ -24,8 +24,14 @@ public:
 	BundleFileTest(const std::string& name);
 	~BundleFileTest();
 
-	void testResource();
-	void testDirectory();
+	void testGetResourceOpensEntry();
+	void testListReturnsDirectoryEntries();
+	void testListWithoutDirectoryEntries();
+	void testLastModifiedIsTimeOfEntry();
+	void testLastModifiedOfMissingEntryThrows();
+	void testListWithTrailingSlash();
+	void testStorageOpenReturnsBundleFile();
+	void testStorageOpenRejectsPathThatIsNoBundle();
 
 	void setUp();
 	void tearDown();
@@ -33,6 +39,10 @@ public:
 	static CppUnit::Test* suite();
 
 private:
+	std::string _scratchPath;
+		/// A unique temporary directory that holds the files of the test.
+	std::string _bundlePath;
+		/// The bundle file that setUp() creates.
 };
 
 

@@ -23,12 +23,17 @@
 #include "Poco/Timestamp.h"
 #include "Poco/Environment.h"
 #include "Poco/Exception.h"
+#include "Poco/ScopedLock.h"
+#include "Poco/Ascii.h"
 #if defined(POCO_REQUIRE_LICENSE)
 #include "Poco/Licensing/License.h"
 #endif
 #include <memory>
 #include <algorithm>
-#include <cctype>
+#include <exception>
+#include <set>
+#include <string>
+#include <vector>
 
 
 using namespace std::string_literals;
@@ -43,6 +48,14 @@ using Poco::Logger;
 
 namespace Poco {
 namespace OSP {
+
+
+namespace
+{
+	thread_local std::string startingBundleName;
+		/// The bundle whose start is in progress in this thread,
+		/// see BundleLoader::StartingBundle.
+}
 
 
 BundleLoader::BundleLoader(CodeCache& codeCache, BundleFactory::Ptr pBundleFactory, BundleContextFactory::Ptr pBundleContextFactory, const std::string& osName, const std::string& osArch, bool autoUpdateCodeCache):
@@ -149,7 +162,7 @@ void BundleLoader::loadBundle(Bundle::Ptr pBundle)
 	poco_verify_license(OSP);
 #endif
 
-	Poco::Mutex::ScopedLock lock(_mutex);
+	Poco::ScopedLockWithUnlock<Poco::Mutex> lock(_mutex);
 
 	const std::string& symbolicName = pBundle->symbolicName();
 	BundleMap::const_iterator it = _bundles.find(symbolicName);
@@ -160,7 +173,9 @@ void BundleLoader::loadBundle(Bundle::Ptr pBundle)
 		info.pContext = _pBundleContextFactory->createBundleContext(*this, pBundle, _events);
 		_bundles[symbolicName] = info;
 		_bundleIds[pBundle->id()] = pBundle;
+		lock.unlock();
 
+		// Events are fired without _mutex: a delegate may call back into the loader.
 		BundleEvent loadedEvent(pBundle, BundleEvent::EV_BUNDLE_LOADED);
 		_events.bundleLoaded(this, loadedEvent);
 	}
@@ -195,19 +210,25 @@ void BundleLoader::unloadBundle(Bundle::Ptr pBundle)
 		}
 	}
 
-	Poco::Mutex::ScopedLock lock(_mutex);
-
-	BundleMap::iterator it = _bundles.find(pBundle->symbolicName());
-	if (it != _bundles.end())
+	// The activator is unloaded, and the event fired, without _mutex: both
+	// call into bundle code, which may call back into the loader.
+	BundleInfo info;
 	{
-		unloadActivator(it->second);
+		Poco::Mutex::ScopedLock lock(_mutex);
+
+		BundleMap::iterator it = _bundles.find(pBundle->symbolicName());
+		if (it != _bundles.end())
+		{
+			info = it->second;
+			_bundles.erase(it);
+		}
+		_bundleIds.erase(pBundle->id());
+	}
+	if (!info.pBundle.isNull())
+	{
+		unloadActivator(info);
 	}
 	BundleEvent unloadedEvent(pBundle, BundleEvent::EV_BUNDLE_UNLOADED);
-	if (it != _bundles.end())
-	{
-		_bundles.erase(it);
-	}
-	_bundleIds.erase(pBundle->id());
 	_events.bundleUnloaded(this, unloadedEvent);
 }
 
@@ -241,28 +262,60 @@ void BundleLoader::listBundles(std::vector<Bundle::Ptr>& bundles, BundleFilter::
 }
 
 
+void BundleLoader::listRequiringBundles(Bundle::ConstPtr pBundle, std::vector<Bundle::Ptr>& bundles) const
+{
+	std::vector<Bundle::Ptr> sorted;
+	sortBundles(sorted);
+
+	// In dependency order, a bundle comes after the bundles it requires.
+	bundles.clear();
+	std::set<std::string> required;
+	required.insert(pBundle->symbolicName());
+	for (std::vector<Bundle::Ptr>::const_reverse_iterator it = sorted.rbegin(); it != sorted.rend(); ++it)
+	{
+		if (!(*it)->isResolved()) continue;
+		const Bundle::ResolvedDependencies deps = (*it)->resolvedDependencies();
+		const bool requiresBundle = std::any_of(deps.begin(), deps.end(), [&required](const Bundle::ResolvedDependency& dep)
+		{
+			return required.find(dep.symbolicName) != required.end();
+		});
+		if (requiresBundle)
+		{
+			required.insert((*it)->symbolicName());
+			bundles.push_back(*it);
+		}
+	}
+	std::reverse(bundles.begin(), bundles.end());
+}
+
+
 void BundleLoader::resolveAllBundles()
 {
-	Poco::Mutex::ScopedLock lock(_mutex);
+	// Resolved without _mutex, so that the resolve events are fired without it.
+	std::vector<Bundle::Ptr> bundles;
+	listBundles(bundles);
 
-	for (BundleMap::iterator it = _bundles.begin(); it != _bundles.end(); ++it)
+	for (std::vector<Bundle::Ptr>::iterator it = bundles.begin(); it != bundles.end(); ++it)
 	{
-		if (!it->second.pBundle->isResolved())
+		if (!(*it)->isResolved())
 		{
 			try
 			{
-				it->second.pBundle->resolve();
+				(*it)->resolve();
 			}
 			catch (Poco::Exception& exc)
 			{
+				// Another thread has resolved the bundle in the meantime.
+				if ((*it)->isResolved()) continue;
+
 				std::string msg("Failed to resolve bundle ");
-				msg += it->second.pBundle->symbolicName();
+				msg += (*it)->symbolicName();
 				msg += ": ";
 				msg += exc.displayText();
 				_logger.error(msg);
 
 				BundleError error;
-				error.pBundle = it->second.pBundle;
+				error.pBundle = *it;
 				error.targetState = Bundle::BUNDLE_RESOLVED;
 				error.pException = &exc;
 				bundleError(this, error);
@@ -294,6 +347,7 @@ void BundleLoader::startAllBundles()
 	{
 		if ((*it)->state() == Bundle::BUNDLE_RESOLVED && !(*it)->lazyStart())
 		{
+			startingBundleName.clear();
 			try
 			{
 				(*it)->start();
@@ -307,6 +361,11 @@ void BundleLoader::startAllBundles()
 				Poco::SystemException se(exc.what());
 				handleStartError(*it, exc.what(), se);
 			}
+			catch (...)
+			{
+				Poco::UnhandledException ue("unknown exception");
+				handleStartError(*it, ue.displayText(), ue);
+			}
 		}
 	}
 }
@@ -314,10 +373,11 @@ void BundleLoader::startAllBundles()
 
 void BundleLoader::handleStartError(Bundle::Ptr pBundle, const std::string& errorMsg, Poco::Exception& exc)
 {
+	const std::string failedBundle(startingBundleName.empty() ? pBundle->symbolicName() : startingBundleName);
 	std::string msg("Failed to start bundle ");
-	if (_lastBundleStarted != pBundle->symbolicName())
+	if (failedBundle != pBundle->symbolicName())
 	{
-		msg += _lastBundleStarted;
+		msg += failedBundle;
 		msg += " required by ";
 		msg += pBundle->symbolicName();
 		msg += ": ";
@@ -346,9 +406,39 @@ void BundleLoader::stopAllBundles()
 	{
 		if ((*it)->isActive())
 		{
-			(*it)->stop();
+			stopBundleOnShutdown(*it);
 		}
 	}
+}
+
+
+void BundleLoader::stopBundleOnShutdown(Bundle::Ptr pBundle)
+{
+	try
+	{
+		pBundle->stop();
+	}
+	catch (Poco::Exception& exc)
+	{
+		handleStopError(pBundle, exc);
+	}
+	catch (std::exception& exc)
+	{
+		Poco::SystemException se(exc.what());
+		handleStopError(pBundle, se);
+	}
+}
+
+
+void BundleLoader::handleStopError(Bundle::Ptr pBundle, Poco::Exception& exc)
+{
+	_logger.error("Failed to stop bundle %s: %s"s, pBundle->symbolicName(), exc.displayText());
+
+	BundleError error;
+	error.pBundle = pBundle;
+	error.targetState = Bundle::BUNDLE_RESOLVED;
+	error.pException = &exc;
+	bundleError(this, error);
 }
 
 
@@ -360,7 +450,12 @@ void BundleLoader::unloadAllBundles(bool unloadLibraries)
 	{
 		if ((*it)->isActive())
 		{
-			(*it)->stop();
+			stopBundleOnShutdown(*it);
+		}
+		// A bundle that cannot be stopped is still active and stays loaded.
+		if ((*it)->isActive())
+		{
+			continue;
 		}
 		if (unloadLibraries)
 		{
@@ -387,6 +482,7 @@ void BundleLoader::unloadAllBundles(bool unloadLibraries)
 				{
 					pToRelease = itMap->second.pClassLoader;
 					itMap->second.pClassLoader = 0;
+					if (!pToRelease.isNull()) itMap->second.pBundle->setActivator(nullptr);
 					_bundles.erase(itMap);
 				}
 				_bundleIds.erase((*it)->id());
@@ -399,8 +495,55 @@ void BundleLoader::unloadAllBundles(bool unloadLibraries)
 
 void BundleLoader::resolveBundle(Bundle* pBundle)
 {
-	Poco::Mutex::ScopedLock lock(_mutex);
+	// The bundles that pBundle requires are resolved with _mutex held. Their
+	// events are fired once the outermost resolution has released it, as a
+	// delegate may call back into the loader.
+	std::vector<BundleEvent> deferredEvents;
+	std::exception_ptr pException;
+	{
+		Poco::Mutex::ScopedLock lock(_mutex);
 
+		++_resolveDepth;
+		try
+		{
+			resolveBundleImpl(pBundle);
+		}
+		catch (...)
+		{
+			pException = std::current_exception();
+		}
+		if (--_resolveDepth == 0) std::swap(deferredEvents, _deferredResolveEvents);
+	}
+	for (auto& event: deferredEvents)
+	{
+		fireResolveEvent(event);
+	}
+	if (pException != nullptr) std::rethrow_exception(pException);
+}
+
+
+void BundleLoader::fireResolveEvent(BundleEvent& event)
+{
+	{
+		Poco::Mutex::ScopedLock lock(_mutex);
+
+		// _resolveDepth changes only with _mutex held, so here it counts
+		// the resolutions of the calling thread.
+		if (_resolveDepth > 0)
+		{
+			_deferredResolveEvents.push_back(event);
+			return;
+		}
+	}
+	if (event.what() == BundleEvent::EV_BUNDLE_RESOLVING)
+		_events.bundleResolving(event.bundle().get(), event);
+	else
+		_events.bundleResolved(event.bundle().get(), event);
+}
+
+
+void BundleLoader::resolveBundleImpl(Bundle* pBundle)
+{
 	poco_assert (!isResolving(pBundle));
 
 	if (_logger.debug())
@@ -596,7 +739,6 @@ void BundleLoader::startBundle(Bundle* pBundle)
 			// Bundle was uninstalled while we were starting its dependencies.
 			throw BundleException("The bundle loader does not know the bundle", pBundle->symbolicName());
 		}
-		_lastBundleStarted = pBundle->symbolicName();
 		pActivator = loadActivator(it->second);
 		pContext   = it->second.pContext;
 	}
@@ -612,6 +754,23 @@ void BundleLoader::startBundle(Bundle* pBundle)
 	if (_logger.information())
 	{
 		_logger.information("Bundle %s started."s, pBundle->symbolicName());
+	}
+}
+
+
+BundleLoader::StartingBundle::StartingBundle(const Bundle& bundle):
+	_previous(startingBundleName),
+	_uncaughtExceptions(std::uncaught_exceptions())
+{
+	startingBundleName = bundle.symbolicName();
+}
+
+
+BundleLoader::StartingBundle::~StartingBundle()
+{
+	if (std::uncaught_exceptions() == _uncaughtExceptions)
+	{
+		startingBundleName.swap(_previous);
 	}
 }
 
@@ -656,8 +815,6 @@ void BundleLoader::stopBundle(Bundle* pBundle)
 
 void BundleLoader::uninstallBundle(Bundle* pBundle)
 {
-	Poco::Mutex::ScopedLock lock(_mutex);
-
 	if (_logger.debug())
 	{
 		_logger.debug("Uninstalling bundle %s."s, pBundle->symbolicName());
@@ -672,28 +829,56 @@ void BundleLoader::uninstallBundle(Bundle* pBundle)
 		}
 	}
 
-	BundleMap::iterator it = _bundles.find(pBundle->symbolicName());
-	if (it != _bundles.end())
+	// As in unloadBundle(), the activator is unloaded, and the event
+	// fired, without _mutex.
+	BundleInfo info;
 	{
-		unloadActivator(it->second);
+		Poco::Mutex::ScopedLock lock(_mutex);
+
+		BundleMap::iterator it = _bundles.find(pBundle->symbolicName());
+		if (it != _bundles.end())
+		{
+			info = it->second;
+			_bundles.erase(it);
+		}
+		_bundleIds.erase(pBundle->id());
+	}
+	if (!info.pBundle.isNull())
+	{
+		unloadActivator(info);
 	}
 	uninstallLibraries(pBundle);
 
-	File bundleFile(pBundle->path());
-	bundleFile.remove(true);
+	if (info.deleteOnUninstall.has_value() && *info.deleteOnUninstall)
+	{
+		File bundleFile(pBundle->path());
+		bundleFile.remove(true);
+	}
+	else if (!info.deleteOnUninstall.has_value() && _logger.information())
+	{
+		_logger.information("The file or directory '%s' of bundle %s is kept, because it is not in the primary bundle repository, where bundles are installed."s,
+			pBundle->path(), pBundle->symbolicName());
+	}
 
 	BundleEvent unloadedEvent(pBundle, BundleEvent::EV_BUNDLE_UNLOADED);
-	if (it != _bundles.end())
-	{
-		_bundles.erase(it);
-	}
-	_bundleIds.erase(pBundle->id());
 	_events.bundleUnloaded(this, unloadedEvent);
 
 	if (_logger.information())
 	{
 		_logger.information("Bundle  %s uninstalled."s, pBundle->symbolicName());
 	}
+}
+
+
+void BundleLoader::setDeleteOnUninstall(Bundle::ConstPtr pBundle, bool deleteOnUninstall)
+{
+	Poco::Mutex::ScopedLock lock(_mutex);
+
+	BundleMap::iterator it = _bundles.find(pBundle->symbolicName());
+	if (it != _bundles.end())
+		it->second.deleteOnUninstall = deleteOnUninstall;
+	else
+		throw BundleException("The bundle loader does not know the bundle", pBundle->symbolicName());
 }
 
 
@@ -910,6 +1095,8 @@ void BundleLoader::startDependencies(Bundle* pBundle)
 		Bundle::Ptr pDepBundle(findBundle(it->symbolicName));
 		if (pDepBundle && pDepBundle->version() == it->version)
 		{
+			// Waits for a thread that is starting the required bundle.
+			Poco::Mutex::ScopedLock lock(pDepBundle->_lifecycleMutex);
 			if (!pDepBundle->isActive())
 			{
 				pDepBundle->start();
@@ -939,8 +1126,9 @@ BundleActivator* BundleLoader::loadActivator(BundleInfo& bundleInfo)
 #else
 	if (!bundleInfo.pClassLoader)
 	{
+		// kept unless loading the activator fails, so that a start that
+		// fails to load it fails again on the next start
 		ActivatorClassLoaderPtr pClassLoader(new ActivatorClassLoader);
-		bundleInfo.pClassLoader = pClassLoader;
 		const std::string& activatorClass = bundleInfo.pBundle->activatorClass();
 		if (!activatorClass.empty())
 		{
@@ -950,18 +1138,28 @@ BundleActivator* BundleLoader::loadActivator(BundleInfo& bundleInfo)
 				_logger.debug("Loading library %s."s, libPath);
 			}
 			pClassLoader->loadLibrary(libPath);
-			const ActivatorClassLoader::Meta& meta = pClassLoader->classFor(activatorClass);
-			if (meta.canCreate())
+			try
 			{
-				pActivator = meta.create();
-				meta.autoDelete(pActivator);
+				const ActivatorClassLoader::Meta& meta = pClassLoader->classFor(activatorClass);
+				if (meta.canCreate())
+				{
+					pActivator = meta.create();
+					meta.autoDelete(pActivator);
+				}
+				else
+				{
+					pActivator = &meta.instance();
+				}
+				bundleInfo.pBundle->setActivator(pActivator);
 			}
-			else
+			catch (...)
 			{
-				pActivator = &meta.instance();
+				// the class loader's destructor does not unload the library
+				pClassLoader->unloadLibrary(libPath);
+				throw;
 			}
-			bundleInfo.pBundle->setActivator(pActivator);
 		}
+		bundleInfo.pClassLoader = pClassLoader;
 	}
 	else
 	{
@@ -987,6 +1185,7 @@ void BundleLoader::unloadActivator(BundleInfo& bundleInfo)
 			bundleInfo.pClassLoader->unloadLibrary(libPath);
 		}
 		bundleInfo.pClassLoader = 0;
+		bundleInfo.pBundle->setActivator(nullptr);
 	}
 #endif
 }
@@ -1092,6 +1291,15 @@ void BundleLoader::listLibraries(Bundle* pBundle, std::vector<std::string>& list
 	p.pushDirectory(_osName);
 	p.pushDirectory(_osArch);
 	pBundle->storage().list(p.toString(Path::PATH_UNIX), list);
+
+	const auto itInvalid = std::remove_if(list.begin(), list.end(), [this, pBundle](const std::string& name)
+	{
+		if (BundleManifest::isValidFileName(name)) return false;
+		_logger.warning("Library '%s' of bundle %s is ignored: its name cannot be used as a file name in the code cache."s,
+			name, pBundle->symbolicName());
+		return true;
+	});
+	list.erase(itInvalid, list.end());
 }
 
 
@@ -1114,35 +1322,42 @@ void BundleLoader::sortBundles(std::vector<Bundle::Ptr>& bundles) const
 	// account for run level
 	std::sort(remaining.begin(), remaining.end(), RunLevelLess());
 
-	std::set<std::string> sorted;
-	while (!remaining.empty())
+	// A resolved bundle may require a bundle that has been uninstalled
+	// or unloaded since; such a dependency does not delay it.
+	std::set<std::string> loaded;
+	for (const auto& pBundle: remaining)
 	{
-		std::vector<Bundle::Ptr>::iterator it = remaining.begin();
-		while (it != remaining.end())
+		loaded.insert(pBundle->symbolicName());
+	}
+
+	std::set<std::string> sorted;
+	std::vector<Bundle::Ptr>::iterator it = remaining.begin();
+	while (it != remaining.end())
+	{
+		bool hasDeps = false;
+		if ((*it)->isResolved())
 		{
-			bool hasDeps = false;
-			if ((*it)->isResolved())
+			const Bundle::ResolvedDependencies& deps = (*it)->resolvedDependencies();
+			for (Bundle::ResolvedDependencies::const_iterator itDep = deps.begin(); itDep != deps.end(); ++itDep)
 			{
-				const Bundle::ResolvedDependencies& deps = (*it)->resolvedDependencies();
-				for (Bundle::ResolvedDependencies::const_iterator itDep = deps.begin(); itDep != deps.end(); ++itDep)
+				if (loaded.find(itDep->symbolicName) != loaded.end() && sorted.find(itDep->symbolicName) == sorted.end())
 				{
-					if (sorted.find(itDep->symbolicName) == sorted.end())
-					{
-						hasDeps = true;
-						break;
-					}
+					hasDeps = true;
+					break;
 				}
 			}
-			if (!hasDeps)
-			{
-				bundles.push_back(*it);
-				sorted.insert((*it)->symbolicName());
-				remaining.erase(it);
-				it = remaining.begin();
-			}
-			else ++it;
 		}
+		if (!hasDeps)
+		{
+			bundles.push_back(*it);
+			sorted.insert((*it)->symbolicName());
+			remaining.erase(it);
+			it = remaining.begin();
+		}
+		else ++it;
 	}
+	// The bundles left require each other; keep their run level order.
+	bundles.insert(bundles.end(), remaining.begin(), remaining.end());
 	std::reverse(bundles.begin(), bundles.end());
 }
 
@@ -1157,7 +1372,7 @@ void BundleLoader::makeValidFileName(std::string& name)
 {
 	for (std::string::iterator it = name.begin(); it != name.end(); ++it)
 	{
-		if (!(std::isalnum(*it) || *it == '-')) *it = '_';
+		if (!(Poco::Ascii::isAlphaNumeric(*it) || *it == '-')) *it = '_';
 	}
 }
 
@@ -1167,7 +1382,7 @@ bool BundleLoader::isProvidingModule(Bundle::Ptr pBundle, const BundleManifest::
 	Bundle::Modules modules = pBundle->providedModules();
 	for (Bundle::Modules::const_iterator it = modules.begin(); it != modules.end(); ++it)
 	{
-		if (module.symbolicName == it->symbolicName && module.versions.isInRange(it->version))
+		if (module.symbolicName == it->symbolicName && (module.versions.isEmpty() || module.versions.isInRange(it->version)))
 			return true;
 	}
 	return false;

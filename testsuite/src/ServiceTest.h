@@ -30,7 +30,10 @@ public:
 	void testServiceSetConfigWithRemove();
 	void testServiceConfigMerge();
 	void testServiceBundleConfig();
-	void testServiceUniqueName();
+	void testServiceNameAfterPreviousInstance();
+	void testLoggerIsNamedAfterService();
+	void testServiceConfigIncludesConfigurationOfPreferencesService();
+	void testServiceFinderFindsServiceOfType();
 
 	void setUp();
 	void tearDown();

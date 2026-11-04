@@ -13,7 +13,15 @@
 #include "CppUnit/TestSuite.h"
 #include "Poco/OSP/BundleManifest.h"
 #include "Poco/OSP/OSPException.h"
+#include "Poco/OSP/Version.h"
+#include "Poco/Event.h"
+#include <atomic>
+#include <cstddef>
+#include <memory>
 #include <sstream>
+#include <string>
+#include <thread>
+#include <vector>
 
 
 #undef major
@@ -21,6 +29,46 @@
 
 
 using Poco::OSP::BundleManifest;
+using Poco::OSP::Version;
+
+
+namespace
+{
+	constexpr long PARSE_WAIT_MS = 10000;
+
+
+	[[nodiscard]] bool isRejectedInTime(const std::string& manifest)
+		/// Parses the manifest in a thread of its own and returns true if
+		/// the parser throws a ManifestException within PARSE_WAIT_MS.
+		/// A parser that does not return is left running in its detached
+		/// thread, so that the test fails instead of blocking the runner.
+	{
+		auto pDone = std::make_shared<Poco::Event>();
+		auto pRejected = std::make_shared<std::atomic<bool>>(false);
+		std::thread parser([manifest, pDone, pRejected]()
+		{
+			std::istringstream istr(manifest);
+			try
+			{
+				BundleManifest::Ptr pManifest(new BundleManifest(istr));
+			}
+			catch (Poco::OSP::ManifestException&)
+			{
+				*pRejected = true;
+			}
+			catch (...)
+			{
+			}
+			pDone->set();
+		});
+		const bool returned = pDone->tryWait(PARSE_WAIT_MS);
+		if (returned)
+			parser.join();
+		else
+			parser.detach();
+		return returned && *pRejected;
+	}
+}
 
 
 BundleManifestTest::BundleManifestTest(const std::string& name): CppUnit::TestCase(name)
@@ -33,7 +81,7 @@ BundleManifestTest::~BundleManifestTest()
 }
 
 
-void BundleManifestTest::testBasicProperties1()
+void BundleManifestTest::testBasicPropertiesAreRead()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -57,7 +105,7 @@ void BundleManifestTest::testBasicProperties1()
 }
 
 
-void BundleManifestTest::testBasicProperties2()
+void BundleManifestTest::testMissingPropertiesAreEmptyAndLazyStartIsRead()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -83,7 +131,7 @@ void BundleManifestTest::testBasicProperties2()
 }
 
 
-void BundleManifestTest::testActivator1()
+void BundleManifestTest::testActivatorWithoutLibrary()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -99,7 +147,7 @@ void BundleManifestTest::testActivator1()
 }
 
 
-void BundleManifestTest::testActivator2()
+void BundleManifestTest::testActivatorWithLibrary()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -115,7 +163,7 @@ void BundleManifestTest::testActivator2()
 }
 
 
-void BundleManifestTest::testActivator3()
+void BundleManifestTest::testActivatorNamespacedClassAndSpaces()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -131,7 +179,7 @@ void BundleManifestTest::testActivator3()
 }
 
 
-void BundleManifestTest::testRequired1()
+void BundleManifestTest::testRequiredBundleWithoutVersionMatchesAny()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -148,7 +196,7 @@ void BundleManifestTest::testRequired1()
 }
 
 
-void BundleManifestTest::testRequired2()
+void BundleManifestTest::testRequiredBundleSingleVersion()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -170,7 +218,7 @@ void BundleManifestTest::testRequired2()
 }
 
 
-void BundleManifestTest::testRequired3()
+void BundleManifestTest::testRequiredBundleSingleVersionWithSpaces()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -192,7 +240,7 @@ void BundleManifestTest::testRequired3()
 }
 
 
-void BundleManifestTest::testRequired4()
+void BundleManifestTest::testRequiredBundleVersionAppliesToItsBundle()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -216,7 +264,7 @@ void BundleManifestTest::testRequired4()
 }
 
 
-void BundleManifestTest::testRequired5()
+void BundleManifestTest::testRequiredBundleVersionBetweenBundlesWithoutVersion()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -242,7 +290,7 @@ void BundleManifestTest::testRequired5()
 }
 
 
-void BundleManifestTest::testRequired6()
+void BundleManifestTest::testRequiredBundleRangeIncludingLowerBound()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -274,7 +322,7 @@ void BundleManifestTest::testRequired6()
 }
 
 
-void BundleManifestTest::testRequired7()
+void BundleManifestTest::testRequiredBundleRangeIncludingUpperBound()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -306,7 +354,7 @@ void BundleManifestTest::testRequired7()
 }
 
 
-void BundleManifestTest::testRequired8()
+void BundleManifestTest::testRequiredBundleOpenRange()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -338,7 +386,7 @@ void BundleManifestTest::testRequired8()
 }
 
 
-void BundleManifestTest::testRequired9()
+void BundleManifestTest::testRequiredBundleWhitespaceIgnored()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -370,7 +418,7 @@ void BundleManifestTest::testRequired9()
 }
 
 
-void BundleManifestTest::testRequiredModule1()
+void BundleManifestTest::testRequiredModuleWithoutVersionMatchesAny()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -387,7 +435,7 @@ void BundleManifestTest::testRequiredModule1()
 }
 
 
-void BundleManifestTest::testRequiredModule2()
+void BundleManifestTest::testRequiredModuleSingleVersion()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -409,7 +457,7 @@ void BundleManifestTest::testRequiredModule2()
 }
 
 
-void BundleManifestTest::testRequiredModule3()
+void BundleManifestTest::testRequiredModuleSingleVersionWithSpaces()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -431,7 +479,7 @@ void BundleManifestTest::testRequiredModule3()
 }
 
 
-void BundleManifestTest::testRequiredModule4()
+void BundleManifestTest::testRequiredModuleVersionAppliesToItsModule()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -455,7 +503,7 @@ void BundleManifestTest::testRequiredModule4()
 }
 
 
-void BundleManifestTest::testProvidedModule1()
+void BundleManifestTest::testProvidedModuleWithVersion()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -474,7 +522,7 @@ void BundleManifestTest::testProvidedModule1()
 }
 
 
-void BundleManifestTest::testProvidedModule2()
+void BundleManifestTest::testProvidedModules()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -497,7 +545,7 @@ void BundleManifestTest::testProvidedModule2()
 }
 
 
-void BundleManifestTest::testProvidedModule3()
+void BundleManifestTest::testProvidedModulesWhitespaceIgnored()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -520,7 +568,7 @@ void BundleManifestTest::testProvidedModule3()
 }
 
 
-void BundleManifestTest::testProvidedModule4()
+void BundleManifestTest::testProvidedModuleWithoutVersionIsRejected()
 {
 	std::string manifestData(
 		"Manifest-Version: 1.0\n"
@@ -541,6 +589,345 @@ void BundleManifestTest::testProvidedModule4()
 }
 
 
+void BundleManifestTest::testSymbolicNameThatIsNoFileNameIsRejected()
+{
+	// written as they appear in the manifest file, which is a property file
+	const std::vector<std::string> names = {"../victim", "a/b", "a\\\\b", "c:x", ".hidden", "..", "a\\tb", ""};
+	for (const auto& name: names)
+	{
+		std::istringstream istr(
+			"Manifest-Version: 1.0\n"
+			"Bundle-Name: Sample Bundle\n"
+			"Bundle-SymbolicName: " + name + "\n"
+			"Bundle-Version: 1.0.0\n"
+		);
+		try
+		{
+			BundleManifest::Ptr pManifest(new BundleManifest(istr));
+			failmsg("symbolic name '" + name + "' must be rejected");
+		}
+		catch (Poco::OSP::ManifestException&)
+		{
+		}
+	}
+}
+
+
+void BundleManifestTest::testSymbolicNameWithUnderscoreIsAccepted()
+{
+	std::istringstream istr(
+		"Manifest-Version: 1.0\n"
+		"Bundle-Name: Sample Bundle\n"
+		"Bundle-SymbolicName: com.example_bundle-1\n"
+		"Bundle-Version: 1.0.0\n"
+	);
+	BundleManifest::Ptr pManifest(new BundleManifest(istr));
+	assertTrue (pManifest->symbolicName() == "com.example_bundle-1");
+}
+
+
+void BundleManifestTest::testVersionDesignationThatIsNoFileNameIsRejected()
+{
+	const std::vector<std::string> versions = {"1.0.0-a/b", "1.0.0-/../../x", "1.0.0-..", "1.0.0-c:x"};
+	for (const auto& version: versions)
+	{
+		std::istringstream istr(
+			"Manifest-Version: 1.0\n"
+			"Bundle-Name: Sample Bundle\n"
+			"Bundle-SymbolicName: com.appinf.osp.sample\n"
+			"Bundle-Version: " + version + "\n"
+		);
+		try
+		{
+			BundleManifest::Ptr pManifest(new BundleManifest(istr));
+			failmsg("version '" + version + "' must be rejected");
+		}
+		catch (Poco::OSP::ManifestException&)
+		{
+		}
+	}
+}
+
+
+void BundleManifestTest::testActivatorLibraryThatIsNoFileNameIsRejected()
+{
+	std::istringstream istr(
+		"Manifest-Version: 1.0\n"
+		"Bundle-Name: Sample Bundle\n"
+		"Bundle-SymbolicName: com.appinf.osp.sample\n"
+		"Bundle-Version: 1.0.0\n"
+		"Bundle-Activator: SampleActivator;library=../SampleLib\n"
+	);
+	try
+	{
+		BundleManifest::Ptr pManifest(new BundleManifest(istr));
+		fail("library name with a path must be rejected");
+	}
+	catch (Poco::OSP::ManifestException&)
+	{
+	}
+}
+
+
+void BundleManifestTest::testReversedVersionRangeIsRejected()
+{
+	std::istringstream istr(
+		"Manifest-Version: 1.0\n"
+		"Bundle-Name: Sample Bundle\n"
+		"Bundle-SymbolicName: com.appinf.osp.sample\n"
+		"Bundle-Version: 1.0.0\n"
+		"Require-Bundle: com.appinf.osp.other;bundle-version=[2.0,1.0]\n"
+	);
+	try
+	{
+		BundleManifest::Ptr pManifest(new BundleManifest(istr));
+		fail("reversed version range must be rejected");
+	}
+	catch (Poco::OSP::ManifestException&)
+	{
+	}
+}
+
+
+void BundleManifestTest::testEmptyBundleVersionIsRejected()
+{
+	std::istringstream istr(
+		"Manifest-Version: 1.0\n"
+		"Bundle-Name: Sample Bundle\n"
+		"Bundle-SymbolicName: com.appinf.osp.sample\n"
+		"Bundle-Version:\n"
+	);
+	try
+	{
+		BundleManifest::Ptr pManifest(new BundleManifest(istr));
+		fail("empty version must be rejected");
+	}
+	catch (Poco::OSP::ManifestException&)
+	{
+	}
+}
+
+
+void BundleManifestTest::testMissingRequiredHeaderIsRejected()
+{
+	const std::vector<std::string> headers = {
+		"Manifest-Version: 1.0\n",
+		"Bundle-Name: Sample Bundle\n",
+		"Bundle-SymbolicName: com.appinf.osp.sample\n",
+		"Bundle-Version: 1.0.0\n"
+	};
+	for (std::size_t missing = 0; missing < headers.size(); ++missing)
+	{
+		std::string manifestData;
+		for (std::size_t i = 0; i < headers.size(); ++i)
+		{
+			if (i != missing) manifestData += headers[i];
+		}
+		std::istringstream istr(manifestData);
+		try
+		{
+			BundleManifest::Ptr pManifest(new BundleManifest(istr));
+			failmsg("manifest without '" + headers[missing] + "' must be rejected");
+		}
+		catch (Poco::OSP::ManifestException&)
+		{
+		}
+	}
+}
+
+
+void BundleManifestTest::testMalformedVersionIsRejected()
+{
+	const std::vector<std::string> headers = {
+		"Bundle-Version: 1.x\n",
+		"Bundle-Version: 1.0.0\nRequire-Bundle: com.appinf.osp.bundle1;bundle-version=1.x\n",
+		"Bundle-Version: 1.0.0\nRequire-Bundle: com.appinf.osp.bundle1;bundle-version=[1.0,x)\n",
+		"Bundle-Version: 1.0.0\nRequire-Module: com.appinf.osp.module1;module-version=1..0\n",
+		"Bundle-Version: 1.0.0\nProvide-Module: com.appinf.osp.module1;module-version=x\n"
+	};
+	for (const auto& header: headers)
+	{
+		std::istringstream istr(
+			"Manifest-Version: 1.0\n"
+			"Bundle-Name: Sample Bundle\n"
+			"Bundle-SymbolicName: com.appinf.osp.sample\n" + header
+		);
+		try
+		{
+			BundleManifest::Ptr pManifest(new BundleManifest(istr));
+			failmsg("manifest with '" + header + "' must be rejected");
+		}
+		catch (Poco::OSP::ManifestException&)
+		{
+		}
+	}
+}
+
+
+void BundleManifestTest::testVersionRangeThatIsNotClosedIsRejected()
+{
+	const std::vector<std::string> ranges = {"[1.0", "(1.0", "[1.0,2.0", "[1.0 2.0]"};
+	for (const auto& range: ranges)
+	{
+		std::istringstream istr(
+			"Manifest-Version: 1.0\n"
+			"Bundle-Name: Sample Bundle\n"
+			"Bundle-SymbolicName: com.appinf.osp.sample\n"
+			"Bundle-Version: 1.0.0\n"
+			"Require-Bundle: com.appinf.osp.bundle1;bundle-version=" + range + "\n"
+		);
+		try
+		{
+			BundleManifest::Ptr pManifest(new BundleManifest(istr));
+			failmsg("version range '" + range + "' must be rejected");
+		}
+		catch (Poco::OSP::ManifestException&)
+		{
+		}
+	}
+}
+
+
+void BundleManifestTest::testVersionRangeWithoutVersionIsRejected()
+{
+	const std::vector<std::string> ranges = {"(1.0.0,1.0.0]", "[1.0.0,1.0.0)", "(1.0.0,1.0.0)"};
+	for (const auto& range: ranges)
+	{
+		std::istringstream istr(
+			"Manifest-Version: 1.0\n"
+			"Bundle-Name: Sample Bundle\n"
+			"Bundle-SymbolicName: com.appinf.osp.sample\n"
+			"Bundle-Version: 1.0.0\n"
+			"Require-Module: com.appinf.osp.module1;module-version=" + range + "\n"
+		);
+		try
+		{
+			BundleManifest::Ptr pManifest(new BundleManifest(istr));
+			failmsg("version range '" + range + "' must be rejected");
+		}
+		catch (Poco::OSP::ManifestException&)
+		{
+		}
+	}
+
+	std::istringstream istr(
+		"Manifest-Version: 1.0\n"
+		"Bundle-Name: Sample Bundle\n"
+		"Bundle-SymbolicName: com.appinf.osp.sample\n"
+		"Bundle-Version: 1.0.0\n"
+		"Require-Module: com.appinf.osp.module1;module-version=[1.0.0,1.0.0]\n"
+	);
+	BundleManifest::Ptr pManifest(new BundleManifest(istr));
+	assertTrue (pManifest->requiredModules()[0].versions.isInRange(Version(1, 0, 0)));
+}
+
+
+void BundleManifestTest::testItemsNotSeparatedByCommaAreRejected()
+{
+	const std::vector<std::string> headers = {
+		"Require-Bundle: com.appinf.osp.bundle1;bundle-version=1.0.0 com.appinf.osp.bundle2",
+		"Require-Bundle: com.appinf.osp.bundle1;bundle-version=[1.0.0,2.0.0]com.appinf.osp.bundle2",
+		"Require-Bundle: com.appinf.osp.bundle1;bundle-version=(1.0.0,2.0.0) com.appinf.osp.bundle2",
+		"Require-Bundle: com.appinf.osp.bundle1 com.appinf.osp.bundle2",
+		"Provide-Module: com.appinf.osp.module1;module-version=1.0.0 com.appinf.osp.module2;module-version=2.0.0"
+	};
+	for (const auto& header: headers)
+	{
+		std::istringstream istr(
+			"Manifest-Version: 1.0\n"
+			"Bundle-Name: Sample Bundle\n"
+			"Bundle-SymbolicName: com.appinf.osp.sample\n"
+			"Bundle-Version: 1.0.0\n" +
+			header + "\n"
+		);
+		try
+		{
+			BundleManifest::Ptr pManifest(new BundleManifest(istr));
+			failmsg("header '" + header + "' must be rejected");
+		}
+		catch (Poco::OSP::ManifestException&)
+		{
+		}
+	}
+}
+
+
+void BundleManifestTest::testItemWithoutNameIsRejected()
+{
+	const std::vector<std::string> headers = {
+		"Require-Bundle: ;bundle-version=1.0.0",
+		"Require-Bundle: com.appinf.osp.bundle1, ;com.appinf.osp.bundle2",
+		"Require-Module: ;module-version=1.0.0",
+		"Provide-Module: ;module-version=1.0.0"
+	};
+	for (const auto& header: headers)
+	{
+		const std::string manifest(
+			"Manifest-Version: 1.0\n"
+			"Bundle-Name: Sample Bundle\n"
+			"Bundle-SymbolicName: com.appinf.osp.sample\n"
+			"Bundle-Version: 1.0.0\n" +
+			header + "\n"
+		);
+		if (!isRejectedInTime(manifest)) failmsg("header '" + header + "' must be rejected");
+	}
+}
+
+
+void BundleManifestTest::testFlagsRunLevelAndExtendedBundle()
+{
+	std::istringstream defaults(
+		"Manifest-Version: 1.0\n"
+		"Bundle-Name: Sample Bundle\n"
+		"Bundle-SymbolicName: com.appinf.osp.sample\n"
+		"Bundle-Version: 1.0.0\n"
+	);
+	BundleManifest::Ptr pDefaults(new BundleManifest(defaults));
+	assertFalse (pDefaults->sealed());
+	assertFalse (pDefaults->preventUninstall());
+	assertEqual (BundleManifest::DEFAULT_RUNLEVEL, pDefaults->runLevel());
+	assertEqual ("999-user", pDefaults->runLevel());
+	assertEqual ("", pDefaults->extendedBundle());
+
+	std::istringstream istr(
+		"Manifest-Version: 1.0\n"
+		"Bundle-Name: Sample Bundle\n"
+		"Bundle-SymbolicName: com.appinf.osp.sample\n"
+		"Bundle-Version: 1.0.0\n"
+		"Bundle-Sealed: true\n"
+		"Bundle-PreventUninstall: true\n"
+		"Bundle-RunLevel: 100-system\n"
+		"Extends-Bundle: com.appinf.osp.base\n"
+	);
+	BundleManifest::Ptr pManifest(new BundleManifest(istr));
+	assertTrue (pManifest->sealed());
+	assertTrue (pManifest->preventUninstall());
+	assertEqual ("100-system", pManifest->runLevel());
+	assertEqual ("com.appinf.osp.base", pManifest->extendedBundle());
+}
+
+
+void BundleManifestTest::testUnknownHeaderIsIgnoredAndLinesContinue()
+{
+	std::istringstream istr(
+		"Manifest-Version: 1.0\n"
+		"Bundle-Name: Sample Bundle\n"
+		"Bundle-SymbolicName: com.appinf.osp.sample\n"
+		"Bundle-Version: 1.0.0\n"
+		"X-Unknown-Header: anything\n"
+		"Require-Bundle: com.appinf.osp.bundle1;bundle-version=[1.0,2.0), \\\n"
+		"                com.appinf.osp.bundle2\n"
+	);
+	BundleManifest::Ptr pManifest(new BundleManifest(istr));
+	const BundleManifest::Dependencies& deps = pManifest->requiredBundles();
+	assertEqual (2, static_cast<int>(deps.size()));
+	assertEqual ("com.appinf.osp.bundle1", deps[0].symbolicName);
+	assertEqual ("[1.0.0,2.0.0)", deps[0].versions.toString());
+	assertEqual ("com.appinf.osp.bundle2", deps[1].symbolicName);
+	assertTrue (deps[1].versions.isEmpty());
+}
+
+
 void BundleManifestTest::setUp()
 {
 }
@@ -555,28 +942,42 @@ CppUnit::Test* BundleManifestTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("BundleManifestTest");
 
-	CppUnit_addTest(pSuite, BundleManifestTest, testBasicProperties1);
-	CppUnit_addTest(pSuite, BundleManifestTest, testBasicProperties2);
-	CppUnit_addTest(pSuite, BundleManifestTest, testActivator1);
-	CppUnit_addTest(pSuite, BundleManifestTest, testActivator2);
-	CppUnit_addTest(pSuite, BundleManifestTest, testActivator3);
-	CppUnit_addTest(pSuite, BundleManifestTest, testRequired1);
-	CppUnit_addTest(pSuite, BundleManifestTest, testRequired2);
-	CppUnit_addTest(pSuite, BundleManifestTest, testRequired3);
-	CppUnit_addTest(pSuite, BundleManifestTest, testRequired4);
-	CppUnit_addTest(pSuite, BundleManifestTest, testRequired5);
-	CppUnit_addTest(pSuite, BundleManifestTest, testRequired6);
-	CppUnit_addTest(pSuite, BundleManifestTest, testRequired7);
-	CppUnit_addTest(pSuite, BundleManifestTest, testRequired8);
-	CppUnit_addTest(pSuite, BundleManifestTest, testRequired9);
-	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredModule1);
-	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredModule2);
-	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredModule3);
-	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredModule4);
-	CppUnit_addTest(pSuite, BundleManifestTest, testProvidedModule1);
-	CppUnit_addTest(pSuite, BundleManifestTest, testProvidedModule2);
-	CppUnit_addTest(pSuite, BundleManifestTest, testProvidedModule3);
-	CppUnit_addTest(pSuite, BundleManifestTest, testProvidedModule4);
+	CppUnit_addTest(pSuite, BundleManifestTest, testBasicPropertiesAreRead);
+	CppUnit_addTest(pSuite, BundleManifestTest, testMissingPropertiesAreEmptyAndLazyStartIsRead);
+	CppUnit_addTest(pSuite, BundleManifestTest, testActivatorWithoutLibrary);
+	CppUnit_addTest(pSuite, BundleManifestTest, testActivatorWithLibrary);
+	CppUnit_addTest(pSuite, BundleManifestTest, testActivatorNamespacedClassAndSpaces);
+	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredBundleWithoutVersionMatchesAny);
+	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredBundleSingleVersion);
+	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredBundleSingleVersionWithSpaces);
+	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredBundleVersionAppliesToItsBundle);
+	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredBundleVersionBetweenBundlesWithoutVersion);
+	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredBundleRangeIncludingLowerBound);
+	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredBundleRangeIncludingUpperBound);
+	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredBundleOpenRange);
+	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredBundleWhitespaceIgnored);
+	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredModuleWithoutVersionMatchesAny);
+	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredModuleSingleVersion);
+	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredModuleSingleVersionWithSpaces);
+	CppUnit_addTest(pSuite, BundleManifestTest, testRequiredModuleVersionAppliesToItsModule);
+	CppUnit_addTest(pSuite, BundleManifestTest, testProvidedModuleWithVersion);
+	CppUnit_addTest(pSuite, BundleManifestTest, testProvidedModules);
+	CppUnit_addTest(pSuite, BundleManifestTest, testProvidedModulesWhitespaceIgnored);
+	CppUnit_addTest(pSuite, BundleManifestTest, testProvidedModuleWithoutVersionIsRejected);
+	CppUnit_addTest(pSuite, BundleManifestTest, testSymbolicNameThatIsNoFileNameIsRejected);
+	CppUnit_addTest(pSuite, BundleManifestTest, testSymbolicNameWithUnderscoreIsAccepted);
+	CppUnit_addTest(pSuite, BundleManifestTest, testVersionDesignationThatIsNoFileNameIsRejected);
+	CppUnit_addTest(pSuite, BundleManifestTest, testActivatorLibraryThatIsNoFileNameIsRejected);
+	CppUnit_addTest(pSuite, BundleManifestTest, testReversedVersionRangeIsRejected);
+	CppUnit_addTest(pSuite, BundleManifestTest, testEmptyBundleVersionIsRejected);
+	CppUnit_addTest(pSuite, BundleManifestTest, testMissingRequiredHeaderIsRejected);
+	CppUnit_addTest(pSuite, BundleManifestTest, testMalformedVersionIsRejected);
+	CppUnit_addTest(pSuite, BundleManifestTest, testVersionRangeThatIsNotClosedIsRejected);
+	CppUnit_addTest(pSuite, BundleManifestTest, testVersionRangeWithoutVersionIsRejected);
+	CppUnit_addTest(pSuite, BundleManifestTest, testItemsNotSeparatedByCommaAreRejected);
+	CppUnit_addTest(pSuite, BundleManifestTest, testItemWithoutNameIsRejected);
+	CppUnit_addTest(pSuite, BundleManifestTest, testFlagsRunLevelAndExtendedBundle);
+	CppUnit_addTest(pSuite, BundleManifestTest, testUnknownHeaderIsIgnoredAndLinesContinue);
 
 	return pSuite;
 }

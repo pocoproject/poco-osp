@@ -35,10 +35,11 @@ service by its properties.
 !! Service Properties
 
 The properties of a service are defined using the Poco::OSP::Properties class.
-There are two predefined properties, which are automatically set by the framework:
-  * <[name]> contains the name of the service, and
+There are three predefined properties, which are automatically set by the framework:
+  * <[name]> contains the name of the service,
   * <[type]> contains the type name (obtained from via <[std::type_info::name()]>)
-    of the class implementing the service.
+    of the class implementing the service, and
+  * <[dtype]> contains the demangled type name of the class implementing the service.
 
 
 !! Updating Services
@@ -68,7 +69,7 @@ supported. The simplified syntax for the query language is given in the followin
   subExpr       ::= "(" expr ")"
   relOp         ::= "==" | "!=" | "<" | "<=" | ">" | ">="
   value         ::= numLiteral | boolLiteral | stringLiteral
-  numLiteral    ::= [sign] digit*"."digit*["E"["+" | "-"]digit*]
+  numLiteral    ::= (digit+ ["." digit*] | "." digit+) [("E" | "e") ["+" | "-"] digit+]
   boolLiteral   ::= "true" | "false"
   stringLiteral ::= '"' char* '"'
   matchExpr     ::= stringLiteral | regExpr
@@ -76,6 +77,14 @@ supported. The simplified syntax for the query language is given in the followin
                                          enclosed in delim */
   delim         ::= "/" | "#"
 ----
+
+A <[stringLiteral]> after <[=~]> is a pattern as used by Poco::Glob, with at most
+16 <[*]> wildcards; a pattern with more is a syntax error. An expression nests at most
+100 subexpressions in parentheses and contains at most 1000 <[&&]> and <[||]> operators;
+an expression with more is a syntax error.
+
+A regular expression is matched with the match limit of PCRE; a match that reaches
+it fails with a Poco::RegularExpressionException.
 
 Examples for valid queries are given in the following:
   * <[name == "com.appinf.osp.sample.service"]> -- a simple string comparison for equality.

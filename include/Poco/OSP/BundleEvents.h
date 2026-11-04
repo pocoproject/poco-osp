@@ -35,7 +35,8 @@ class OSP_API BundleEvents
 {
 public:
 	Poco::BasicEvent<BundleEvent> bundleInstalled;
-		/// Fired after a bundle has been successfully installed.
+		/// Fired after a bundle has been successfully installed
+		/// with BundleRepository::installBundle().
 
 	Poco::BasicEvent<BundleEvent> bundleLoaded;
 		/// Fired after a bundle has been successfully loaded.
@@ -80,8 +81,10 @@ public:
 		
 	Poco::BasicEvent<BundleEvent> bundleFailed;
 		/// Fired after a bundle has failed to start due to
-		/// an exception being thrown by its BundleActivator.
-		/// The bundle is still in "resolved" state.
+		/// an exception being thrown by its BundleActivator,
+		/// or while starting the bundles it requires.
+		/// The bundle is still in "starting" state; it is
+		/// put back into "resolved" state after the event.
 		
 	BundleEvents();
 		/// Creates a BundleEvents object.

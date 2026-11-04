@@ -63,6 +63,10 @@ public:
 
 	explicit Version(const std::string& version);
 		/// Creates a Version from its string representation.
+		///
+		/// Throws a Poco::SyntaxException if the string is not a valid
+		/// version: each given number has at least one digit and fits
+		/// into an int.
 
 	~Version();
 		/// Destroys the Version.
@@ -72,6 +76,9 @@ public:
 
 	Version& operator = (const std::string& version);
 		/// Assigns a version parsed from a string.
+		///
+		/// Throws a Poco::SyntaxException if the string is not a valid
+		/// version (see Version(const std::string&)).
 
 	void swap(Version& version);
 		/// Swaps the version with another one.

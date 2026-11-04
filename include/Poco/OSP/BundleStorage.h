@@ -65,6 +65,21 @@ public:
 	virtual std::string path() const = 0;
 		/// Returns the path to the bundle's directory or archive file.
 
+	[[nodiscard]] static Ptr open(const std::string& path);
+		/// Returns a BundleDirectory if path refers to a directory,
+		/// or a BundleFile if it refers to a file.
+		///
+		/// Throws a BundleLoadException if path refers to neither
+		/// a file nor a directory, or does not exist.
+		///
+		/// Passes on the exceptions of Poco::File, Poco::FileInputStream
+		/// and Poco::Zip::ZipArchive: a Poco::FileException (such as a
+		/// Poco::FileAccessDeniedException), Poco::IOException or
+		/// Poco::PathSyntaxException for other errors of the file system,
+		/// and a Poco::Zip::ZipException, Poco::DataFormatException,
+		/// Poco::IOException or Poco::IllegalStateException for a file
+		/// that is not a valid Zip archive.
+
 protected:
 	virtual ~BundleStorage();
 		/// Destroys the BundleStorage.

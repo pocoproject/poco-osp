@@ -74,8 +74,7 @@ void ExtensionPointService::registerExtensionPoint(Bundle::ConstPtr pBundle, con
 
 	if (_xpMap.find(id) == _xpMap.end())
 	{
-		_xpMap[id] = pExtensionPoint;
-		_bundleMap.insert(BundleMap::value_type(pBundle, id));
+		_xpMap[id] = XPInfo{pExtensionPoint, pBundle};
 
 		_logger.information("Extension point %s registered by bundle %s."s, id, pBundle->symbolicName());
 	}
@@ -110,19 +109,18 @@ void ExtensionPointService::onBundleStopped(const void* pSender, BundleEvent& ev
 
 	FastMutex::ScopedLock lock(_mutex);
 
-	BundleMap::const_iterator it = _bundleMap.find(event.bundle());
-	while (it != _bundleMap.end() && it->first == event.bundle())
+	XPMap::iterator itxp = _xpMap.begin();
+	while (itxp != _xpMap.end())
 	{
-		XPMap::iterator itxp = _xpMap.find(it->second);
-		if (itxp != _xpMap.end())
+		if (itxp->second.pBundle == event.bundle())
 		{
 			_logger.information("Extension point %s unregistered because the bundle that defined it (%s) was stopped."s,
 				itxp->first,
 				event.bundle()->symbolicName());
 
-			_xpMap.erase(itxp);
+			itxp = _xpMap.erase(itxp);
 		}
-		++it;
+		else ++itxp;
 	}
 }
 
@@ -235,7 +233,7 @@ ExtensionPoint::Ptr ExtensionPointService::findExtensionPoint(const std::string&
 
 	XPMap::const_iterator it = _xpMap.find(id);
 	if (it != _xpMap.end())
-		return it->second;
+		return it->second.pExtensionPoint;
 	else
 		throw Poco::NotFoundException("Extension point", id);
 }

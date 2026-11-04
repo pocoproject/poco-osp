@@ -36,6 +36,11 @@ public:
 
 protected:
 	void syntaxError(const std::string& expected, const std::string& actual);
+
+	[[nodiscard]] static std::string characterText(int ch);
+		/// Returns ch, a result of std::istream::peek(), as text
+		/// for an error message: the character itself, or "end of
+		/// expression" for std::char_traits<char>::eof().
 };
 
 

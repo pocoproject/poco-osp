@@ -18,6 +18,7 @@
 #include "Poco/OSP/QLExpr.h"
 #include "Poco/OSP/QLParser.h"
 #include "Poco/Delegate.h"
+#include "Poco/Mutex.h"
 
 
 namespace Poco {
@@ -36,17 +37,44 @@ void ServiceListener::init(const std::string& query)
 	QLParser parser(query);
 	_pExpr = parser.parse();
 
+	// Subscribed before the existing services are enumerated, so that no
+	// registration is missed. A service that is unregistered after find()
+	// and before it has been reported is reported as unregistered after it.
 	_registry.serviceRegistered   += Poco::delegate(this, &ServiceListener::onServiceRegistered);
 	_registry.serviceUnregistered += Poco::delegate(this, &ServiceListener::onServiceUnregistered);
 
-	std::vector<ServiceRef::Ptr> results;
-	if (_registry.find(*_pExpr, results))
+	// If a delegate or the query throws, the constructor fails and the
+	// object is freed, so the registry must not keep the delegates.
+	try
 	{
-		for (std::vector<ServiceRef::Ptr>::const_iterator it = results.begin(); it != results.end(); ++it)
+		std::vector<ServiceRef::Ptr> results;
+		if (_registry.find(*_pExpr, results))
 		{
-			onServiceRefRegistered(*it);
+			for (std::vector<ServiceRef::Ptr>::const_iterator it = results.begin(); it != results.end(); ++it)
+			{
+				onServiceRefRegistered(*it);
+				bool unregistered = false;
+				{
+					Poco::FastMutex::ScopedLock lock(_mutex);
+					unregistered = _unregisteredWhileInitializing.find(*it) != _unregisteredWhileInitializing.end();
+				}
+				if (unregistered)
+				{
+					onServiceRefUnregistered(*it);
+				}
+			}
 		}
 	}
+	catch (...)
+	{
+		_registry.serviceRegistered   -= Poco::delegate(this, &ServiceListener::onServiceRegistered);
+		_registry.serviceUnregistered -= Poco::delegate(this, &ServiceListener::onServiceUnregistered);
+		throw;
+	}
+
+	Poco::FastMutex::ScopedLock lock(_mutex);
+	_initializing = false;
+	_unregisteredWhileInitializing.clear();
 }
 
 
@@ -91,6 +119,10 @@ void ServiceListener::onServiceRefUnregistered(const ServiceRef::Ptr& pServiceRe
 		_refs.erase(it);
 		lock.unlock();
 		serviceUnregistered(this, pServiceRef);
+	}
+	else if (_initializing)
+	{
+		_unregisteredWhileInitializing.insert(pServiceRef);
 	}
 }
 

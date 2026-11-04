@@ -21,6 +21,7 @@
 #include "Poco/OSP/OSP.h"
 #include "Poco/OSP/Bundle.h"
 #include "Poco/Exception.h"
+#include <memory>
 
 
 namespace Poco {
@@ -60,6 +61,8 @@ public:
 
 	BundleEvent(const BundleEvent& event);
 		/// Creates a BundleEvent from another one.
+		///
+		/// The copy holds its own copy of the exception.
 
 	~BundleEvent();
 		/// Destroys the BundleEvent.
@@ -82,7 +85,7 @@ private:
 	
 	Bundle::Ptr      _pBundle;
 	EventKind        _what;
-	Poco::Exception* _pException;
+	std::unique_ptr<Poco::Exception> _pException;
 };
 
 
@@ -103,7 +106,7 @@ inline BundleEvent::EventKind BundleEvent::what() const
 
 inline Poco::Exception* BundleEvent::exception() const
 {
-	return _pException;
+	return _pException.get();
 }
 
 

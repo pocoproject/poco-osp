@@ -31,7 +31,6 @@
 #include "Poco/Util/AbstractConfiguration.h"
 #include "Poco/Util/MapConfiguration.h"
 #include "Poco/Util/Application.h"
-#include <atomic>
 
 
 namespace Poco {
@@ -110,9 +109,9 @@ public:
 		/// correctly identify each service type.
 		///
 		/// ServiceRegistry allows only one service per name (throws
-		/// ExistsException on duplicate). When multiple instances of the
-		/// same service type are created with the default name, subsequent
-		/// instances automatically get a unique suffix (_1, _2, etc.).
+		/// ExistsException on duplicate). Instances of the same service
+		/// type that are registered at the same time must be given
+		/// different names.
 		///
 		/// Note: The instance method name() returns the actual runtime
 		/// service name, which may differ from SERVICE_NAME if the service
@@ -148,7 +147,7 @@ protected:
 		BundleContext::Ptr pContext = nullptr,
 		ConfigPtr pServiceConf = nullptr): _pContext(pContext),
 		_pConfig(new Poco::Util::MapConfiguration),
-		_name(uniqueName(name)),
+		_name(name),
 		_logger(Poco::Logger::get(_name))
 		/// Creates a ServiceImpl.
 		///
@@ -227,7 +226,7 @@ protected:
 	{
 		Poco::RWLock::ScopedReadLock lock(_rwLock);
 		Poco::AutoPtr<Poco::Util::MapConfiguration> pCopy = new Poco::Util::MapConfiguration;
-		copyConfigInto(_pConfig, pCopy, "");
+		copyConfigInto(*_pConfig, *pCopy, "");
 		return pCopy;
 	}
 
@@ -254,43 +253,27 @@ protected:
 	}
 
 private:
-	static void copyConfigInto(const Poco::AutoPtr<Poco::Util::AbstractConfiguration>& pSrc,
-		Poco::AutoPtr<Poco::Util::MapConfiguration>& pDst, const std::string& root)
-		/// Recursively copies all entries from pSrc into pDst.
+	static void copyConfigInto(const Poco::Util::AbstractConfiguration& src,
+		Poco::Util::MapConfiguration& dst, const std::string& root)
+		/// Recursively copies all entries below root from src into dst.
 	{
 		std::vector<std::string> keys;
-		pSrc->keys(root, keys);
+		src.keys(root, keys);
 		for (const auto& key : keys)
 		{
 			std::string fullKey = root.empty() ? key : root + "." + key;
-			if (pSrc->hasProperty(fullKey))
+			if (src.hasProperty(fullKey))
 			{
-				pDst->setString(fullKey, pSrc->getRawString(fullKey));
+				dst.setString(fullKey, src.getRawString(fullKey));
 			}
-			copyConfigInto(pSrc, pDst, fullKey);
+			copyConfigInto(src, dst, fullKey);
 		}
 	}
 
 	void copyConfig(const Poco::Util::AbstractConfiguration* pSrc)
 		/// Copies all entries from pSrc into _pConfig.
 	{
-		copyConfigRecursive(pSrc, "");
-	}
-
-	void copyConfigRecursive(const Poco::Util::AbstractConfiguration* pSrc, const std::string& root)
-		/// Recursively copies configuration entries.
-	{
-		std::vector<std::string> keys;
-		pSrc->keys(root, keys);
-		for (const auto& key : keys)
-		{
-			std::string fullKey = root.empty() ? key : root + "." + key;
-			if (pSrc->hasProperty(fullKey))
-			{
-				_pConfig->setString(fullKey, pSrc->getRawString(fullKey));
-			}
-			copyConfigRecursive(pSrc, fullKey);
-		}
+		copyConfigInto(*pSrc, *_pConfig, "");
 	}
 
 	void removeConfig(const Poco::Util::AbstractConfiguration* pSrc)
@@ -314,21 +297,6 @@ private:
 			removeConfigRecursive(pSrc, fullKey);
 		}
 	}
-
-	static std::string uniqueName(const std::string& name)
-		/// Returns a unique name for this instance.
-		/// When using the default SERVICE_NAME, first instance gets the
-		/// base name, subsequent instances get _1, _2, etc. suffixes.
-		/// Custom names are returned unchanged.
-	{
-		if (name != SERVICE_NAME) return name;
-		int count = _instanceCount.fetch_add(1);
-		if (count == 0) return name;
-		return name + "_" + std::to_string(count);
-	}
-
-	static inline std::atomic<int> _instanceCount{0};
-		/// Counts instances of this service type for unique name generation.
 
 	mutable Poco::RWLock _rwLock;
 		/// Protects configuration members.

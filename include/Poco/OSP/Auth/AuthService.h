@@ -53,6 +53,21 @@ public:
 		/// Returns true if the user specified by userName is known and the specified credentials
 		/// confirm the identity of the user. Returns false otherwise.
 
+	[[nodiscard]] virtual bool authenticateAccount(const std::string& userName, const std::string& credentials,
+		std::string& accountName) const;
+		/// Checks the userName and credentials combination like authenticate().
+		/// If the combination is valid, stores in accountName the name under which
+		/// this service knows the user and returns true; otherwise returns false and
+		/// leaves accountName unchanged.
+		///
+		/// A user may be able to log in with several names, for example with the
+		/// account name or the user principal name of a directory service. The other
+		/// members (authorize(), userExists() and the user's attributes) take the
+		/// account name, so a caller that keeps the user name for later calls, such
+		/// as a session, keeps accountName.
+		///
+		/// The default implementation calls authenticate() and stores userName.
+
 	virtual bool authorize(const std::string& userName, const std::string& permission) const = 0;
 		/// Checks if a user has a specific permission.
 		///

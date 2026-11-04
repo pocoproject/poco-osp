@@ -57,7 +57,7 @@ if(TARGET Poco::Foundation AND ENABLE_SAMPLES)
 else()
 	set(_poco_osp_samples_default OFF)
 endif()
-option(POCO_OSP_ENABLE_TESTS "Build the OSP test suites" ${_poco_osp_tests_default})
+option(POCO_OSP_ENABLE_TESTS "Build the OSP test suites (the core library tests need ENABLE_OSP_BUNDLES)" ${_poco_osp_tests_default})
 option(POCO_OSP_ENABLE_SAMPLES "Build the OSP samples" ${_poco_osp_samples_default})
 unset(_poco_osp_tests_default)
 unset(_poco_osp_samples_default)
@@ -140,8 +140,8 @@ _poco_osp_part(ENABLE_OSP_REMOTING NEEDS ENABLE_OSP_BUNDLES ENABLE_OSP_NET ENABL
 		Poco::RemotingNG Poco::RemotingNGTCP Poco::RemotingNGREST)
 _poco_osp_part(ENABLE_OSP_UNIT NEEDS ENABLE_OSP_BUNDLES
 	POCO Poco::Foundation Poco::XML Poco::Util Poco::CppUnit)
-_poco_osp_part(POCO_OSP_ENABLE_TESTS NEEDS ENABLE_OSP_BUNDLES ENABLE_OSP_WEB
-	POCO Poco::Foundation Poco::XML Poco::JSON Poco::Util Poco::Zip Poco::Net Poco::CppUnit)
+_poco_osp_part(POCO_OSP_ENABLE_TESTS NEEDS ENABLE_OSP_BUNDLES
+	POCO Poco::Foundation Poco::XML Poco::Util Poco::Zip Poco::CppUnit)
 _poco_osp_part(POCO_OSP_ENABLE_SAMPLES NEEDS ENABLE_OSP_BUNDLES ENABLE_OSP_SHELL ENABLE_OSP_WEB
 	POCO Poco::Foundation Poco::XML Poco::JSON Poco::Util Poco::Zip)
 

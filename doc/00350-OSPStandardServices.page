@@ -53,3 +53,7 @@ The Preferences Service is registered under the name <[osp.core.preferences]>.
 The Bundle Installer Service provides methods to install new bundles into a running OSP-based application,
 and to replace/upgrade existing bundles with new versions. The Bundle Installer Service is implemented
 by the Poco::OSP::BundleInstallerService class and registered under the service name <[osp.core.installer]>.
+
+When a bundle is replaced, the active bundles that require it are stopped first, and started again
+after the new bundle has been installed. If the new bundle cannot be installed, the replaced bundle
+is loaded again.

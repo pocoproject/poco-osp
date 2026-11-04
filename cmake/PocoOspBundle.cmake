@@ -90,8 +90,9 @@ function(poco_osp_bundle BUNDLE_TARGET)
 	# The bundle content (extensions.xml, bundle.properties, web resources, ...)
 	# lives in the spec's bundle/ directory; without these dependencies, edits
 	# there never re-trigger bundle creation and stale .bndl files get shipped.
-	# (Files ADDED after configure still need a reconfigure to be picked up.)
-	file(GLOB_RECURSE BUNDLE_CONTENT_FILES ${BUNDLE_WORKING_DIRECTORY}/bundle/*)
+	# The build checks the glob again, so that files added, renamed or removed
+	# after configure are picked up.
+	file(GLOB_RECURSE BUNDLE_CONTENT_FILES CONFIGURE_DEPENDS ${BUNDLE_WORKING_DIRECTORY}/bundle/*)
 
 	# OCI container bundles additionally pack the spec's oci/ directory
 	# (rootfs, config.json); track it too, or changes to the rootfs ship
@@ -118,12 +119,18 @@ function(poco_osp_bundle BUNDLE_TARGET)
 		list(APPEND BUNDLE_CONTENT_FILES ${_OCI_STAMP})
 	endif()
 
+	# A file renamed or removed changes no remaining file and a renamed file keeps its time, so the
+	# bundle also depends on the list of its content files, which is rewritten only when it changes.
+	set(_CONTENT_LIST ${CMAKE_CURRENT_BINARY_DIR}/${BUNDLE_TARGET}.content)
+	file(WRITE ${_CONTENT_LIST}.new "${BUNDLE_CONTENT_FILES}")
+	file(COPY_FILE ${_CONTENT_LIST}.new ${_CONTENT_LIST} ONLY_IF_DIFFERENT)
+
 	add_custom_command(
 		COMMENT " - Build OSP bundle in ${BUNDLE_DESTINATION} from ${BUNDLE_SPEC}"
 		WORKING_DIRECTORY ${BUNDLE_WORKING_DIRECTORY}
 
 		OUTPUT ${BUNDLE_CREATED_FILE}
-		DEPENDS ${BUNDLE_DEPENDS} ${BUNDLE_SPEC} ${BUNDLE_CONTENT_FILES}
+		DEPENDS ${BUNDLE_DEPENDS} ${BUNDLE_SPEC} ${BUNDLE_CONTENT_FILES} ${_CONTENT_LIST}
 
 		COMMAND Poco::OSP::BundleCreator ${OPT_SYMLINKS} ${OPT_OUTPUT} ${BUNDLE_DESTINATION} ${OPT_OSNAME} ${OSP_OSNAME} ${OPT_OSARCH} ${OSP_OSARCH} ${OPT_CODE} "${BUNDLE_CODE}" ${BUNDLE_SPEC}
 		COMMAND ${CMAKE_COMMAND} -E touch ${BUNDLE_CREATED_FILE}

@@ -30,13 +30,13 @@ contain any characters other than upper- and lowercase alphabetic characters
 
 Appended to the bundle name, separated with an underscore, is the version designation of the
 bundle. The version designation consists of a major version number, minor version number and
-revision number, separated by a period. Appended to the revision number, separated by a period
+revision number, separated by a period. Appended to the revision number, separated by a dash,
 can be an optional vendor specific release designation that must conform to the same naming
 rules as a name part.
 
   name-version     ::= bundle-name "_" bundle-version
   bundle-name      ::= bundle-id ("." bundle-id)*
-  bundle-version   ::= version ["_" bundle-id]
+  bundle-version   ::= version ["-" bundle-id]
   version          ::= major "." minor "." revision
   bundle-id        ::= bundle-char+
   bundle-char      ::= letter | digit | "-"
@@ -48,6 +48,12 @@ rules as a name part.
 ----
 
 Bundle names in the <[osp.*]> namespace are reserved for use by OSP.
+
+The symbolic name, the release designation and the activator library name become parts of file
+names, so OSP rejects a bundle whose symbolic name is empty, or whose symbolic name, release
+designation or activator library name starts with a period or contains a slash, a backslash,
+a colon or a control character. A library in the <[bin]> directory whose name breaks this rule
+is not copied to the code cache.
 
 
 !! Bundle Versioning
@@ -71,9 +77,9 @@ reflect this. For every supported operating system, there is a directory named a
 Under the operating system directory, there is a directory for each supported processor architecture.
 
 The name of the operating system directory is derived from the name returned by Poco::Environment::osName(),
-by replacing whitespace characters with underscore characters. The name of the processor architecture directory
-is derived from the name returned by Poco::Environment::osArchitecture(), by replacing whitespace characters
-with underscore characters.
+by replacing every character other than a letter, a digit or a dash with an underscore character. The name of the
+processor architecture directory is derived from the name returned by Poco::Environment::osArchitecture() in the
+same way. On macOS on x86_64 processors, the name of the processor architecture directory is always <[x86_64]>.
 
 The shared library files should follow the same naming convention as bundles. During startup of OSP,
 the shared libraries for the current platform from all installed bundles will be copied into a common cache
@@ -202,12 +208,13 @@ interval of supported versions.
   part-version     ::= major ["." minor ["." revision]]
 ----
 
-If only a single version number is given, the version of the bundle must be at least the given version.
+If only a single version number is given, the version of the bundle must be exactly the given version.
 If no version number is given, any version of the bundle can be used. An interval can be, mathematically
 speaking, open, closed or half-closed. The open interval (1.0.0,1.1.0) means any version greater than 1.0.0
 and less than 1.1.0. The closed interval [1.0.0,1.1.0] means any version greater than or equal to 1.0.0,
 and less than, or equal to 1.1.0. The half-closed interval [1.0.0,1.1.0) means any version greater than
-or equal to 1.0.0 and less than 1.1.0.
+or equal to 1.0.0 and less than 1.1.0. An interval whose lower bound is above its upper bound, or whose
+bounds are equal and not both included, such as (1.0.0,1.0.0], is an error.
 
 
 ! Bundle-LazyStart
@@ -288,12 +295,13 @@ interval of possible versions.
   part-version         ::= major ["." minor ["." revision]]
 ----
 
-If only a single version number is given, the version of the module must be at least the given version.
+If only a single version number is given, the version of the module must be exactly the given version.
 If no version number is given, any version of the module can be used. An interval can be, mathematically
 speaking, open, closed or half-closed. The open interval (1.0.0,1.1.0) means any version greater than 1.0.0
 and less than 1.1.0. The closed interval [1.0.0,1.1.0] means any version greater than or equal to 1.0.0,
 and less than, or equal to 1.1.0. The half-closed interval [1.0.0,1.1.0) means any version greater than
-or equal to 1.0.0 and less than 1.1.0.
+or equal to 1.0.0 and less than 1.1.0. An interval whose lower bound is above its upper bound, or whose
+bounds are equal and not both included, such as (1.0.0,1.0.0], is an error.
 
 
 ! Provide-Module
@@ -346,7 +354,8 @@ The lookup algorithm for localized resources can be summarized as follows:
 
 First, look for the file at <*<bundle-path>/<langugage>/<country>/<resource>*>.
 If the file cannot be found there, look for <*<bundle-path>/<language>/<resource>*>. If the file again cannot be found there,
-look for <*<bundle-path>/<resource>*>. If the file still cannot be found, the resource does not exist and an exception is thrown.
+look for <*<bundle-path>/<resource>*>. If the file still cannot be found, the resource does not exist and
+Poco::OSP::Bundle::getLocalizedResource() returns a null pointer.
 
 
 !! Bundle Lifecycle
@@ -362,6 +371,10 @@ the bundle is finally put into <*active*> state. Eventually, at least at shutdow
 Stopping a bundle means putting the bundle into <*stopping*> state, invoking the bundle's activator, then putting the
 bundle into <*resolved*> state. At shutdown, OSP ensures that all bundles are shutdown in the correct order.
 A bundle in <*resolved*> or <*installed*> state can be uninstalled, which means it is completely removed from the system.
+The bundle's file or directory is deleted only if it is in the primary bundle repository
+(the first path of <[osp.bundleRepository]>), into which bundles are installed at run-time,
+whether it has been installed there or loaded from there. A bundle in another path, such as
+a development tree given with <[--bundles]> (<[-B]>), is unloaded, but its file or directory is kept.
 
 <%
 <img src="images/OSPLifecycle.png" width="300" height="253" alt="OSP Bundle Lifecycle" border="0">

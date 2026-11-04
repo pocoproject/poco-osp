@@ -13,6 +13,8 @@
 #include "PropertiesTest.h"
 #include "QLParserTest.h"
 #include "BundleStreamFactoryTest.h"
+#include "PreferencesTest.h"
+#include "LanguageTagTest.h"
 
 
 CppUnit::Test* OSPUtilTestSuite::suite()
@@ -23,6 +25,8 @@ CppUnit::Test* OSPUtilTestSuite::suite()
 	pSuite->addTest(PropertiesTest::suite());
 	pSuite->addTest(QLParserTest::suite());
 	pSuite->addTest(BundleStreamFactoryTest::suite());
+	pSuite->addTest(PreferencesTest::suite());
+	pSuite->addTest(LanguageTagTest::suite());
 
 	return pSuite;
 }

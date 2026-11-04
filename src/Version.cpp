@@ -15,8 +15,9 @@
 #include "Poco/OSP/Version.h"
 #include "Poco/NumberFormatter.h"
 #include "Poco/Exception.h"
+#include "Poco/Ascii.h"
 #include <algorithm>
-#include <cctype>
+#include <limits>
 
 
 using Poco::NumberFormatter;
@@ -113,6 +114,27 @@ std::string Version::toString() const
 }
 
 	
+namespace
+{
+	// Parses one number of a version. Fails if there is no digit, or
+	// if the number does not fit into an int.
+	[[nodiscard]] bool parseNumber(std::string::const_iterator& it, const std::string::const_iterator& end, int& number)
+	{
+		if (it == end || !Poco::Ascii::isDigit(*it)) return false;
+
+		constexpr int DECIMAL_BASE = 10;
+		number = 0;
+		while (it != end && Poco::Ascii::isDigit(*it))
+		{
+			const int digit = *it++ - '0';
+			if (number > (std::numeric_limits<int>::max() - digit)/DECIMAL_BASE) return false;
+			number = DECIMAL_BASE*number + digit;
+		}
+		return true;
+	}
+}
+
+
 void Version::parse(const std::string& str)
 {
 	int maj(0);
@@ -122,22 +144,17 @@ void Version::parse(const std::string& str)
 	
 	std::string::const_iterator it(str.begin());
 	std::string::const_iterator end(str.end());
-	if (std::isdigit(*it))
+	if (parseNumber(it, end, maj))
 	{
-		while (it != end && std::isdigit(*it))
-			maj = 10*maj + *it++ - '0';
-
 		if (it != end && *it == '.')
 		{
 			++it;
-			while (it != end && std::isdigit(*it))
-				min = 10*min + *it++ - '0';
+			if (!parseNumber(it, end, min)) throw Poco::SyntaxException("Not a valid version number", str);
 
 			if (it != end && *it == '.')
 			{
 				++it;
-				while (it != end && std::isdigit(*it))
-					rev = 10*rev + *it++ - '0';
+				if (!parseNumber(it, end, rev)) throw Poco::SyntaxException("Not a valid version number", str);
 
 				if (it != end && *it == '-')
 				{
@@ -148,6 +165,8 @@ void Version::parse(const std::string& str)
 			}
 		}
 	}
+	else throw Poco::SyntaxException("Not a valid version number", str);
+
 	if (it == end) 
 	{
 		_major = maj;

@@ -1,0 +1,17 @@
+# ThreadSanitizer suppressions for the poco-osp tests
+#
+# https://github.com/google/sanitizers/wiki/ThreadSanitizerSuppressions
+#
+# To apply:
+# export TSAN_OPTIONS="suppressions=<repository>/tsan.suppress"
+
+# OpenSSL is not built with ThreadSanitizer, so its own synchronization is
+# invisible to it. The SSH tests of the shell run an SSH client and an SSH
+# server in one process, and both use libcrypto through libssh.
+called_from_lib:libcrypto
+
+# When an SSH session has not ended within the stop timeout, the shell bundle
+# keeps the thread that stops its SSH server for the rest of the process. The
+# Shell tests load the library of the shell bundle as the bundle
+# osp.shell.test.activator.
+thread:osp.shell.test.activator.so

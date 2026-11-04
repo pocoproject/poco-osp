@@ -44,11 +44,14 @@ public:
 		///
 		/// On Windows platform, the system's locale information 
 		/// is used. On Unix platform, the value of the environment
-		/// variable LANG is used. If LANG is not defined, the default
-		/// "en-US" is used.
+		/// variable LANG is used. If LANG is not defined or empty, or
+		/// names the C or POSIX locale, the default "en-US" is used.
 		
 	LanguageTag(const std::string& tag);
 		/// Creates the LanguageTag from the tag given in the string argument.
+		///
+		/// The tag may also be a locale name, such as "de_AT.UTF-8@euro";
+		/// its encoding and modifier are ignored.
 		
 	LanguageTag(const std::string& primaryTag, const std::string& subTags);
 		/// Creates the LanguageTag from the given primary and sub tags.
@@ -60,10 +63,14 @@ public:
 		/// Returns the primary tag.
 		
 	const std::string& subTags() const;
-		/// Returns all sub tags, delimited by a '-'.
+		/// Returns the first sub tag (the region, such as "AT"
+		/// in "de-AT"), in upper case. Further sub tags are
+		/// not kept.
 		
 	std::string toString() const;
-		/// Returns a string representation of the language tag.
+		/// Returns a string representation of the language tag:
+		/// the primary tag and, if there is one, the sub tag,
+		/// separated by '-'.
 
 private:
 	void init();

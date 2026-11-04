@@ -18,7 +18,10 @@
 #include "Poco/Util/PropertyFileConfiguration.h"
 #include "Poco/Format.h"
 #include "Poco/Path.h"
+#include "Poco/Mutex.h"
 #include <memory>
+#include <atomic>
+#include <vector>
 
 
 using namespace std::string_literals;
@@ -37,7 +40,7 @@ namespace
 	class StateChange
 	{
 	public:
-		StateChange(Bundle::State& state, Bundle::State newState):
+		StateChange(std::atomic<Bundle::State>& state, Bundle::State newState):
 			_state(state),
 			_oldState(state)
 		{
@@ -65,8 +68,8 @@ namespace
 		}
 
 	private:
-		Bundle::State& _state;
-		Bundle::State  _oldState;
+		std::atomic<Bundle::State>& _state;
+		Bundle::State _oldState;
 	};
 }
 
@@ -136,10 +139,16 @@ std::istream* Bundle::getResource(const std::string& name) const
 	std::istream* pStream = nullptr;
 	if (_extensionCount.load() > 0)
 	{
-		Poco::FastMutex::ScopedLock lock(_extensionBundlesMutex);
+		// The streams are opened without the lock, so that resource
+		// lookups of an extended bundle do not wait for each other.
+		std::vector<Bundle::Ptr> extensionBundles;
+		{
+			Poco::FastMutex::ScopedLock lock(_extensionBundlesMutex);
+			extensionBundles.assign(_extensionBundles.begin(), _extensionBundles.end());
+		}
 
-		std::set<Bundle::Ptr>::const_iterator it = _extensionBundles.begin();
-		std::set<Bundle::Ptr>::const_iterator end = _extensionBundles.end();
+		std::vector<Bundle::Ptr>::const_iterator it = extensionBundles.begin();
+		std::vector<Bundle::Ptr>::const_iterator end = extensionBundles.end();
 		while (!pStream && it != end)
 		{
 			pStream = (*it)->getResource(name);
@@ -192,19 +201,22 @@ void Bundle::resolve()
 	if (_state != BUNDLE_INSTALLED) throw BundleStateException("resolve() requires INSTALLED state");
 
 	BundleEvent resolvingEvent(this, BundleEvent::EV_BUNDLE_RESOLVING);
-	events().bundleResolving(this, resolvingEvent);
+	_loader.fireResolveEvent(resolvingEvent);
 	clearResolvedDependencies();
 	_loader.resolveBundle(this);
 	_state = BUNDLE_RESOLVED;
 	BundleEvent resolvedEvent(this, BundleEvent::EV_BUNDLE_RESOLVED);
-	events().bundleResolved(this, resolvedEvent);
+	_loader.fireResolveEvent(resolvedEvent);
 }
 
 
 void Bundle::start()
 {
+	Poco::Mutex::ScopedLock lock(_lifecycleMutex);
+
 	if (_state != BUNDLE_RESOLVED) throw BundleStateException("start() requires RESOLVED state");
 
+	BundleLoader::StartingBundle startingBundle(*this);
 	StateChange stateChange(_state, BUNDLE_STARTING);
 	BundleEvent startingEvent(this, BundleEvent::EV_BUNDLE_STARTING);
 	events().bundleStarting(this, startingEvent);
@@ -238,6 +250,8 @@ void Bundle::start()
 
 void Bundle::stop()
 {
+	Poco::Mutex::ScopedLock lock(_lifecycleMutex);
+
 	if (_state != BUNDLE_ACTIVE) throw BundleStateException("stop() requires ACTIVE state");
 
 	StateChange stateChange(_state, BUNDLE_STOPPING);
@@ -252,6 +266,8 @@ void Bundle::stop()
 
 void Bundle::uninstall()
 {
+	Poco::Mutex::ScopedLock lock(_lifecycleMutex);
+
 	if (_state != BUNDLE_INSTALLED && _state != BUNDLE_RESOLVED) throw BundleStateException("uninstall() requires INSTALLED or RESOLVED state");
 	if (_pManifest->preventUninstall()) throw BundleUninstallException("bundle manifest prevents uninstall");
 

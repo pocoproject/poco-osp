@@ -24,8 +24,10 @@
 #include "Poco/URIStreamOpener.h"
 #include "Poco/Path.h"
 #include "Poco/File.h"
-#include "Poco/Environment.h"
+#include "Poco/TemporaryFile.h"
 #include "Poco/Exception.h"
+#include <memory>
+#include <string>
 
 
 using Poco::OSP::Bundle;
@@ -40,6 +42,41 @@ using Poco::Path;
 using Poco::File;
 
 
+namespace
+{
+	class TestLoader
+		/// A BundleLoader with its code cache in a temporary directory,
+		/// and the bundle given to the constructor loaded.
+	{
+	public:
+		TestLoader() = delete;
+
+		explicit TestLoader(const std::string& bundlePath):
+			_codeCache(_codeCacheDir.path()),
+			_loader(_codeCache,
+				BundleFactory::Ptr(new BundleFactory(LanguageTag("en", "US"))),
+				BundleContextFactory::Ptr(new BundleContextFactory(_registry, _systemEvents)))
+		{
+			_loader.loadBundle(bundlePath);
+		}
+
+		~TestLoader() = default;
+
+		[[nodiscard]] BundleLoader& loader()
+		{
+			return _loader;
+		}
+
+	private:
+		Poco::TemporaryFile _codeCacheDir;
+		CodeCache _codeCache;
+		ServiceRegistry _registry;
+		Poco::OSP::SystemEvents _systemEvents;
+		BundleLoader _loader;
+	};
+}
+
+
 BundleStreamFactoryTest::BundleStreamFactoryTest(const std::string& name): CppUnit::TestCase(name)
 {
 }
@@ -50,18 +87,10 @@ BundleStreamFactoryTest::~BundleStreamFactoryTest()
 }
 
 
-void BundleStreamFactoryTest::testStreamFactory()
+void BundleStreamFactoryTest::testOpenReadsBundleResource()
 {
-	CodeCache cc("codeCache");
-	ServiceRegistry reg;
-	LanguageTag lang("en", "US");
-
-	BundleFactory::Ptr pBundleFactory(new BundleFactory(lang));
-	Poco::OSP::SystemEvents systemEvents;
-	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(reg, systemEvents));
-	BundleLoader loader(cc, pBundleFactory, pBundleContextFactory);
-
-	loader.loadBundle(findBundle("com.appinf.osp.bundle2_1.0.0"));
+	TestLoader testLoader(findBundle("com.appinf.osp.bundle2_1.0.0"));
+	BundleLoader& loader = testLoader.loader();
 
 	Poco::URIStreamOpener opener;
 	opener.registerStreamFactory("bndl", new BundleStreamFactory(loader));
@@ -71,13 +100,23 @@ void BundleStreamFactoryTest::testStreamFactory()
 	std::string s;
 	*pStream >> s;
 	assert (s == "en-US");
+}
+
+
+void BundleStreamFactoryTest::testOpenOfMissingResourceOrBundleThrowsNotFound()
+{
+	TestLoader testLoader(findBundle("com.appinf.osp.bundle2_1.0.0"));
+	BundleLoader& loader = testLoader.loader();
+
+	Poco::URIStreamOpener opener;
+	opener.registerStreamFactory("bndl", new BundleStreamFactory(loader));
 
 	try
 	{
 		std::unique_ptr<std::istream> pStream(opener.open("bndl://com.appinf.osp.bundle2/notfound.txt"));
 		fail("resource not found - must throw");
 	}
-	catch (Poco::Exception&)
+	catch (Poco::NotFoundException&)
 	{
 	}
 
@@ -86,9 +125,45 @@ void BundleStreamFactoryTest::testStreamFactory()
 		std::unique_ptr<std::istream> pStream(opener.open("bndl://com.appinf.osp.bundle99/notfound.txt"));
 		fail("bundle not found - must throw");
 	}
-	catch (Poco::Exception&)
+	catch (Poco::NotFoundException&)
 	{
 	}
+}
+
+
+void BundleStreamFactoryTest::testUriWithoutPathIsRejected()
+{
+	TestLoader testLoader(findBundle("com.appinf.osp.bundle2_1.0.0"));
+	BundleLoader& loader = testLoader.loader();
+
+	Poco::URIStreamOpener opener;
+	opener.registerStreamFactory("bndl", new BundleStreamFactory(loader));
+
+	try
+	{
+		std::unique_ptr<std::istream> pStream(opener.open("bndl://com.appinf.osp.bundle2"));
+		fail("URI without a path - must throw");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+}
+
+
+void BundleStreamFactoryTest::testDefaultOpenerUsesRegisteredFactory()
+{
+	TestLoader testLoader(findBundle("com.appinf.osp.bundle2_1.0.0"));
+	BundleLoader& loader = testLoader.loader();
+
+	BundleStreamFactory::registerFactory(loader);
+	std::unique_ptr<std::istream> pStream(Poco::URIStreamOpener::defaultOpener().open("bndl://com.appinf.osp.bundle2/lang.txt"));
+	assertTrue (pStream != nullptr);
+	std::string s;
+	*pStream >> s;
+	assertTrue (s == "en-US");
+
+	BundleStreamFactory::unregisterFactory();
+	assertFalse (Poco::URIStreamOpener::defaultOpener().supportsScheme("bndl"));
 }
 
 
@@ -99,6 +174,11 @@ void BundleStreamFactoryTest::setUp()
 
 void BundleStreamFactoryTest::tearDown()
 {
+	// the factory refers to the loader of the test that registered it
+	if (Poco::URIStreamOpener::defaultOpener().supportsScheme("bndl"))
+	{
+		BundleStreamFactory::unregisterFactory();
+	}
 }
 
 
@@ -114,7 +194,10 @@ CppUnit::Test* BundleStreamFactoryTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("BundleStreamFactoryTest");
 
-	CppUnit_addTest(pSuite, BundleStreamFactoryTest, testStreamFactory);
+	CppUnit_addTest(pSuite, BundleStreamFactoryTest, testOpenReadsBundleResource);
+	CppUnit_addTest(pSuite, BundleStreamFactoryTest, testOpenOfMissingResourceOrBundleThrowsNotFound);
+	CppUnit_addTest(pSuite, BundleStreamFactoryTest, testUriWithoutPathIsRejected);
+	CppUnit_addTest(pSuite, BundleStreamFactoryTest, testDefaultOpenerUsesRegisteredFactory);
 
 	return pSuite;
 }

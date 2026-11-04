@@ -75,10 +75,16 @@ ServiceRef::Ptr ServiceRegistry::registerService(const std::string& name, Servic
 
 void ServiceRegistry::unregisterService(const std::string& name)
 {
+	removeService(name, nullptr);
+}
+
+
+void ServiceRegistry::removeService(const std::string& name, const ServiceRef* pServiceRef)
+{
 	Poco::ScopedLockWithUnlock<FastMutex> lock(_mutex);
 
 	ServiceMap::iterator it = _services.find(name);
-	if (it != _services.end())
+	if (it != _services.end() && (pServiceRef == nullptr || it->second.get() == pServiceRef))
 	{
 		ServiceEvent unregisteredEvent(it->second, ServiceEvent::EV_SERVICE_UNREGISTERED);
 		_services.erase(it);
@@ -97,7 +103,7 @@ void ServiceRegistry::unregisterService(ServiceRef::Ptr pServiceRef)
 {
 	if (pServiceRef)
 	{
-		unregisterService(pServiceRef->name());
+		removeService(pServiceRef->name(), pServiceRef.get());
 	}
 }
 
@@ -140,6 +146,14 @@ std::size_t ServiceRegistry::find(const QLExpr& expr, std::vector<ServiceRef::Pt
 		}
 	}
 	return count;
+}
+
+
+ServiceRegistry::ServiceMap ServiceRegistry::services() const
+{
+	FastMutex::ScopedLock lock(_mutex);
+
+	return _services;
 }
 
 
