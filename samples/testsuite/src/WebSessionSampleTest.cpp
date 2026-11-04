@@ -11,6 +11,7 @@
 #include "WebSessionSampleTest.h"
 #include "TestApplication.h"
 #include "ServerRequestStub.h"
+#include "LogCapture.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
 #include "CppUnit/TestCase.h"
@@ -18,13 +19,16 @@
 #include "Poco/OSP/Web/WebSession.h"
 #include "Poco/OSP/Web/WebSessionManager.h"
 #include "Poco/OSP/Bundle.h"
+#include "Poco/OSP/BundleContext.h"
 #include "Poco/OSP/BundleLoader.h"
 #include "Poco/OSP/ServiceRef.h"
 #include "Poco/Net/HTMLForm.h"
 #include "Poco/Net/HTTPCookie.h"
 #include "Poco/Net/HTTPRequest.h"
 #include "Poco/Net/HTTPResponse.h"
+#include "Poco/Net/MediaType.h"
 #include "Poco/Net/NameValueCollection.h"
+#include "Poco/Message.h"
 #include "Poco/NumberFormatter.h"
 #include <algorithm>
 #include <atomic>
@@ -98,10 +102,17 @@ namespace
 			if (!token.empty()) form.set("token"s, token);
 			std::ostringstream body;
 			form.write(body);
-			ServerRequestStub request(CLIENT_ADDRESS, false, body.str());
+			return post(body.str());
+		}
+
+		Result post(const std::string& body,
+			const Poco::Net::MediaType& contentType = Poco::Net::MediaType(Poco::Net::HTMLForm::ENCODING_URL))
+			/// Posts the given form body with the given content type.
+		{
+			ServerRequestStub request(CLIENT_ADDRESS, false, body);
 			request.setMethod(HTTPRequest::HTTP_POST);
 			request.setURI(SESSION_PATH);
-			request.setContentType(Poco::Net::HTMLForm::ENCODING_URL);
+			request.setContentType(contentType);
 			return send(request);
 		}
 
@@ -198,6 +209,32 @@ void WebSessionSampleTest::testPostWithoutTokenIsRejected()
 	assertTrue (client.post("color"s, "blue"s, ""s).status == HTTPResponse::HTTP_FORBIDDEN);
 	assertTrue (client.post("color"s, "blue"s, "wrong"s).status == HTTPResponse::HTTP_FORBIDDEN);
 	assertFalse (listsEntry(client.get().body, "color"s, "blue"s));
+}
+
+
+void WebSessionSampleTest::testUnreadableFormIsBadRequest()
+{
+	TestApplication::Ptr pApp = startSample();
+	Poco::OSP::Bundle::Ptr pWebBundle = pApp->bundleLoader().findBundle("osp.web"s);
+	LogCapture capture(pApp->bundleLoader().contextForBundle(pWebBundle)->logger().name());
+	SessionClient client(*pApp);
+	client.get();
+
+	std::string tooManyFields;
+	for (int i = 0; i <= Poco::Net::HTMLForm().getFieldLimit(); ++i)
+	{
+		tooManyFields += "field"s + Poco::NumberFormatter::format(i) + "=x&"s;
+	}
+	assertTrue (client.post("name=%zz"s).status == HTTPResponse::HTTP_BAD_REQUEST);
+	assertTrue (client.post(tooManyFields).status == HTTPResponse::HTTP_BAD_REQUEST);
+	Poco::Net::MediaType multipart(Poco::Net::HTMLForm::ENCODING_MULTIPART);
+	assertTrue (client.post("garbage"s, multipart).status == HTTPResponse::HTTP_BAD_REQUEST);
+	multipart.setParameter("boundary"s, "XYZ"s);
+	assertTrue (client.post("garbage"s, multipart).status == HTTPResponse::HTTP_BAD_REQUEST);
+	for (const auto& message: capture.channel().waitForMessages(0))
+	{
+		assertTrue (message.getPriority() > Poco::Message::PRIO_ERROR);
+	}
 }
 
 
@@ -350,6 +387,7 @@ CppUnit::Test* WebSessionSampleTest::suite()
 
 	CppUnit_addTest(pSuite, WebSessionSampleTest, testGetDoesNotChangeSession);
 	CppUnit_addTest(pSuite, WebSessionSampleTest, testPostWithoutTokenIsRejected);
+	CppUnit_addTest(pSuite, WebSessionSampleTest, testUnreadableFormIsBadRequest);
 	CppUnit_addTest(pSuite, WebSessionSampleTest, testPostWithTokenSetsAndRemovesEntry);
 	CppUnit_addTest(pSuite, WebSessionSampleTest, testServerAttributesCannotBeSet);
 	CppUnit_addTest(pSuite, WebSessionSampleTest, testNumberOfEntriesIsLimited);

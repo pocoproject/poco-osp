@@ -18,68 +18,67 @@
 
 using Poco::OSP::BundleActivator;
 using Poco::OSP::BundleContext;
-using Poco::OSP::Bundle;
 using Poco::OSP::ServiceEvent;
 using Poco::Delegate;
 
 
-class ServiceListenerBundleActivator: public BundleActivator
-	/// A very simple bundle that subscribes its
-	/// BundleActivator to ServiceRegistry events
-	/// and prints these events.
+namespace
 {
-public:
-	ServiceListenerBundleActivator() = default;
-	
-	~ServiceListenerBundleActivator() override = default;
-	
-	void start(BundleContext::Ptr pContext) override
+	class ServiceListenerBundleActivator: public BundleActivator
+		/// Logs the events of the ServiceRegistry.
 	{
-		// save BundleContext for later use
-		_pContext = pContext;
-		
-		// write a startup message to the log
-		std::string msg("Bundle ");
-		msg.append(pContext->thisBundle()->name());
-		msg.append(" started");
-		pContext->logger().information(msg);
-		
-		// subscribe for ServiceRegistry events
-		pContext->registry().serviceRegistered   += Delegate<ServiceListenerBundleActivator, ServiceEvent>(this, &ServiceListenerBundleActivator::handleServiceRegistered);
-		pContext->registry().serviceUnregistered += Delegate<ServiceListenerBundleActivator, ServiceEvent>(this, &ServiceListenerBundleActivator::handleServiceUnregistered);
-	}
-		
-	void stop(BundleContext::Ptr pContext) override
-	{
-		// write a shutdown message to the log
-		std::string msg("Bundle ");
-		msg.append(pContext->thisBundle()->name());
-		msg.append(" stopped");
-		pContext->logger().information(msg);
-		
-		// unsubscribe from ServiceRegistry events
-		pContext->registry().serviceRegistered   -= Delegate<ServiceListenerBundleActivator, ServiceEvent>(this, &ServiceListenerBundleActivator::handleServiceRegistered);
-		pContext->registry().serviceUnregistered -= Delegate<ServiceListenerBundleActivator, ServiceEvent>(this, &ServiceListenerBundleActivator::handleServiceUnregistered);
-	}
-	
-protected:
-	void handleServiceRegistered(const void* /*sender*/, ServiceEvent& event)
-	{
-		std::string msg("Service registered: ");
-		msg.append(event.service()->name());
-		_pContext->logger().information(msg);
-	}
+	public:
+		ServiceListenerBundleActivator() = default;
 
-	void handleServiceUnregistered(const void* /*sender*/, ServiceEvent& event)
-	{
-		std::string msg("Service unregistered: ");
-		msg.append(event.service()->name());
-		_pContext->logger().information(msg);
-	}
-	
-private:
-	BundleContext::Ptr _pContext;
-};
+		~ServiceListenerBundleActivator() override = default;
+
+		void start(BundleContext::Ptr pContext) override
+		{
+			_pContext = pContext;
+
+			std::string msg("Bundle ");
+			msg.append(pContext->thisBundle()->name());
+			msg.append(" started");
+			pContext->logger().information(msg);
+
+			pContext->registry().serviceRegistered   += Delegate<ServiceListenerBundleActivator, ServiceEvent>(this,
+				&ServiceListenerBundleActivator::handleServiceRegistered);
+			pContext->registry().serviceUnregistered += Delegate<ServiceListenerBundleActivator, ServiceEvent>(this,
+				&ServiceListenerBundleActivator::handleServiceUnregistered);
+		}
+
+		void stop(BundleContext::Ptr pContext) override
+		{
+			std::string msg("Bundle ");
+			msg.append(pContext->thisBundle()->name());
+			msg.append(" stopped");
+			pContext->logger().information(msg);
+
+			pContext->registry().serviceRegistered   -= Delegate<ServiceListenerBundleActivator, ServiceEvent>(this,
+				&ServiceListenerBundleActivator::handleServiceRegistered);
+			pContext->registry().serviceUnregistered -= Delegate<ServiceListenerBundleActivator, ServiceEvent>(this,
+				&ServiceListenerBundleActivator::handleServiceUnregistered);
+		}
+
+	protected:
+		void handleServiceRegistered(const void* /*sender*/, ServiceEvent& event)
+		{
+			std::string msg("Service registered: ");
+			msg.append(event.service()->name());
+			_pContext->logger().information(msg);
+		}
+
+		void handleServiceUnregistered(const void* /*sender*/, ServiceEvent& event)
+		{
+			std::string msg("Service unregistered: ");
+			msg.append(event.service()->name());
+			_pContext->logger().information(msg);
+		}
+
+	private:
+		BundleContext::Ptr _pContext;
+	};
+}
 
 
 POCO_BEGIN_MANIFEST(BundleActivator)

@@ -27,66 +27,61 @@ using Poco::OSP::ExtensionPointService;
 using Poco::AutoPtr;
 
 
-class SampleExtensionPoint: public ExtensionPoint
+namespace
 {
-public:
-	SampleExtensionPoint(BundleContext::Ptr pContext):
-		_pContext(pContext)
+	class SampleExtensionPoint: public ExtensionPoint
 	{
-	}
-	
-	void handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem) override
-	{
-		std::string msg("Handling extension; bundle: ");
-		msg += pBundle->symbolicName();
-		msg += "; message: ";
-		msg += pExtensionElem->getAttribute("message");
-		_pContext->logger().information(msg);
-	}
-
-private:
-	BundleContext::Ptr _pContext;
-};
-
-
-class ExtensibleBundleActivator: public BundleActivator
-	/// The BundleActivator for the Extensible.
-	/// Registers an extension point with the ExtensionPointService.
-{
-public:
-	ExtensibleBundleActivator() = default;
-	
-	~ExtensibleBundleActivator() override = default;
-	
-	void start(BundleContext::Ptr pContext) override
-	{
-		// find ExtensionPointService using the Service Registry
-		ServiceRef::Ptr pXPSRef = pContext->registry().findByName(ExtensionPointService::SERVICE_NAME);
-		if (pXPSRef != nullptr)
+	public:
+		SampleExtensionPoint(BundleContext::Ptr pContext):
+			_pContext(pContext)
 		{
-			// ExtensionPointService is available
-			AutoPtr<ExtensionPointService> pXPS = pXPSRef->castedInstance<ExtensionPointService>();
-			
-			// Create an ExtensionPoint
-			ExtensionPoint::Ptr pXP = new SampleExtensionPoint(pContext);
-			
-			// Register ExtensionPoint
-			pXPS->registerExtensionPoint(pContext->thisBundle(), "com.appinf.sample.xp", pXP);
 		}
-		else
+
+		void handleExtension(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem) override
 		{
-			// The service is not available
-			pContext->logger().error("The ExtensionPointService is not available.");
+			std::string msg("Handling extension; bundle: ");
+			msg += pBundle->symbolicName();
+			msg += "; message: ";
+			msg += pExtensionElem->getAttribute("message");
+			_pContext->logger().information(msg);
 		}
-	}
-		
-	void stop(BundleContext::Ptr /*pContext*/) override
+
+	private:
+		BundleContext::Ptr _pContext;
+	};
+
+
+	class ExtensibleBundleActivator: public BundleActivator
+		/// Registers an extension point with the ExtensionPointService.
 	{
-		// Nothing to do here.
-		// The ExtensionPointService will automatically unregister our
-		// extension point when we are stopped.
-	}
-};
+	public:
+		ExtensibleBundleActivator() = default;
+
+		~ExtensibleBundleActivator() override = default;
+
+		void start(BundleContext::Ptr pContext) override
+		{
+			ServiceRef::Ptr pXPSRef = pContext->registry().findByName(ExtensionPointService::SERVICE_NAME);
+			if (pXPSRef != nullptr)
+			{
+				AutoPtr<ExtensionPointService> pXPS = pXPSRef->castedInstance<ExtensionPointService>();
+
+				ExtensionPoint::Ptr pXP = new SampleExtensionPoint(pContext);
+
+				pXPS->registerExtensionPoint(pContext->thisBundle(), "com.appinf.sample.xp", pXP);
+			}
+			else
+			{
+				pContext->logger().error("The ExtensionPointService is not available.");
+			}
+		}
+
+		void stop(BundleContext::Ptr /*pContext*/) override
+		{
+			// The ExtensionPointService unregisters the extension point when the bundle stops.
+		}
+	};
+}
 
 
 POCO_BEGIN_MANIFEST(BundleActivator)

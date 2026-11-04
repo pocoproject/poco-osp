@@ -16,22 +16,30 @@
 #include "CppUnit/Test.h"
 #include "Poco/OSP/Auth/AuthService.h"
 #include "Poco/OSP/Bundle.h"
+#include "Poco/OSP/PreferencesService.h"
 #include "Poco/OSP/Properties.h"
 #include "Poco/OSP/Service.h"
 #include "Poco/OSP/ServiceRef.h"
 #include "Poco/AutoPtr.h"
+#include "Poco/Exception.h"
 #include <string>
 #include <typeinfo>
 
 
 using Poco::OSP::Auth::AuthService;
+using Poco::OSP::PreferencesService;
 using namespace std::string_literals;
 
 
 namespace
 {
 	const std::string SAMPLE_BUNDLE("com.appinf.osp.samples.auth"s);
+	const std::string SIMPLE_AUTH_BUNDLE("com.appinf.osp.simple-auth"s);
 	const std::string AUTH_SERVICE("osp.auth"s);
+	// The SimpleAuth bundle compares MD5 of the salt followed by the
+	// password; this is the hash of "secret" with the salt "poco".
+	const std::string MD5_HASH_OF_SECRET("4a20f7a891f585bc9d0fb797cbf60401"s);
+	const std::string SALT("poco"s);
 
 	class OtherAuthService: public Poco::OSP::Service
 		/// Stands for a service that another bundle registers under the same name.
@@ -71,6 +79,34 @@ void SimpleAuthServiceTest::testServiceIsNotRegisteredWithoutAdminPassword()
 	TestApplication::Ptr pApp = new TestApplication({SAMPLE_BUNDLE});
 	pApp->start();
 
+	assertNull (pApp->serviceRegistry().findByName(AUTH_SERVICE).get());
+}
+
+
+void SimpleAuthServiceTest::testServiceIsNotRegisteredWithoutPreferencesService()
+{
+	TestApplication::Ptr pApp = new TestApplication({SAMPLE_BUNDLE});
+	pApp->config().setString("adminPassword"s, "admin-secret"s);
+	pApp->start();
+	Poco::OSP::Bundle::Ptr pSample = pApp->bundleLoader().findBundle(SAMPLE_BUNDLE);
+	pSample->stop();
+	Poco::OSP::ServiceRef::Ptr pPrefsRef = pApp->serviceRegistry().findByName(PreferencesService::SERVICE_NAME);
+	pApp->serviceRegistry().unregisterService(pPrefsRef);
+
+	bool started = true;
+	try
+	{
+		pSample->start();
+	}
+	catch (const Poco::Exception&)
+	{
+		started = false;
+	}
+	// Stopping the application unregisters the service.
+	pApp->serviceRegistry().registerService(PreferencesService::SERVICE_NAME, pPrefsRef->instance(),
+		pPrefsRef->properties());
+
+	assertTrue (started);
 	assertNull (pApp->serviceRegistry().findByName(AUTH_SERVICE).get());
 }
 
@@ -116,6 +152,22 @@ void SimpleAuthServiceTest::testUserHasNoPermissionsByDefault()
 }
 
 
+void SimpleAuthServiceTest::testScopedAuthorizationIsDenied()
+{
+	TestApplication::Ptr pApp = new TestApplication({SAMPLE_BUNDLE});
+	pApp->config().setString("adminPassword"s, "admin-secret"s);
+	pApp->config().setString("userPassword"s, "user-secret"s);
+	pApp->config().setString("userPermissions"s, "read"s);
+	pApp->start();
+
+	AuthService::Ptr pAuth = pApp->serviceRegistry().findByName(AUTH_SERVICE)->castedInstance<AuthService>();
+	assertTrue (pAuth->authorize("user"s, ""s, "read"s));
+	assertFalse (pAuth->authorize("user"s, "scope"s, "read"s));
+	assertTrue (pAuth->authorize("admin"s, ""s, "write"s));
+	assertFalse (pAuth->authorize("admin"s, "scope"s, "write"s));
+}
+
+
 void SimpleAuthServiceTest::testRestartWithoutAdminPasswordKeepsOtherAuthService()
 {
 	TestApplication::Ptr pApp = new TestApplication({SAMPLE_BUNDLE});
@@ -133,15 +185,45 @@ void SimpleAuthServiceTest::testRestartWithoutAdminPasswordKeepsOtherAuthService
 }
 
 
+void SimpleAuthServiceTest::testSampleRunsBesideSimpleAuthBundle()
+{
+	// Both bundles define a service class named SimpleAuthService, and
+	// each service must run the code of its own bundle.
+	TestApplication::Ptr pApp = new TestApplication({SAMPLE_BUNDLE, SIMPLE_AUTH_BUNDLE});
+	pApp->config().setString("auth.simple.admin.passwordHash"s, MD5_HASH_OF_SECRET);
+	pApp->config().setString("auth.simple.salt"s, SALT);
+	pApp->start();
+
+	AuthService::Ptr pAuth = pApp->serviceRegistry().findByName(AUTH_SERVICE)->castedInstance<AuthService>();
+	assertTrue (pAuth->authenticate("admin"s, "secret"s));
+
+	// The libraries of both bundles stay loaded while the sample takes over the service.
+	Poco::OSP::Bundle::Ptr pSimpleAuth = pApp->bundleLoader().findBundle(SIMPLE_AUTH_BUNDLE);
+	pSimpleAuth->stop();
+	Poco::OSP::Bundle::Ptr pSample = pApp->bundleLoader().findBundle(SAMPLE_BUNDLE);
+	pSample->stop();
+	pApp->config().setString("adminPassword"s, "admin-secret"s);
+	pSample->start();
+
+	pAuth = pApp->serviceRegistry().findByName(AUTH_SERVICE)->castedInstance<AuthService>();
+	assertTrue (pAuth->authenticate("admin"s, "admin-secret"s));
+}
+
+
 CppUnit::Test* SimpleAuthServiceTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("SimpleAuthServiceTest");
 
 	CppUnit_addTest(pSuite, SimpleAuthServiceTest, testServiceIsNotRegisteredWithoutAdminPassword);
+	CppUnit_addTest(pSuite, SimpleAuthServiceTest, testServiceIsNotRegisteredWithoutPreferencesService);
 	CppUnit_addTest(pSuite, SimpleAuthServiceTest, testUserCannotLogInWithoutPassword);
 	CppUnit_addTest(pSuite, SimpleAuthServiceTest, testPasswordsAreChecked);
 	CppUnit_addTest(pSuite, SimpleAuthServiceTest, testUserHasNoPermissionsByDefault);
+	CppUnit_addTest(pSuite, SimpleAuthServiceTest, testScopedAuthorizationIsDenied);
 	CppUnit_addTest(pSuite, SimpleAuthServiceTest, testRestartWithoutAdminPasswordKeepsOtherAuthService);
+#if defined(OSP_SAMPLES_TEST_SIMPLE_AUTH)
+	CppUnit_addTest(pSuite, SimpleAuthServiceTest, testSampleRunsBesideSimpleAuthBundle);
+#endif
 
 	return pSuite;
 }

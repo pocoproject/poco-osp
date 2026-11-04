@@ -24,7 +24,6 @@
 
 using Poco::OSP::BundleActivator;
 using Poco::OSP::BundleContext;
-using Poco::OSP::Bundle;
 using Poco::OSP::PreferencesService;
 using Poco::OSP::Preferences;
 using Poco::OSP::ServiceRef;
@@ -34,56 +33,53 @@ using Poco::DateTimeFormat;
 using Poco::AutoPtr;
 
 
-class PreferencesBundleActivator: public BundleActivator
-	/// A very simple bundle that shows the usage
-	/// of the PreferencesService.
+namespace
 {
-public:
-	PreferencesBundleActivator() = default;
-	
-	~PreferencesBundleActivator() override = default;
-	
-	void start(BundleContext::Ptr pContext) override
-	{		
-		// find PreferencesService using the Service Registry
-		ServiceRef::Ptr pPrefsSvcRef = pContext->registry().findByName(PreferencesService::SERVICE_NAME);
-		if (pPrefsSvcRef != nullptr)
-		{
-			// PreferencesService is available
-			AutoPtr<PreferencesService> pPrefsSvc = pPrefsSvcRef->castedInstance<PreferencesService>();
-			
-			// Get the preferences for our bundle
-			_pPrefs = pPrefsSvc->preferences(pContext->thisBundle()->symbolicName());
-			
-			// Do something with the preferences
-			std::string lastStartup = _pPrefs->getString("lastStartup", "never");
-			std::string lastShutdown = _pPrefs->getString("lastShutdown", "never");
-			pContext->logger().information(std::string("Last startup at: ") + lastStartup);
-			pContext->logger().information(std::string("Last shutdown at: ") + lastShutdown);
-			DateTime now;
-			std::string dateStr = DateTimeFormatter::format(now, DateTimeFormat::SORTABLE_FORMAT);
-			_pPrefs->setString("lastStartup", dateStr);
-		}
-		else
-		{
-			// The service is not available
-			pContext->logger().error("The PreferencesService is not available.");
-		}
-	}
-		
-	void stop(BundleContext::Ptr /*pContext*/) override
+	class PreferencesBundleActivator: public BundleActivator
+		/// Shows the usage of the PreferencesService.
 	{
-		if (_pPrefs != nullptr)
+	public:
+		PreferencesBundleActivator() = default;
+
+		~PreferencesBundleActivator() override = default;
+
+		void start(BundleContext::Ptr pContext) override
 		{
-			DateTime now;
-			std::string dateStr = DateTimeFormatter::format(now, DateTimeFormat::SORTABLE_FORMAT);
-			_pPrefs->setString("lastShutdown", dateStr);
+			ServiceRef::Ptr pPrefsSvcRef = pContext->registry().findByName(PreferencesService::SERVICE_NAME);
+			if (pPrefsSvcRef != nullptr)
+			{
+				AutoPtr<PreferencesService> pPrefsSvc = pPrefsSvcRef->castedInstance<PreferencesService>();
+
+				_pPrefs = pPrefsSvc->preferences(pContext->thisBundle()->symbolicName());
+
+				std::string lastStartup = _pPrefs->getString("lastStartup", "never");
+				std::string lastShutdown = _pPrefs->getString("lastShutdown", "never");
+				pContext->logger().information(std::string("Last startup at: ") + lastStartup);
+				pContext->logger().information(std::string("Last shutdown at: ") + lastShutdown);
+				DateTime now;
+				std::string dateStr = DateTimeFormatter::format(now, DateTimeFormat::SORTABLE_FORMAT);
+				_pPrefs->setString("lastStartup", dateStr);
+			}
+			else
+			{
+				pContext->logger().error("The PreferencesService is not available.");
+			}
 		}
-	}
-	
-private:
-	AutoPtr<Preferences> _pPrefs;
-};
+
+		void stop(BundleContext::Ptr /*pContext*/) override
+		{
+			if (_pPrefs != nullptr)
+			{
+				DateTime now;
+				std::string dateStr = DateTimeFormatter::format(now, DateTimeFormat::SORTABLE_FORMAT);
+				_pPrefs->setString("lastShutdown", dateStr);
+			}
+		}
+
+	private:
+		AutoPtr<Preferences> _pPrefs;
+	};
+}
 
 
 POCO_BEGIN_MANIFEST(BundleActivator)

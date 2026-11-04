@@ -26,6 +26,7 @@ public:
 
 	void testGetDoesNotChangeSession();
 	void testPostWithoutTokenIsRejected();
+	void testUnreadableFormIsBadRequest();
 	void testPostWithTokenSetsAndRemovesEntry();
 	void testServerAttributesCannotBeSet();
 	void testNumberOfEntriesIsLimited();

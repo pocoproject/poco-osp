@@ -26,6 +26,9 @@ public:
 
 	void testRequestValuesAreEscaped();
 	void testMalformedEscapeIsBadRequest();
+	void testTooManyFormFieldsIsBadRequest();
+	void testMalformedMultipartFormIsBadRequest();
+	void testCookieAndCredentialValuesAreNotShown();
 	void testRequestWithoutHostIsAnswered();
 
 	static CppUnit::Test* suite();

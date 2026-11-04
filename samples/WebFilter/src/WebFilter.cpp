@@ -19,30 +19,33 @@
 #include "Poco/ClassLibrary.h"
 
 
-class DateTimeFilter: public Poco::OSP::Web::WebFilter
+namespace
 {
-public:
-	void process(Poco::Net::HTTPServerRequest& /*request*/, Poco::Net::HTTPServerResponse& response,
-		const std::string& /*path*/, std::istream& resourceStream, Poco::OSP::Bundle::ConstPtr /*pBundle*/) override
+	class DateTimeFilter: public Poco::OSP::Web::WebFilter
 	{
-		std::string content;
-		Poco::StreamCopier::copyToString(resourceStream, content);
-		std::string dateTime = Poco::DateTimeFormatter::format(Poco::DateTime(), Poco::DateTimeFormat::HTTP_FORMAT);
-		Poco::replaceInPlace(content, std::string("$$DATETIME$$"), dateTime);
-		response.setContentType("text/html");
-		response.send() << content;
-	}
-};
+	public:
+		void process(Poco::Net::HTTPServerRequest& /*request*/, Poco::Net::HTTPServerResponse& response,
+			const std::string& /*path*/, std::istream& resourceStream, Poco::OSP::Bundle::ConstPtr /*pBundle*/) override
+		{
+			std::string content;
+			Poco::StreamCopier::copyToString(resourceStream, content);
+			std::string dateTime = Poco::DateTimeFormatter::format(Poco::DateTime(), Poco::DateTimeFormat::HTTP_FORMAT);
+			Poco::replaceInPlace(content, std::string("$$DATETIME$$"), dateTime);
+			response.setContentType("text/html");
+			response.send() << content;
+		}
+	};
 
 
-class DateTimeFilterFactory: public Poco::OSP::Web::WebFilterFactory
-{
-public:
-	[[nodiscard]] Poco::OSP::Web::WebFilter* createFilter(const Poco::OSP::Web::WebFilter::Args& /*args*/) override
+	class DateTimeFilterFactory: public Poco::OSP::Web::WebFilterFactory
 	{
-		return new DateTimeFilter;
-	}
-};
+	public:
+		[[nodiscard]] Poco::OSP::Web::WebFilter* createFilter(const Poco::OSP::Web::WebFilter::Args& /*args*/) override
+		{
+			return new DateTimeFilter;
+		}
+	};
+}
 
 
 POCO_BEGIN_NAMED_MANIFEST(WebFilter, Poco::OSP::Web::WebFilterFactory)

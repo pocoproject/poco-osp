@@ -25,6 +25,8 @@ public:
 	~SampleBundlesTest() override;
 
 	void testDataOnlyBundlesContainNoLibrary();
+	void testExtensionBundleExtendsExtensibleBundle();
+	void testWebPageBundleServesPage();
 
 	static CppUnit::Test* suite();
 };

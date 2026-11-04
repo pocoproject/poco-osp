@@ -6,16 +6,7 @@ file(GLOB TARGET_SRCS_G "src/*.cpp")
 POCO_SOURCES_AUTO(TARGET_SRCS ${TARGET_SRCS_G})
 
 # Dynamic Library
-add_library(${TARGET} MODULE ${TARGET_SRCS})
-set_target_properties(${TARGET}
-	PROPERTIES
-	PREFIX ""
-)
-
-# On macOS, use .dylib instead of .so
-if(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
-	set_target_properties(${TARGET} PROPERTIES SUFFIX ".dylib")
-endif()
+poco_osp_bundle_module(${TARGET} ${TARGET_SRCS})
 
 target_link_libraries(${TARGET} PRIVATE Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation)
 # The service interface is shared with the GreetingService sample.
@@ -29,11 +20,5 @@ poco_osp_bundle(${TARGET}-bundle
 	SPEC ${BUNDLE_SPEC}
 	CODE $<TARGET_FILE:${TARGET}>
 	DESTINATION ${POCO_OSP_BUNDLE_DIR}
-)
-
-install(
-	DIRECTORY	 ${POCO_OSP_BUNDLE_DIR}/
-	DESTINATION  ${POCO_INSTALL_BUNDLEDIR}
-	COMPONENT    Samples
-	FILES_MATCHING PATTERN "${TARGET}*.bndl"
+	INSTALL_COMPONENT Samples
 )

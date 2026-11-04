@@ -17,46 +17,47 @@
 #include <cstddef>
 
 
-class EchoCommand: public Poco::OSP::Shell::Command
-	/// Output a space-separated list of all given
-	/// command line arguments.
-	///
-	/// The command is registered without a permission, so it
-	/// checks itself that the user has logged in.
+namespace
 {
-public:
-	[[nodiscard]] int execute(Poco::OSP::Shell::Session& session, const std::vector<std::string>& args,
-		std::ostream& ostr) override
+	class EchoCommand: public Poco::OSP::Shell::Command
+		/// Outputs the arguments, separated by spaces.
+		///
+		/// Registered without a permission, so it checks itself that the user has logged in.
 	{
-		if (!session.authenticated()) return Command::STATUS_DENIED;
+	public:
+		[[nodiscard]] int execute(Poco::OSP::Shell::Session& session, const std::vector<std::string>& args,
+			std::ostream& ostr) override
+		{
+			if (!session.authenticated()) return Command::STATUS_DENIED;
 
-		if (args.size() == 2 && args[1] == "--help")
-		{
-			ostr << "usage: " << args[0] << " [<arg>...]\n"
-			     << "Echo arguments to output.\n";
-		}
-		else
-		{
-			for (std::size_t i = 1; i < args.size(); ++i)
+			if (args.size() == 2 && args[1] == "--help")
 			{
-				if (i > 1) ostr << ' ';
-				ostr << args[i];
+				ostr << "usage: " << args[0] << " [<arg>...]\n"
+				     << "Echo arguments to output.\n";
 			}
-			ostr << '\n';
-		}		
-		return Command::STATUS_OK;
-	}
-};
+			else
+			{
+				for (std::size_t i = 1; i < args.size(); ++i)
+				{
+					if (i > 1) ostr << ' ';
+					ostr << args[i];
+				}
+				ostr << '\n';
+			}
+			return Command::STATUS_OK;
+		}
+	};
 
 
-class EchoCommandFactory: public Poco::OSP::Shell::CommandFactory
-{
-public:
-	[[nodiscard]] Poco::OSP::Shell::Command* createCommand() override
+	class EchoCommandFactory: public Poco::OSP::Shell::CommandFactory
 	{
-		return new EchoCommand;
-	}
-};
+	public:
+		[[nodiscard]] Poco::OSP::Shell::Command* createCommand() override
+		{
+			return new EchoCommand;
+		}
+	};
+}
 
 
 POCO_BEGIN_NAMED_MANIFEST(Shell, Poco::OSP::Shell::CommandFactory)

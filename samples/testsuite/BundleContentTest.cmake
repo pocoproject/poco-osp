@@ -74,6 +74,7 @@ poco_osp_expect_exit(${EXIT_OK} "build the bundle" "${CMAKE_COMMAND}" --build "$
 list_bundle_entries(entries)
 poco_osp_expect("the bundle contains the resource" entries MATCHES "old/resource\\.txt")
 
+poco_osp_wait_for_newer_time()
 # A rename keeps the time of the file, which is older than the bundle.
 file(RENAME "${SOURCE_DIR}/bundle/old" "${SOURCE_DIR}/bundle/new")
 poco_osp_expect_exit(${EXIT_OK} "build the bundle after the rename" "${CMAKE_COMMAND}" --build "${BUILD_DIR}" --config "${CONFIG}")

@@ -25,86 +25,88 @@ using Poco::Util::Application;
 using Poco::Util::Option;
 using Poco::Util::OptionSet;
 using Poco::Util::HelpFormatter;
-using Poco::Util::AbstractConfiguration;
 using Poco::Util::OptionCallback;
 using Poco::OSP::OSPSubsystem;
 using Poco::OSP::ServiceRegistry;
 
 
-class BundleContainerApplication: public Application
+namespace
 {
-public:
-	BundleContainerApplication():
-		_pOSP(new OSPSubsystem)
+	class BundleContainerApplication: public Application
 	{
-		addSubsystem(_pOSP);
-	}
+	public:
+		BundleContainerApplication():
+			_pOSP(new OSPSubsystem)
+		{
+			addSubsystem(_pOSP);
+		}
 
-	[[nodiscard]] ServiceRegistry& serviceRegistry()
-	{
-		return _pOSP->serviceRegistry();
-	}
+		[[nodiscard]] ServiceRegistry& serviceRegistry()
+		{
+			return _pOSP->serviceRegistry();
+		}
 
-protected:
-	void initialize(Application& self) override
-	{
-		// The following is a workaround for Windows so that DLLs
-		// loaded from bundles will also look for DLLs in the
-		// directory the .exe is located.
-		Poco::SharedLibrary::setSearchPath(config().getString("application.dir"));
+	protected:
+		void initialize(Application& self) override
+		{
+			// Windows: DLLs that bundles load also search the directory of the executable.
+			Poco::SharedLibrary::setSearchPath(config().getString("application.dir"));
 
-		loadConfiguration(); // load default configuration files, if present
-		Application::initialize(self);
-	}
+			loadConfiguration();
+			Application::initialize(self);
+		}
 
-	void defineOptions(OptionSet& options) override
-	{
-		Application::defineOptions(options);
+		void defineOptions(OptionSet& options) override
+		{
+			Application::defineOptions(options);
 
-		options.addOption(
-			Option("help", "h", "display help information on command line arguments")
-				.required(false)
-				.repeatable(false)
-				.callback(OptionCallback<BundleContainerApplication>(this, &BundleContainerApplication::handleHelp)));
+			options.addOption(
+				Option("help", "h", "display help information on command line arguments")
+					.required(false)
+					.repeatable(false)
+					.callback(OptionCallback<BundleContainerApplication>(this,
+						&BundleContainerApplication::handleHelp)));
 
-		options.addOption(
-			Option("config-file", "f", "load configuration data from a file")
-				.required(false)
-				.repeatable(true)
-				.argument("file")
-				.callback(OptionCallback<BundleContainerApplication>(this, &BundleContainerApplication::handleConfig)));
-	}
+			options.addOption(
+				Option("config-file", "f", "load configuration data from a file")
+					.required(false)
+					.repeatable(true)
+					.argument("file")
+					.callback(OptionCallback<BundleContainerApplication>(this,
+						&BundleContainerApplication::handleConfig)));
+		}
 
-	void handleHelp(const std::string& /*name*/, const std::string& /*value*/)
-	{
-		displayHelp();
-		stopOptionsProcessing();
-		_pOSP->cancelInit();
-	}
+		void handleHelp(const std::string& /*name*/, const std::string& /*value*/)
+		{
+			displayHelp();
+			stopOptionsProcessing();
+			_pOSP->cancelInit();
+		}
 
-	void handleConfig(const std::string& /*name*/, const std::string& value)
-	{
-		// Above the default configuration file that initialize() loads.
-		loadConfiguration(value, PRIO_APPLICATION);
-	}
+		void handleConfig(const std::string& /*name*/, const std::string& value)
+		{
+			// Above the default configuration file that initialize() loads.
+			loadConfiguration(value, PRIO_APPLICATION);
+		}
 
-	void displayHelp()
-	{
-		HelpFormatter helpFormatter(options());
-		helpFormatter.setCommand(commandName());
-		helpFormatter.setUsage("OPTIONS");
-		helpFormatter.setHeader("Starts the Open Service Platform bundles, stops them again and exits.");
-		helpFormatter.format(std::cout);
-	}
+		void displayHelp()
+		{
+			HelpFormatter helpFormatter(options());
+			helpFormatter.setCommand(commandName());
+			helpFormatter.setUsage("OPTIONS");
+			helpFormatter.setHeader("Starts the Open Service Platform bundles, stops them again and exits.");
+			helpFormatter.format(std::cout);
+		}
 
-	int main(const std::vector<std::string>& /*args*/) override
-	{
-		return Application::EXIT_OK;
-	}
+		int main(const std::vector<std::string>& /*args*/) override
+		{
+			return Application::EXIT_OK;
+		}
 
-private:
-	OSPSubsystem* _pOSP;
-};
+	private:
+		OSPSubsystem* _pOSP;
+	};
+}
 
 
 POCO_APP_MAIN(BundleContainerApplication)

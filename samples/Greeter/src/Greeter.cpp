@@ -18,44 +18,41 @@
 using Poco::OSP::BundleActivator;
 using Poco::OSP::BundleContext;
 using Poco::OSP::ServiceRef;
-using Poco::OSP::Service;
 
 
-class GreeterBundleActivator: public BundleActivator
-	/// The GreeterBundleActivator for the Greeter bundle.
-	/// This activator looks up the GreetingService using
-	/// the ServiceRegistry and invokes it.
+namespace
 {
-public:
-	GreeterBundleActivator() = default;
-	
-	~GreeterBundleActivator() override = default;
-	
-	void start(BundleContext::Ptr pContext) override
+	class GreeterBundleActivator: public BundleActivator
+		/// Logs the greeting of the GreetingService.
 	{
-		// Obtain the GreetingService object from the Service Registry.
-		ServiceRef::Ptr pServiceRef = pContext->registry().findByName("com.appinf.osp.samples.GreetingService");
-		if (pServiceRef != nullptr)
+	public:
+		GreeterBundleActivator() = default;
+
+		~GreeterBundleActivator() override = default;
+
+		void start(BundleContext::Ptr pContext) override
 		{
-			// Service is available - let's invoke it
-			GreetingService::Ptr pService = pServiceRef->castedInstance<GreetingService>();
-			std::string greeting = pService->greeting();
-			std::string msg("****** ");
-			msg += greeting;
-			msg += " ******";
-			pContext->logger().information(msg);
+			ServiceRef::Ptr pServiceRef = pContext->registry().findByName("com.appinf.osp.samples.GreetingService");
+			if (pServiceRef != nullptr)
+			{
+				GreetingService::Ptr pService = pServiceRef->castedInstance<GreetingService>();
+				std::string greeting = pService->greeting();
+				std::string msg("****** ");
+				msg += greeting;
+				msg += " ******";
+				pContext->logger().information(msg);
+			}
+			else
+			{
+				pContext->logger().error("The GreetingService is not available.");
+			}
 		}
-		else
+
+		void stop(BundleContext::Ptr /*pContext*/) override
 		{
-			// The service is not available
-			pContext->logger().error("The GreetingService is not available.");
 		}
-	}
-		
-	void stop(BundleContext::Ptr /*pContext*/) override
-	{
-	}
-};
+	};
+}
 
 
 POCO_BEGIN_MANIFEST(BundleActivator)

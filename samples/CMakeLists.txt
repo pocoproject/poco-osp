@@ -1,6 +1,6 @@
 add_subdirectory(BundleContainer)
 add_subdirectory(BundleServer)
-add_subdirectory(EchoCommand)       # Require: OSP::Shell
+add_subdirectory(EchoCommand)       # Requires ENABLE_OSP_SHELL
 add_subdirectory(Extensible)
 add_subdirectory(Extension)
 add_subdirectory(Greeter)

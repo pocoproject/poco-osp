@@ -25,10 +25,13 @@ public:
 	~SimpleAuthServiceTest() override;
 
 	void testServiceIsNotRegisteredWithoutAdminPassword();
+	void testServiceIsNotRegisteredWithoutPreferencesService();
 	void testUserCannotLogInWithoutPassword();
 	void testPasswordsAreChecked();
 	void testUserHasNoPermissionsByDefault();
+	void testScopedAuthorizationIsDenied();
 	void testRestartWithoutAdminPasswordKeepsOtherAuthService();
+	void testSampleRunsBesideSimpleAuthBundle();
 
 	static CppUnit::Test* suite();
 };

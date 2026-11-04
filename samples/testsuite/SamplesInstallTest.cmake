@@ -26,9 +26,7 @@ file(MAKE_DIRECTORY "${WORK_DIR}")
 poco_osp_expect_exit(${EXIT_OK} "install the Bundles component" "${CMAKE_COMMAND}" --install "${BUILD_DIR}" --config "${CONFIG}" --component Bundles --prefix "${WORK_DIR}/bundles")
 list_installed_bundles("${WORK_DIR}/bundles" installed)
 poco_osp_expect("the Bundles component installs the OSP bundles" installed MATCHES "osp\\.core_")
-list(FILTER installed INCLUDE REGEX "com\\.appinf\\.osp\\.samples\\.")
-# The shell command samples EchoCommand and LogLevelCommand are installed by their own CMake files.
-list(FILTER installed EXCLUDE REGEX "com\\.appinf\\.osp\\.samples\\.(echocommand|loglevelcommand)_")
+list(FILTER installed INCLUDE REGEX "com\\.appinf\\.osp\\.(samples\\.|unit\\.sample_)")
 poco_osp_expect("the Bundles component installs no sample bundle (${installed})" NOT installed)
 
 poco_osp_expect_exit(${EXIT_OK} "install the Samples component" "${CMAKE_COMMAND}" --install "${BUILD_DIR}" --config "${CONFIG}" --component Samples --prefix "${WORK_DIR}/samples")

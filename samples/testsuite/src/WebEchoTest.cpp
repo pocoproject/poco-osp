@@ -19,9 +19,13 @@
 #include "Poco/OSP/Bundle.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/OSP/BundleLoader.h"
+#include "Poco/Net/HTMLForm.h"
 #include "Poco/Net/HTTPMessage.h"
+#include "Poco/Net/HTTPRequest.h"
 #include "Poco/Net/HTTPResponse.h"
+#include "Poco/Net/NameValueCollection.h"
 #include "Poco/Message.h"
+#include "Poco/NumberFormatter.h"
 #include <string>
 #include <vector>
 
@@ -91,6 +95,82 @@ void WebEchoTest::testMalformedEscapeIsBadRequest()
 }
 
 
+void WebEchoTest::testTooManyFormFieldsIsBadRequest()
+{
+	TestApplication::Ptr pApp = new TestApplication({"poco.net"s, "osp.web"s, "com.appinf.osp.samples.webecho"s});
+	pApp->start();
+	Poco::OSP::Bundle::Ptr pWebBundle = pApp->bundleLoader().findBundle("osp.web"s);
+	LogCapture capture(pApp->bundleLoader().contextForBundle(pWebBundle)->logger().name());
+
+	std::string query;
+	for (int i = 0; i <= Poco::Net::HTMLForm().getFieldLimit(); ++i)
+	{
+		query += "field"s + Poco::NumberFormatter::format(i) + "=x&"s;
+	}
+	ServerRequestStub request(CLIENT_ADDRESS, false);
+	request.setURI("/echo?"s + query);
+	request.setHost("127.0.0.1"s);
+	pApp->dispatch(request);
+
+	assertTrue (request.response().getStatus() == Poco::Net::HTTPResponse::HTTP_BAD_REQUEST);
+	for (const auto& message: capture.channel().waitForMessages(0))
+	{
+		assertTrue (message.getPriority() > Poco::Message::PRIO_ERROR);
+	}
+}
+
+
+void WebEchoTest::testMalformedMultipartFormIsBadRequest()
+{
+	TestApplication::Ptr pApp = new TestApplication({"poco.net"s, "osp.web"s, "com.appinf.osp.samples.webecho"s});
+	pApp->start();
+	Poco::OSP::Bundle::Ptr pWebBundle = pApp->bundleLoader().findBundle("osp.web"s);
+	LogCapture capture(pApp->bundleLoader().contextForBundle(pWebBundle)->logger().name());
+
+	for (const auto& contentType: {Poco::Net::HTMLForm::ENCODING_MULTIPART,
+		Poco::Net::HTMLForm::ENCODING_MULTIPART + "; boundary=XYZ"s})
+	{
+		ServerRequestStub request(CLIENT_ADDRESS, false, "garbage"s);
+		request.setMethod(Poco::Net::HTTPRequest::HTTP_POST);
+		request.setURI("/echo"s);
+		request.setHost("127.0.0.1"s);
+		request.setContentType(contentType);
+		pApp->dispatch(request);
+
+		assertTrue (request.response().getStatus() == Poco::Net::HTTPResponse::HTTP_BAD_REQUEST);
+	}
+	for (const auto& message: capture.channel().waitForMessages(0))
+	{
+		assertTrue (message.getPriority() > Poco::Message::PRIO_ERROR);
+	}
+}
+
+
+void WebEchoTest::testCookieAndCredentialValuesAreNotShown()
+{
+	TestApplication::Ptr pApp = new TestApplication({"poco.net"s, "osp.web"s, "com.appinf.osp.samples.webecho"s});
+	pApp->start();
+
+	ServerRequestStub request(CLIENT_ADDRESS, false);
+	request.setURI("/echo"s);
+	request.setHost("127.0.0.1"s);
+	Poco::Net::NameValueCollection cookies;
+	cookies.add("osp.web.session"s, "session-value"s);
+	request.setCookies(cookies);
+	request.setCredentials("Basic"s, "credentials-value"s);
+	request.setProxyCredentials("Basic"s, "proxy-value"s);
+	pApp->dispatch(request);
+
+	assertTrue (request.response().getStatus() == Poco::Net::HTTPResponse::HTTP_OK);
+	const std::string body = request.response().body();
+	assertTrue (body.find("osp.web.session"s) != std::string::npos);
+	for (const auto& value: {"session-value"s, "credentials-value"s, "proxy-value"s})
+	{
+		assertTrue (body.find(value) == std::string::npos);
+	}
+}
+
+
 void WebEchoTest::testRequestWithoutHostIsAnswered()
 {
 	TestApplication::Ptr pApp = new TestApplication({"poco.net"s, "osp.web"s, "com.appinf.osp.samples.webecho"s});
@@ -112,6 +192,9 @@ CppUnit::Test* WebEchoTest::suite()
 
 	CppUnit_addTest(pSuite, WebEchoTest, testRequestValuesAreEscaped);
 	CppUnit_addTest(pSuite, WebEchoTest, testMalformedEscapeIsBadRequest);
+	CppUnit_addTest(pSuite, WebEchoTest, testTooManyFormFieldsIsBadRequest);
+	CppUnit_addTest(pSuite, WebEchoTest, testMalformedMultipartFormIsBadRequest);
+	CppUnit_addTest(pSuite, WebEchoTest, testCookieAndCredentialValuesAreNotShown);
 	CppUnit_addTest(pSuite, WebEchoTest, testRequestWithoutHostIsAnswered);
 
 	return pSuite;
