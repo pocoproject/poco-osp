@@ -1,0 +1,258 @@
+OSP Mail Delivery Service
+Open Service Platform
+
+!!! Introduction
+
+With the Poco::OSP::Mail::MailDeliveryService, the Open Service Platform provides
+a standard way of sending email messages from an OSP-based application.
+While it's possible for any OSP-based application to use Poco::Net::SMTPClientSession
+directly to send email messages, using the MailDeliveryService has a few advantages:
+
+  - Centralized configuration: the MailDeliveryService is configured using the global
+    application configuration. Thus there is no need to configure individual
+    SMTPClientSession instances with parameters like SMTP host and port, authentication,
+    etc.
+  - Queued delivery: The MailDeliveryService internally uses a queue to serialize
+    delivery of mail messages to the outgoing SMTP server. This reduces server load by
+    preventing multiple SMTP connections from the same application if multiple
+    threads (e.g. HTTP request handlers) are sending out messages. Furthermore,
+    there is no need to wait for the delivery of the message, as the queue is
+    processed in the background.
+
+
+!!! Using the MailDeliveryService
+
+The MailDeliveryService is provided by the <*com.appinf.osp.mail*> bundle and
+registered under the service name "com.appinf.osp.mail".
+
+To send a mail message, obtain an instance of the service, create a
+Poco::Net::MailMessage object, and call the <[sendMessage()]> member function.
+This will return an instance of Poco::OSP::Mail::MailDeliveryHandle which can
+be used to track the progress of the message on its way to the outgoing
+SMTP server, if required. For that purpose, the MailDeliveryHandle class provides
+various events, as well as waiting functions. If not information about the
+delivery of the message is needed, the object can also be discarded.
+
+Following is an example for sending an email message:
+
+    // obtain MailDeliveryService instance
+    Poco::OSP::Mail::MailDeliveryService::Ptr pMailDeliveryService =
+        Poco::OSP::ServiceFinder::find<Poco::OSP::Mail::MailDeliveryService>(c());
+
+    if (pMailDeliveryService)
+    {
+        // compose mail message and send it
+        Poco::OSP::Mail::MailMessagePtr pMsg = new Poco::Net::MailMessage;
+        pMsg->setContentType("text/plain; charset=UTF-8");
+        pMsg->addRecipient(Poco::Net::MailRecipient(Poco::Net::MailRecipient::PRIMARY_RECIPIENT, "mail@company.com"));
+        pMsg->setSubject("Hello from OSP!");
+        pMsg->setContent("This message was sent using the OSP MailDeliveryService.\n");
+        pMailDeliveryService->sendMessage(pMsg); // ignore returned MailDeliveryHandle
+    }
+    else
+    {
+        // service not available
+    }
+----
+
+Mail messages can also contain attachments, etc. For details please refer to the
+Poco::Net::MailMessage class. When sending attachments, make sure that the
+resource containing the attachment (e.g., a temporary file) remains available
+until the mail message has been delivered to the outgoing SMTP server.
+Remember that mail messages are delivered asynchronously, and very probably have
+not been sent when the Poco::OSP::Mail::MailDeliveryService::sendMessage() member
+function returns.
+You can use the returned Poco::OSP::Mail::MailDeliveryHandle object to
+track progress.
+
+Note that the mail message queue is kept in main memory, so any messages
+remaining in the queue when the application terminates will not be delivered.
+When the service stops, the messages remaining in the queue fail
+(Poco::OSP::Mail::MailDeliveryHandle::MAIL_FAILED).
+
+The size of the queue can be limited by a configuration setting. The default
+limit is 100 messages. The Poco::OSP::Mail::MailDeliveryService::sendMessage()
+function will throw a Poco::RuntimeException if this limit is exceeded.
+
+
+!!! Configuring the MailDeliveryService
+
+The MailDeliveryService is configured using the global application configuration file.
+The following configuration properties are available:
+
+
+!! osp.mail.enable
+
+Enable or disable the MailDeliveryService. Set to true to enable the service.
+Default is disabled.
+
+
+!! osp.mail.host
+
+This setting contains the host name or IP address of the outgoing SMTP server.
+Default is "localhost".
+
+
+!! osp.mail.port
+
+The port number of the outgoing SMTP server, between 1 and 65535. Default is
+25. If the mail delivery service is enabled (osp.mail.enable) and the value is
+outside this range, the bundle that provides the service does not start.
+
+
+!! osp.mail.sender
+
+The sender's email address, for messages without a sender. Must be specified.
+The service does not change the messages passed to sendMessage().
+
+
+!! osp.mail.clientHost
+
+The host name the service sends in the EHLO command. If not specified, the
+name of the local host is sent.
+
+
+!! osp.mail.generateMID
+
+If true, and osp.mail.clientHost is specified, the service sends a message
+without a Message-ID header field with a generated one. Default is false.
+
+
+!! osp.mail.login.method
+
+The method for authenticating against the outgoing SMTP server.
+Must be one of the following (not case sensitive):
+
+  - cram-md5
+  - cram-sha1
+  - login
+  - plain
+  - xoauth2
+  - ntlm
+  - none (default)
+
+If any method other than "none" is specified, a username and
+password must be configured. An invalid method is logged as a warning,
+and "none" is used.
+
+NOTE: The <*com.appinf.osp.mail*> bundle connects without TLS: the messages,
+and with the methods plain, login and xoauth2 the password or the token, are
+sent in clear text. Use the secure mail bundle (see osp.mail.secure) to send
+them over TLS.
+
+NOTE: On Windows, POCO's ntlm login with an empty username and password uses
+the credentials of the process (SSPI), for which the SMTP session needs the
+host name of the server. The service connects the session through a socket,
+to apply osp.mail.socketTimeout to the connect, and POCO's session created
+from a socket has no host name. That form of login is therefore not
+available; configure a username and password.
+
+
+!! osp.mail.login.username
+
+The username for logging in to the outgoing SMTP server.
+
+
+!! osp.mail.login.password
+
+The password for logging in to the outgoing SMTP server.
+In case of the xoauth2 login method, this must be the bearer
+token.
+
+
+!! osp.mail.socketTimeout
+
+The timeout in seconds for connecting to the outgoing SMTP server, for the
+TLS handshake, and for every send and receive operation, at least 1. Default
+is 60 seconds. If the mail delivery service is enabled (osp.mail.enable) and
+the value is smaller, the bundle that provides the service does not start.
+
+
+!! osp.mail.sessionTimeout
+
+The time in seconds after which the connection to the outgoing SMTP server is
+closed when no message has been delivered, between 1 and 2147483 (almost 25
+days). Default is 30 seconds. If the mail delivery service is enabled
+(osp.mail.enable) and the value is outside this range, the bundle that provides
+the service does not start.
+
+
+!! osp.mail.limits.maxQueued
+
+The maximum number of queued mail messages. Defaults to 100.
+
+
+!! osp.mail.limits.maxFailedLogins
+
+The number of failed logins to the outgoing SMTP server after which the
+message to be delivered fails. The next message gets the same number of
+attempts. After each failed login, the service waits 10 seconds before
+trying again. Default is 10.
+
+
+!!! Secure Mail Delivery
+
+The <*com.appinf.osp.mail.secure*> bundle provides a MailDeliveryService that
+sends messages over TLS. It is used instead of the service of the
+<*com.appinf.osp.mail*> bundle if osp.mail.secure is true. It uses all the
+settings above, and the following ones.
+
+NOTE: The secure mail service creates its own TLS context from the
+osp.mail.tls settings below. The openSSL.client settings of the application
+(certificate authorities, verification mode, client certificate, ciphers,
+invalid certificate handler) do not apply to it. The passphrase of an
+encrypted private key (osp.mail.tls.privateKey) is requested from the private
+key passphrase handlers that the SSL manager of the application has when the
+bundle starts. The SSL manager creates a handler from
+openSSL.client.privateKeyPassphraseHandler or
+openSSL.server.privateKeyPassphraseHandler when it creates its default client
+or server context, for example for the secure web server. If no handler exists
+when the bundle starts, an encrypted private key cannot be loaded, and the
+bundle does not start. For a server whose certificate is issued by a private
+certificate authority, set osp.mail.tls.caLocation.
+
+
+!! osp.mail.secure
+
+Set to true to use the secure MailDeliveryService. Default is false.
+
+
+!! osp.mail.tls.mode
+
+How the connection to the outgoing SMTP server is secured:
+
+  - starttls (default): the service connects without TLS and sends STARTTLS
+    before it logs in. If the server does not accept STARTTLS, the delivery
+    fails; the service never logs in or sends a message without TLS.
+  - smtpovertls: the connection starts with TLS (typically port 465).
+
+An invalid mode is logged as a warning, and starttls is used.
+
+
+!! osp.mail.tls.caLocation
+
+A file or directory with the certificates of the certificate authorities that
+the service trusts in addition to the default ones of the system.
+
+
+!! osp.mail.tls.certificate
+
+The file with the client certificate, if the server requires one.
+
+
+!! osp.mail.tls.privateKey
+
+The file with the private key of the client certificate.
+
+
+!! osp.mail.tls.ciphers
+
+The list of ciphers in OpenSSL format. If not specified, the default list of
+Poco::Net::Context is used.
+
+
+!! osp.mail.tls.extendedCertificateVerification
+
+If true (default), the service checks that the certificate of the server
+names the host given in osp.mail.host. The service always requires TLS 1.2
+or later.

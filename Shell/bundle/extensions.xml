@@ -1,0 +1,4 @@
+<extensions>
+  <extension point="com.appinf.osp.shell.command" command="login" class="Poco::OSP::Shell::LoginCommandFactory"/>
+  <extension point="com.appinf.osp.shell.command" command="quit" aliases="exit" class="Poco::OSP::Shell::QuitCommandFactory"/>
+</extensions>

@@ -1,0 +1,626 @@
+OSP Web Server
+Open Service Platform
+
+!!! Introduction
+
+The Open Service Platform provides a built-in web server that can be extended with static pages and
+servlet-like request handler objects by any bundle. The web server is implemented in the following three bundles.
+
+
+!! OSP Web Server Foundation
+
+The OSP Web Server Foundation bundle (<[osp.web]>) provides request dispatching and browser session management. It does not
+contain the HTTP server itself. Instead, the actual HTTP and HTTPS servers each come in their own bundles.
+
+
+!! OSP Web Server
+
+The OSP Web Server bundle (<[osp.web.server]>) provides a HTTP server (based on the Poco::Net::HTTPServer class)
+that uses the features provided by the OSP Web Server Foundation bundle to dispatch incoming requests.
+Unless configured otherwise, the OSP Web Server is available on TCP port 22080 (http://localhost:22080/).
+
+
+!! OSP Secure Web Server
+
+The OSP Secure Web Server bundle (<[osp.web.server.secure]>) provides a SSL/TLS-based secure HTTP (HTTPS) server.
+Like the non-secure web server, it uses the OSP Web Server Foundation bundle to do most of the work.
+
+Since both the non-secure and the secure web server use the OSP Web Server Foundation bundle for the
+actual request handling, any web pages and request handlers registered with the Web Server Foundation are
+visible on both web servers.
+
+Unless configured otherwise, the OSP Secure Web Server is available on TCP port 22443 (https://localhost:22443/).
+
+The OSP Secure Web Server uses the default server context of Poco::Net::SSLManager. The certificate,
+the private key and the TLS protocol settings are therefore configured with the <[openSSL.server.*]>
+properties in the application configuration file (see Poco::Net::SSLManager for the complete list), for example:
+
+    openSSL.server.privateKeyFile = ${application.configDir}server.key
+    openSSL.server.certificateFile = ${application.configDir}server.crt
+    openSSL.server.verificationMode = none
+    openSSL.server.requireTLSv1_2 = true
+----
+
+
+!!! Registering Static Web Pages
+
+The OSP Web Server Foundation bundle provides an extension point named <[osp.web.server.directory]>
+that can be used by a bundle to add its own static web pages and other resources (such as images and
+style sheets) to the server. A detailed description of the extension point can be found in the
+documentation for class Poco::OSP::Web::WebServerExtensionPoint.
+
+The <*WebPage*> sample (found in <[samples/WebPage]>) shows how a bundle can add static web
+pages and resources to the web server. The WebPage sample bundle does not contain any code, it simply
+contains a HTML page (<[html/index.html]>, a style sheet (<[html/css/styles.css]>) and a few images (<[html/images/*]>),
+as well as an <[extensions.xml]> file.
+The <[extensions.xml]> file contains the extension for the <[osp.web.server.directory]> extension point:
+
+    <extensions>
+        <extension point="osp.web.server.directory"
+                   path="/sample"
+                   resource="html"
+                   allowSpecialization="none"
+                   description="Sample Page"/>
+    </extensions>
+----
+
+The following attributes are supported for static resources:
+  - <[path]>: The URI on the server to which the resource or handler is mapped.
+  - <[description]>: User-readable description of resource or handler.
+  - <[secure]>: If <[true]>, require a secure (HTTPS) connection to access the resource.
+  - <[realm]>: Specify authentication realm (together with permission).
+  - <[permission]>: Specify the required access permission for this resource.
+    If permission is a single asterisk ("*"), no specific permission is required, but
+    credentials must be present and valid. If permission is two asterisks ("**"), credentials
+    are optional, but if present, must be valid. A comma-separated list of permissions is
+    granted to a user who has any one of them.
+  - <[authMethods]>: Specify the enabled authentication methods. A comma-separated list
+    of method names (<[basic]>, <[session]>, <[bearer]>). If not specified the globally
+    enabled authentication methods are used.
+  - <[session]>: Specify the name of the application for session-based authentication.
+  - <[redirectOn401]>: Specify a location the client is redirected to in case of an
+    authentication failure (401 status). This only applies to <[GET]> requests and can
+    be used to redirect to a login page rather than showing a generic 401 error.
+    The path and query of the request are passed to the location in the <[redirect]> query
+    parameter, unless the request is for that location or already has a <[redirect]> parameter.
+    A user logged in through a session who lacks the permission is redirected to "/" instead
+    (or gets 403 Forbidden if the request is for "/");
+    a user authenticated with HTTP Basic credentials or a bearer token gets 403 Forbidden.
+    If not specified, the <[osp.web.redirectOn401]> configuration property is used.
+    Requests for request handlers are not redirected.
+  - <[exactMatch]>: If <[true]>, only a request for the path itself matches; otherwise (default)
+    also a request for a path below it.
+  - <[hidden]>: If <[true]>, path is not included by WebServerDispatcher::listVirtualPaths().
+  - <[resource]>:  Specify a directory within the bundle where the HTML, image and other files are located.
+  - <[index]>: Specify the name of the default document (defaults to "index.html").
+  - <[cache]>: If set to <[false]>, disable caching of this resource.
+  - <[allowSpecialization]>: Control if and how sub directories can be mapped to resources.
+
+The <[path]> attribute specifies the path under which the files provided by the bundle can be accessed on the server.
+The <[resource]> attribute specifies the directory under which the files for the web server can be found in the bundle.
+For example, the bundle resource <[html/index.html]> will be available on the web server under the path <[/sample/index.html]>.
+Using the <[allowSpecialization]> attribute, a bundle can specify whether other bundles can register themselves for
+subdirectories of the directory specified in <[path]>. The following values are supported:
+
+  - <[none]>: it is impossible to map resources or request handlers to subdirectories
+  - <[owner]>: only this bundle can map resources or request handlers to subdirectories
+  - <[all]>: any bundle can map resources or request handlers to subdirectories
+
+The <[description]> attribute can be used to provide a textual description of the resource to be found at the path.
+The <[path]> and <[description]> attributes can contain references to bundle properties (in the usual form ${property}).
+
+If resource caching has been enabled in the OSP Web configuration (see below), resources will be kept in a cache
+in memory. This can significantly speed up the server, at the cost of increased memory usage. Resource directories
+can be excluded from caching by setting the <[cache]> attribute in the extension point to <[false]>.
+
+The files of a resource directory can be replaced at run time by files in the persistent directory of the bundle.
+The bundle property <[web.static.resource]> lists such resource directories (as given in the <[resource]>
+attribute, separated by commas, compared without regard to case). For a listed directory, a file is served
+from the same path below the persistent directory of the bundle if it exists there, and from the bundle
+otherwise. If the bundle property <[web.static.strict]> is <[true]>, a file of a listed directory that is not
+found or cannot be read in the persistent directory is not served from the bundle.
+
+The <[path]> attributes of mappings are compared with request paths by the lower-case form of each
+character and in Unicode normalization form C; two mappings whose paths differ only in case or normalization
+form conflict. Backslashes in a request path are replaced with slashes, and dots at the end of the path
+are removed. A request whose path contains a dot segment
+("." or "..", also in percent-encoded form), a control character (also in percent-encoded form), another
+segment that ends with a dot, or a segment that ends with a space is answered with 400 Bad Request. So is a
+request for a resource whose path contains a colon, or, on Windows, a tilde followed by a digit (a short file
+name); request handlers receive such paths.
+A file of a bundle directory or of the persistent directory is served only under its name as stored on
+disk, byte for byte, also where the file system opens it under another spelling (another case or
+normalization form, a short file name).
+
+
+!!! Registering Request Handlers
+
+Registering a request handler is similar to registering static resources. Instead of a path to a bundle resource, the
+name of a request handler factory class and the name of the library containing it must be specified.
+The extension point <[osp.web.server.requesthandler]> is used for that purpose.
+
+The <*WebInfo*> sample (found in <[samples/WebInfo]>) shows how a bundle can add both static web
+content, as well as a request handler, to the web server.
+
+The <[extensions.xml]> file contains the extension for both the <[osp.web.server.requesthandler]> and the
+<[osp.web.server.directory]> extension points:
+
+    <extensions>
+        <extension point="osp.web.server.directory"
+                   path="/info/css"
+                   resource="css"
+                   allowSpecialization="none"
+                   hidden="true"/>
+        <extension point="osp.web.server.directory"
+                   path="/info/images"
+                   resource="images"
+                   allowSpecialization="none"
+                   hidden="true"/>
+        <!-- The page shows host names, addresses and the process ID, so only users who log in see it. -->
+        <extension point="osp.web.server.requesthandler"
+                   path="/info"
+                   class="InfoHandlerFactory"
+                   library="com.appinf.osp.samples.webinfo"
+                   allowSpecialization="owner"
+                   description="OSP Server Information"
+                   realm="OSP"
+                   permission="*"/>
+    </extensions>
+----
+
+The following attributes are supported for request handlers. The attributes other than <[pattern]>,
+<[methods]>, <[class]> and <[library]> can be specified for resource directories as well:
+  - <[path]>: The URI on the server to which the resource or handler is mapped.
+  - <[pattern]>: A regular expression for matching requests to the handler.
+  - <[description]>: User-readable description of resource or handler.
+  - <[secure]>: If <[true]>, require a secure (HTTPS) connection to access the resource.
+  - <[realm]>: Specify authentication realm (together with permission).
+  - <[permission]>: Specify the required access permission for this resource.
+    If permission is a single asterisk ("*"), no specific permission is required, but
+    credentials must be present and valid. If permission is two asterisks ("**"), credentials
+    are optional, but if present, must be valid. A comma-separated list of permissions is
+    granted to a user who has any one of them.
+  - <[authMethods]>: Specify the enabled authentication methods. A comma-separated list
+    of method names (<[basic]>, <[session]>, <[bearer]>). If not specified the globally
+    enabled authentication methods are used.
+  - <[session]>: Specify the name of the application for session-based authentication.
+  - <[exactMatch]>: If <[true]>, only a request for the path itself matches; otherwise (default)
+    also a request for a path below it.
+  - <[hidden]>: If <[true]>, path is not included by WebServerDispatcher::listVirtualPaths().
+  - <[methods]>: Only allow specific HTTP request methods.
+  - <[class]>: The class name of the request handler factory.
+  - <[library]>: The name of the shared library containing the request handler factory.
+  - <[csrfProtection]>: If set to <[true]>, enable protection against CSRF (Cross-Site Request Forgery) attacks.
+  - <[csrfTokenHeader]>: If CSRF protection is enabled, specifies the name of the HTTP request header
+    containing the CSRF token. Defaults to "X-XSRF-TOKEN".
+  - <[cors]>: If "true", enable CORS (Cross-Origin Resource Sharing), and CORS preflight requests
+    as well as CORS response headers will be handled by the framework.
+  - <[allowOrigin]>: Specify the allowed origins for CORS requests: "*", "**" or a comma-separated
+    list of origins (for example "https://app.example.com, https://admin.example.com").
+    If "*", the response's "Access-Control-Allow-Origin" header is "*" and no
+    "Access-Control-Allow-Credentials" header is sent, so browsers send no credentials.
+    If "**", every origin is allowed: the response's "Access-Control-Allow-Origin" header
+    is set to the value of the request's "Origin" header, with credentials if <[allowCredentials]>
+    is "true". For a list, only a listed origin is sent back in the "Access-Control-Allow-Origin" header.
+    If CORS is enabled for the path (<[cors]> and <[osp.web.cors.enable]>), and the request is not
+    rejected before the CORS check with 400 or 403 (an invalid request path, a secure path requested
+    without HTTPS), for "**" and lists, the response carries a "Vary: Origin" header.
+    With "**", the origin "null" (sent by sandboxed documents and local files) is allowed and
+    sent back like any other origin.
+    If empty or not specified, the globally configured allowed origin is used (see
+    <[osp.web.cors.allowedOrigin]>); if that is empty as well, no cross-origin access is allowed.
+    An "Origin" header equal to the origin of the request itself (scheme, host and port) is always
+    allowed. The scheme of the request is that of the connection: behind a reverse proxy that
+    terminates TLS it is "http", while browsers send an "https" origin, so the public origin of
+    the proxy must be listed in <[allowOrigin]>. A <[GET]> or <[HEAD]> request from an origin that
+    is not allowed is answered without CORS headers. If CORS is enabled for the path (<[cors]> and
+    <[osp.web.cors.enable]>), and the request is not rejected before the CORS check with 400 or 403
+    (an invalid request path, a secure path requested without HTTPS), a CORS preflight (OPTIONS)
+    request, or a request with any other method, from an origin that is not allowed is answered
+    with 403 Forbidden and does not reach the request handler.
+  - <[allowMethods]>: Allowed methods for CORS requests. Defaults to the value of the <[methods]> attribute,
+    or "*" if <[methods]> is empty or not specified.
+  - <[allowHeaders]>: A comma-separated list of header names. If not empty, a "Access-Control-Allow-Headers"
+    header will be added with the given value.
+  - <[allowCredentials]>: If "true", an "Access-Control-Allow-Credentials" header with value "true" will
+    be added to the response. Defaults to "true".
+  - <[responseFormat]>: Specify the default format for error responses. Can be "html" (default) or "json".
+    A request with an "Accept" header containing "application/json" gets a JSON error response
+    also if the format is "html". On a path with a request handler, the dispatcher answers a failed
+    authorization (401 or 403) in JSON.
+    This is useful for implementing REST APIs.
+    The error JSON format is compatible with that of Remoting NG REST transport.
+
+NOTE: The check whether an "Origin" header names the origin of the request itself takes the scheme from the
+connection. Behind a reverse proxy that terminates TLS and forwards the requests over HTTP, the "https" origin
+that browsers send never matches, with these consequences: BundleAdmin refuses its bundle actions and
+uploads, the WebEvent service refuses a WebSocket upgrade from an origin that is not listed in
+<[osp.web.event.allowedOrigins]>, and on a path with CORS enabled, a CORS preflight request or a request with a
+method other than <[GET]> and <[HEAD]> is refused unless the public origin of the proxy is allowed (see
+<[allowOrigin]>).
+
+Instead of the <[resource]> attribute used with the <[osp.web.server.directory]> extension point, the
+<[osp.web.server.requesthandler]> extension element uses the <[class]> and <[library]> attributes to
+specify the name of the class and library containing the request handler factory.
+Despite containing code, the WebInfo bundle does not contain a bundle activator. The Web Server Foundation
+automatically finds and loads the class containing the request handler factory from the library in the bundle.
+For this to work, the shared library containing the request handler factory must provide a <*named*> manifest.
+The name of the manifest must be <[WebServer]>. This allows the same library to export a default (unnamed) manifest
+declaring the bundle activator, as well as a manifest declaring request handler factories.
+The factory class is created from the manifest of the library that the extension names. Request handler and
+filter factory classes of different bundles must have different fully qualified names (for example in a namespace
+of the bundle): with the default symbol visibility, the dynamic linker can bind the code of a class to a class with
+the same name in the library of another bundle.
+
+When a bundle stops, the libraries of its request handler and filter factories stay loaded until every web
+session that exists then, or that a request still running then has used, and every session that <[renew()]>
+creates from one of them, has ended: a session can hold values that these libraries have created. When the bundle
+is uninstalled, for example to install a new version, these sessions are removed and the libraries are released,
+so that the new version loads its own libraries. A request that is still running keeps the libraries loaded: a
+request in one of these sessions until it has ended and, if it renews the session, every session that
+<[renew()]> creates from it has ended; a request that uses a factory of the bundle until it has ended and every
+session that exists at that time, and every session that <[renew()]> creates from one of them, has ended.
+A stop and a start of the same version keep the sessions.
+
+The implementation of a request handler and its factory usually looks like the following example:
+
+    #include "Poco/Net/HTTPRequestHandler.h"
+    #include "Poco/Net/HTTPServerRequest.h"
+    #include "Poco/Net/HTTPServerResponse.h"
+    #include "Poco/OSP/Web/WebRequestHandlerFactory.h"
+    #include "Poco/ClassLibrary.h"
+
+    using Poco::Net::HTTPRequestHandler;
+    using Poco::Net::HTTPServerRequest;
+    using Poco::Net::HTTPServerResponse;
+
+    class MyRequestHandler: public HTTPRequestHandler
+    {
+    public:
+        void handleRequest(HTTPServerRequest& request, HTTPServerResponse& response)
+        {
+            response.setChunkedTransferEncoding(true);
+            std::ostream& ostr = response.send();
+
+            ostr << "<HTML><HEAD><TITLE>Sample</TITLE>"
+                    "</HEAD><BODY>"
+                    "<H1>Hello, world!</H1>"
+                    "</BODY></HTML>";
+        }
+    };
+
+    class MyRequestHandlerFactory: public WebRequestHandlerFactory
+    {
+    public:
+        HTTPRequestHandler* createRequestHandler(const HTTPServerRequest& request)
+        {
+            return new MyRequestHandler;
+        }
+    };
+
+    POCO_BEGIN_NAMED_MANIFEST(WebServer, WebRequestHandlerFactory)
+        POCO_EXPORT_CLASS(MyRequestHandlerFactory)
+    POCO_END_MANIFEST
+----
+
+Instead of a path, a regular expression can be used to match requests to request handlers,
+by using the <[pattern]> attribute instead of the <[path]> attribute.
+Note that patterns have a higher priority than virtual paths when searching for a request handler,
+so if a pattern matches a given request path, that will be used, even if a virtual path
+would also match. Patterns are not subject to the <[allowSpecialization]> attribute of virtual paths:
+a pattern registered by any bundle takes precedence over a virtual path that another bundle has mapped
+with <[allowSpecialization="none"]>.
+
+It is also possible to restrict the methods a request handler supports via the <[methods]> attribute,
+which should contain a comma-separated list of request methods (e.g., "GET, POST").
+If the given request method is not in the set of supported methods, a 405 Method Not Allowed response will be sent.
+The same pattern (but not virtual path) can be mapped multiple times with a different set of request methods.
+This means that for a given pattern, different request handlers can be used to handle GET and POST requests.
+Note that method names are case sensitive and HTTP uses all-uppercase method names.
+
+
+!!! Authentication and Authorization
+
+The OSP Web Server Foundation supports user authentication and authorization based on HTTP Basic Authentication,
+sessions (using a session cookie) and bearer tokens.
+For both extension points, additional attributes, <[permission]>, <[realm]> and <[session]> can be specified.
+The <[permission]> attribute contains the necessary permission required to access the resource. For more information
+about permissions, please refer to the [[OSPAuth.html OSP Authorization and Authentication]] documentation.
+The optional <[realm]> attribute specifies name of the realm that is sent back to the browser in case of HTTP Basic Authentication.
+Detailed information about HTTP Basic Authentication can be found in RFC 2617.
+The optional <[session]> attribute enabled session-based authentication and specifies the
+application name used for obtaining the session from the Poco::OSP::Web::WebSessionManager service.
+
+It's possible to enable only certain authentication methods, either globally, by setting the
+<[osp.web.authMethods]> configuration property, or using the <[authMethods]> attribute for
+a specific request handler.
+
+A request for a protected resource without valid credentials is answered with 401 Unauthorized
+(or redirected, see <[redirectOn401]>). On a path without a <[session]> attribute, the 401 response carries
+the challenge <[WWW-Authenticate: Bearer realm="<realm>"]> if the path accepts bearer tokens but not HTTP Basic
+credentials, and an HTTP Basic challenge otherwise. A request with valid HTTP Basic credentials or a valid bearer
+token whose user does not have the required permission is answered with 403 Forbidden. So is a request
+in the session of a logged-in user without the permission, unless it is redirected (see <[redirectOn401]>).
+If the auth service (<[osp.web.authServiceName]>) is not available, requests for protected
+resources are answered with 503 Service Unavailable. For the permission "**", only requests with
+credentials, or in the session of a logged-in user, get this answer; other requests are served.
+If the auth service reports the user of a session or a bearer token as not enabled (disabled or
+locked out, see Poco::OSP::Auth::AuthService::userEnabled()), the request is not authenticated.
+So an automatic lock-out after failed logins (see <[auth.maxFailures]> in the
+[[OSPAuth.html OSP Authorization and Authentication]] documentation) also refuses the user's sessions
+and bearer tokens until it ends. Accounts that must keep their access, such as the main administrator
+account, are listed in <[auth.neverLockOutUsers]>. The list does not apply to the lock-out after wrong
+second-factor codes (see Two-Factor Authentication in the
+[[OSPAuth.html OSP Authorization and Authentication]] documentation).
+A warning is logged when the web server starts while no auth service is configured. A notice is
+logged when the auth service is unregistered. When the web server starts before the auth service is
+registered, and when the auth service is registered, an information message is logged.
+
+!! HTTP Basic Authentication
+
+When a permission is specified for a resource, the web server requires the browser to send user credentials with
+each request for such a protected resource. The user name/password combination sent by the browser (using HTTP Basic Authentication)
+is first validated using the Poco::OSP::Auth::AuthService. If successful, the server checks, also using the <[AuthService]>,
+whether the user has the necessary permission.
+
+To protect user names and passwords, HTTP Basic authentication works best when used over an encrypted (HTTPS) connection.
+The <[secure]> attribute can be used to specify that a certain resource is only available over an encrypted connection.
+
+!! Session-Based Authentication
+
+For session-based authentication, the name of the application (which in turn determines the
+name of the session cookie) must be specified using the <[session]> attribute. See
+the Poco::OSP::Web::WebSessionManager class for more information regarding the application name (appName).
+If a valid session cookie, and a valid corresponding session are found, the username is
+extracted from the session's "username" property and the request is considered authenticated.
+For request handlers serving REST APIs or <*XMLHttpRequest*>, CSRF protection (see below) should
+be enabled as well if session-based authentication is enabled.
+
+The request handler that implements the login (checks the user's credentials and sets the
+session's "username" property to the account name that
+Poco::OSP::Auth::AuthService::authenticateAccount() returns) must obtain a new session ID for the
+logged-in user by calling Poco::OSP::Web::WebSessionManager::renew() with the session that was
+used before the login, and use the returned session from then on:
+
+    WebSession::Ptr pSession = pSessionManager->get(appName, request, timeout, context());
+    std::string accountName;
+    if (pAuthService->authenticateAccount(username, password, accountName))
+    {
+        pSession = pSessionManager->renew(appName, request, pSession);
+        pSession->setValue<std::string>("username", accountName);
+    }
+----
+
+<[renew()]> gives the session a new ID and a new CSRF token, keeps its other properties, removes
+the old session and replaces the session cookie in the response. A session ID that was known
+before the login therefore cannot be used to access the session of the logged-in user.
+
+!! Bearer Token-Based Authentication
+
+For authentication based on a bearer token, the token must be given in the HTTP Authorization header
+(<[Authorization: Bearer <token>]>). The token is then validated using the
+Poco::OSP::Web::TokenValidator service. The name of the token validator service must be
+configured using the <[osp.web.tokenValidatorName]> configuration property. If not set,
+token-based authentication will be disabled.
+
+!! Obtaining the Authenticated User Name
+
+If authentication and authorization was successful, a header named "X-OSP-Authorized-User"
+containing the name of the authenticated user is added to the Poco::Net::HTTPRequest, for
+use by downstream request handlers. If the user has been authenticated with a bearer token,
+a header named "X-OSP-Authorized-Scope" contains the scope of the token. Adding these headers can be
+disabled by setting the <[osp.web.addAuthHeader]> configuration property to <[false]>.
+Copies of both headers sent by the client are removed from every request, so a request handler
+can rely on them.
+
+While the request handler of such a request is created and runs, the user name and the scope are
+also the Poco::OSP::Auth::RequestIdentity of the thread, independent of <[osp.web.addAuthHeader]>.
+Code that the request handler calls in the same thread, such as the RemotingNG authenticator and
+authorizer of the OSP Auth Remoting library, takes the identity from there: a request that has not
+passed the web server dispatcher has none.
+
+
+!!! Protection Against Cross-Site Request Forgery Attacks
+
+The web server supports protection agains CSRF or XSRF (Cross-Site Request Forgery) attacks.
+To enable CSRF protection, the <[csrfProtection]> attribute must be set to <[true]>
+in the <[osp.web.server.requesthandler]> extension point.
+If enabled, the web server will check whether the request contains a CSRF token header
+(default header name is "X-XSRF-TOKEN") with a valid CSRF token, if it is a mutating
+request (any request method other than `GET` or `HEAD`) authenticated by its session. The token will be
+checked using the Poco::OSP::Web::WebSessionManager service. A request without a valid token
+is answered as an unauthenticated request. Requests with HTTP Basic credentials or a bearer
+token are not checked.
+The name of the header containing the token can be set with the <[csrfTokenHeader]> attribute.
+CSRF protection should be enabled for all REST API or <*XMLHttpRequest*> handlers that
+use session-based authentication.
+
+
+!!! Response Content Compression
+
+For static content stored in bundles, the OSP Web Server Foundation supports gzip compression.
+If the browser or client indicates that it supports gzip content encoding, by including an appropriate <*Accept-Encoding*>
+header in the request, and if compression is enabled, the response content will be compressed using gzip.
+
+Compression can be enabled for specific content types in the global application configuration file, using the
+<[osp.web.compressResponses]> and <[osp.web.compressedMediaTypes]> properties.
+A response for a media type that can be compressed carries a "Vary: Accept-Encoding" header.
+Range requests are answered without compression.
+
+For dynamically generated content, compression has to be implemented in the request handler. The easiest way to do this
+is to use the following code fragment to send the response:
+
+    // gzip with the quality value 0 ("gzip;q=0") means that the client refuses gzip.
+    bool compressResponse = false;
+    Poco::StringTokenizer codings(request.get("Accept-Encoding", ""), ",", Poco::StringTokenizer::TOK_TRIM | Poco::StringTokenizer::TOK_IGNORE_EMPTY);
+    for (const auto& element: codings)
+    {
+        std::string coding;
+        Poco::Net::NameValueCollection parameters;
+        Poco::Net::MessageHeader::splitParameters(element, coding, parameters);
+        double quality = 0;
+        if (Poco::icompare(coding, "gzip") == 0 && Poco::NumberParser::tryParseFloat(parameters.get("q", "1"), quality))
+            compressResponse = quality > 0;
+    }
+    response.setChunkedTransferEncoding(true);
+    response.add("Vary", "Accept-Encoding");
+    if (compressResponse) response.set("Content-Encoding", "gzip");
+    std::ostream& realResponseStream = response.send();
+    Poco::DeflatingOutputStream gzipStream(realResponseStream, Poco::DeflatingStreamBuf::STREAM_GZIP, 1);
+    std::ostream& responseStream = compressResponse ? gzipStream : realResponseStream;
+----
+
+The [[PageCompilerUserGuide.html POCO C++ Server Page Compiler]] also has support for response content compression.
+
+
+!!! Programmatic Access to The Web Server
+
+The OSP Web Server Foundation bundle provides two services to other bundles, the Poco::OSP::Web::WebServerDispatcher
+and the Poco::OSP::Web::WebSessionManager service.
+
+
+!! The WebServerDispatcher Service
+
+The Poco::OSP::Web::WebServerDispatcher service allows a bundle to add static content or request handlers to the web server
+programmatically. The <[addVirtualPath()]> member function can be used to add either static content or a request handler.
+
+
+!! The WebSessionManager Service
+
+The Poco::OSP::Web::WebSessionManager service provides HTTP session management to request handlers.
+Session management allows a request handler to maintain state information between different requests from the same browser session.
+The state information is maintained using Poco::OSP::Web::WebSession objects, which can store arbitrary name/value pairs. For the value,
+the Poco::Any class is used, which allows to store values of almost any type.
+
+The <*WebSession*> sample (found in <[samples/WebSession]>) shows how to use the Poco::OSP::Web::WebSessionManager
+and Poco::OSP::Web::WebSession classes.
+
+
+!!! Configuring The Web Server
+
+The web server can be configured by setting the following properties in the global application configuration file:
+
+  - <[osp.web.server.host]>: The hostname or IP address where the (non-secure) server is listening. Defaults to "0.0.0.0" (wildcard address).
+  - <[osp.web.server.port]>: The TCP port where the (non-secure) server is listening,
+    from 1 to 65535; 0 does not start the server, and a value outside the range is logged as an error
+    and does not start the server. Defaults to 22080.
+  - <[osp.web.server.secureHost]>: The hostname or IP address where the secure (HTTPS) server is listening. Defaults to "0.0.0.0" (wildcard address).
+  - <[osp.web.server.securePort]>: The TCP port where the secure (HTTPS) server is listening,
+    from 1 to 65535; 0 does not start the server, and a value outside the range is logged as an error
+    and does not start the server. Defaults to 22443.
+  - <[osp.web.server.maxQueued]>: The maximum number of queued requests (see Poco::Net::TCPServerParams). Defaults to 100.
+  - <[osp.web.server.maxThreads]>: The maximum number of threads used by the server (see Poco::Net::TCPServerParams). Defaults to 8.
+  - <[osp.web.server.keepAlive]>: Enable persistent connections (<[true]> or <[false]>). Defaults to <[true]>.
+  - <[osp.web.server.keepAliveTime]>: Maximum time a persistent connection is kept open if no request arrives. Defaults to 10.
+  - <[osp.web.server.maxKeepAlive]>: Maximum number of requests handled on a persistent connection. Defaults to 10.
+  - <[osp.web.authServiceName]>: The name of the OSP authentication/authorization service to use. Defaults to "osp.auth".
+  - <[osp.web.authMethods]>: Specify a comma-separated list of enabled authentication methods (<[basic]>, <[session]>, <[bearer]>).
+    If not specified, all methods will be enabled.
+  - <[osp.web.redirectOn401]>: The location of the <[redirectOn401]> attribute for the mappings that do not
+    specify one. Defaults to empty (no redirect).
+  - <[osp.web.tokenValidatorName]>: The name of the token validation service to use. Defaults to none (empty).
+  - <[osp.web.compressResponses]>: Enable (default) or disable response content compression using gzip content encoding.
+    Specify <[true]> to enable or <[false]> to disable compression.
+  - <[osp.web.compressedMediaTypes]>: A comma-separated list of media types for which compression is enabled. For the subtype,
+    a wildcard (*) can be specified. Defaults to <[text/*,application/javascript]>.
+  - <[osp.web.enableAcceptRange]>: Enable (default) or disable range requests for static resources.
+    If enabled, responses carry an "Accept-Ranges: bytes" header, and a request with a
+    "Range: bytes=..." header gets the first satisfiable range with 206 Partial Content, or
+    416 Range Not Satisfiable, with a "Content-Range" header that states the size of the resource,
+    if no range is satisfiable.
+  - <[osp.web.cacheResources]>: Enable or disable (default) caching of static resources from bundles. This can greatly speed up
+    the server as it keeps all resources in memory. However, depending on the kind of resources served, memory usage may
+    increase significantly. This can be a concern on less powerful embedded devices. Resources can be excluded from
+    caching by setting the <[cache]> attribute in the extension point to <[false]>.
+  - <[osp.web.sessionManager.cookiePersistence]>: Specifies whether session cookies used by the WebSessionManager are persistent
+    (survive closing the browser) or transient (are removed when the browser is closed). Valid values are "persistent" (default)
+    and "transient".
+  - <[osp.web.sessionManager.cookieSecure]>: Controls the <*Secure*> attribute for session cookies. If set to <[true]>, session
+    cookies will have the <[Secure]> attribute set, which means that the browser will only send the cookie over a secure (HTTPS) connection.
+    Session and CSRF cookies sent in a response to a request received over HTTPS always have the <[Secure]> attribute.
+    Set this property to <[true]> if a reverse proxy receives the HTTPS requests and forwards them over HTTP.
+  - <[osp.web.sessionManager.cookieSameSite]>: Specifies the <*SameSite*> attribute for the session cookie.
+    Valid values are "" (empty string - no SameSite attribute; default), "none", "lax" and "strict".
+  - <[osp.web.csrfProtectionEnabled]>: Enable or disable Cross-Site Request Forgery protection. If enabled, the
+    WebSessionManager will create and set a CSRF cookie.
+  - <[osp.web.sessionManager.csrfCookie]>: The name of the CSRF cookie that will be automatically set by the WebSessionManager
+    in order to prevent Cross-Site Request Forgery attacks. Defaults to <[XSRF-TOKEN]>.
+  - <[osp.web.sessionManager.verifyAddress]>: Enable client address verification. If enabled (default), the
+    WebSessionManager will keep track of the client IP address associated with the session cookie. If the client
+    IP address changes, the session will be invalidated.
+  - <[osp.web.sessionManager.defaultDomain]>: Specifies an optional default domain that session cookies are bound to.
+  - <[osp.web.sessionManager.sessionStore]>: Specifies an optional service name for a WebSessionStore service
+    to be used by the WebSessionManager. This can be used to persistently store session data on the server.
+  - <[osp.web.hsts.enable]>: Enable HTTP Strict Transport Security (HSTS). If enabled, a <[Strict-Transport-Security]>
+    header will be included with every response the HTTP server sends. Defaults to false.
+  - <[osp.web.hsts.maxAge]>: Specify the maximum age for HSTS. Defaults to 63072000 seconds or two years.
+  - <[osp.web.hsts.includeSubdomains]>: If set to true (default), the <[Strict-Transport-Security]> includes the
+    <[includeSubdomains]> optional parameter.
+  - <[osp.web.xssProtection.enable]>: If set to true, a <[X-XSS-Protection]> header will be included with
+    every response the HTTP server sends. Defaults to false.
+  - <[osp.web.xssProtection.mode]>: Specifies the <[mode]> parameter for the <[X-XSS-Protection]> header and
+    defaults to "block".
+  - <[osp.web.contentTypeOptions]>: Specifies the value of the <[X-Content-Type-Options]> header sent with
+    every HTTP response. Defaults to <[nosniff]>. Can be set to an empty string to disable
+    this header, which is not recommended.
+  - <[osp.web.frameOptions]>: Specifies the value of the <[X-Frame-Options]> header sent with every
+    HTTP response. Defaults to none (no <[X-Frame-Options]> header sent). Valid values are
+    <[DENY]> and <[SAMEORIGIN]>.
+  - <[osp.web.addAuthHeader]>: If set to true (default), and authentication/authorization has been enabled for
+    a resource and has been successful, a header named "X-OSP-Authorized-User" containing the
+    authenticated and authorized username is added to the Poco::Net::HTTPRequest, for use
+    by the downstream request handler.
+  - <[osp.web.addSignature]>: If set to true (default), the server will include a signature in generated
+    HTML error pages.
+  - <[osp.web.cors.enable]>: If set to true (default), globally enable CORS handling for all request handlers
+    supporting CORS. If set to false, globally disable CORS handling.
+  - <[osp.web.cors.allowedOrigin]>: Specifies the allowed origins for CORS requests of request handlers
+    that enable CORS and do not specify their own <[allowOrigin]> attribute. The values are the same
+    as for the <[allowOrigin]> attribute: "*" allows requests without credentials from every origin,
+    "**" allows requests with credentials from every origin, and a comma-separated list allows the
+    listed origins only. Defaults to empty, which allows no cross-origin access.
+  - <[osp.web.logFullRequest]>: If set to true, log all HTTP requests and responses with all HTTP headers.
+    The values of the <[Authorization]>, <[Proxy-Authorization]>, <[Cookie]> and <[Set-Cookie]> headers,
+    of the CSRF token headers of the mapped paths, and of every header field whose name is not an HTTP token are
+    logged as <[<redacted>]>; control characters are logged percent-encoded.
+
+
+!!! Request Logging
+
+The web server supports logging of HTTP requests. For that purpose, the logger "osp.web.access" is used.
+The log message text is the HTTP request, including method, path and version.
+Control characters in the request line and in the header values are percent-encoded.
+Additionally, the following log message properties are available for use in formatting:
+
+  - <[username]>: For a request whose authorization the dispatcher checks (a path that requires a permission,
+    while the auth service is available), the name of the user that the request names, also if the request is
+    not authorized: with credentials of an authentication method that the path accepts (HTTP Basic: the account
+    name if the credentials are valid, otherwise the name the client sent; a bearer token that the token
+    validator accepts) or, for a request without credentials, with its session if the path accepts session
+    authentication. Otherwise, or if the request names no user, "-".
+  - <[status]>: The HTTP response status code (e.g., 200).
+  - <[client]>: The client IP address.
+  - <[ffclient]>: The IP address in the first entry of the <*X-Forwarded-For*> request header, if it holds
+    an IP address, otherwise the client IP address. The header is supplied by the client or by a
+    proxy, so the value is only as trustworthy as these.
+  - <[size]>: The size of the response, from the response <*Content-Length*> header. If not set, "-".
+  - <[referer]>: The content of the <*Referer*> HTTP request header, or an empty string if not set.
+  - <[useragent]>: The content of the <*User-Agent*> HTTP request header, or an empty string if not set.
+  - <[host]>: The content of the <*Host*> HTTP request header, or an empty string if not set.
+  - <[duration]>: The time taken to handle the request, in seconds.
+
+This information can be used to enable logging in Common or Extended log format, by using appropriate logger and
+formatter configurations in the application's configuration file. For example, to write the access log to
+the console, use the following configuration:
+
+    logging.loggers.access.name = osp.web.access
+    logging.loggers.access.channel = consoleAccess
+    logging.loggers.access.level = information
+    logging.channels.consoleAccess.class = ConsoleChannel
+    logging.channels.consoleAccess.pattern = %[client] - %[username] [%d/%b/%Y:%H:%M:%S %Z] "%t" %[status] %[size]
+----
+
+To use Extended log format and include referer and user agent, use the following pattern:
+
+    logging.channels.consoleAccess.pattern = %[client] - %[username] [%d/%b/%Y:%H:%M:%S %Z] "%t" %[status] %[size] "%[referer]" "%[useragent]"
+----

@@ -1,0 +1,7 @@
+include(CMakeFindDependencyMacro)
+find_dependency(PocoFoundation)
+find_dependency(PocoUtil)
+find_dependency(PocoData)
+find_dependency(PocoOSP)
+find_dependency(PocoOSPAuth)
+include("${CMAKE_CURRENT_LIST_DIR}/PocoOSPAuthDataTargets.cmake")

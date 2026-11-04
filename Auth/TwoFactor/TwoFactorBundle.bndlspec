@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<bundlespec>
+  <manifest>
+    <name>OSP Two-Factor Authentication</name>
+    <symbolicName>com.appinf.osp.auth.twofactor</symbolicName>
+    <version>1.0.0</version>
+    <vendor>Applied Informatics</vendor>
+    <copyright>(c) 2020-2026, Applied Informatics Software Engineering GmbH</copyright>
+    <activator>
+      <class>Poco::OSP::Auth::TwoFactor::TwoFactorBundleActivator</class>
+      <library>com.appinf.osp.auth.twofactor</library>
+    </activator>
+    <lazyStart>false</lazyStart>
+    <runLevel>010</runLevel>
+    <module-dependency>
+      <symbolicName>osp.auth</symbolicName>
+      <version>[1.8.0, 2.0.0)</version>
+    </module-dependency>
+    <dependency>
+      <symbolicName>poco.crypto</symbolicName>
+      <version>[1.10.0, 2.0.0)</version>
+    </dependency>
+  </manifest>
+  <code>
+    ${bin}/*.dll,
+    ${bin}/*.pdb,
+    ../../../${bin}/PocoOSPAuthTwoFactor${64}.dll,
+    ../../../${bin}/PocoOSPAuthTwoFactor${64}d.dll,
+    ../../../${bin}/PocoOSPAuthTwoFactor${64}d.pdb,
+    bin/${osName}/${osArch}/*.so,
+    bin/${osName}/${osArch}/*.dylib,
+    ../../../lib/${osName}/${osArch}/libPocoOSPAuthTwoFactor.so.*,
+    ../../../lib/${osName}/${osArch}/libPocoOSPAuthTwoFactord.so.*,
+    ../../../lib/${osName}/${osArch}/libPocoOSPAuthTwoFactor.*.dylib,
+    ../../../lib/${osName}/${osArch}/libPocoOSPAuthTwoFactord.*.dylib
+  </code>
+</bundlespec>

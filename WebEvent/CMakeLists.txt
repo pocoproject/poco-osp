@@ -1,0 +1,69 @@
+set(TARGET "com.appinf.osp.webevent")
+set(BUNDLE_SPEC "${CMAKE_CURRENT_SOURCE_DIR}/WebEventBundle.bndlspec")
+
+set(LIBNAME "OSPWebEvent")
+set(POCO_LIBNAME "Poco${LIBNAME}")
+set(LIBVERSION ${SHARED_LIBRARY_VERSION})
+
+# Sources
+POCO_SOURCES_AUTO(LIB_SRCS
+	src/WebEventRequestHandler.cpp
+	src/WebEventService.cpp
+	src/WebEventServiceImpl.cpp
+)
+
+# Headers
+file(GLOB_RECURSE HDRS_G "include/*.h")
+POCO_HEADERS_AUTO(LIB_SRCS ${HDRS_G})
+
+# Version Resource
+if(MSVC AND BUILD_SHARED_LIBS)
+	source_group("Resources" FILES ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
+	list(APPEND LIB_SRCS ${PROJECT_SOURCE_DIR}/DLLVersion.rc)
+endif()
+
+POCO_SOURCES_AUTO(BUNDLE_SRCS
+	src/WebEventBundleActivator.cpp
+)
+
+# Shared Library
+add_library(${LIBNAME} ${LIB_SRCS})
+add_library(Poco::OSPWebEvent ALIAS ${LIBNAME})
+set_target_properties(${LIBNAME}
+	PROPERTIES
+	VERSION ${LIBVERSION} SOVERSION ${LIBVERSION}
+	OUTPUT_NAME ${POCO_LIBNAME}
+	DEFINE_SYMBOL OSPWebEvent_EXPORTS
+)
+
+target_link_libraries(${LIBNAME}
+	PUBLIC Poco::OSP Poco::Net Poco::Util Poco::Foundation
+	PRIVATE Poco::OSPWeb
+)
+target_include_directories(${LIBNAME}
+	PUBLIC
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+		$<INSTALL_INTERFACE:include>
+	PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+# Dynamic Library
+poco_osp_bundle_module(${TARGET} ${BUNDLE_SRCS})
+
+target_link_libraries(${TARGET} PRIVATE Poco::OSPWebEvent Poco::OSPWeb Poco::OSP Poco::Net Poco::Util Poco::Foundation)
+
+# Build Bundle
+poco_osp_bundle(${TARGET}-bundle
+	DEPENDS ${LIBNAME} ${TARGET}
+	SPEC ${BUNDLE_SPEC}
+	CODE $<TARGET_FILE:${LIBNAME}> $<TARGET_FILE:${TARGET}>
+	DESTINATION ${POCO_OSP_BUNDLE_DIR}
+	INSTALL_COMPONENT Bundles
+)
+
+POCO_INSTALL(${LIBNAME})
+POCO_GENERATE_PACKAGE(${LIBNAME})
+
+if(POCO_OSP_ENABLE_TESTS)
+	add_subdirectory(testsuite)
+endif()

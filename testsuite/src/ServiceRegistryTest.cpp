@@ -1,0 +1,362 @@
+//
+// ServiceRegistryTest.cpp
+//
+// Copyright (c) 2007-2014, Applied Informatics Software Engineering GmbH.
+// All rights reserved.
+//
+// SPDX-License-Identifier:	BSL-1.0
+//
+
+
+#include "ServiceRegistryTest.h"
+#include "TestService.h"
+#include "CppUnit/TestCaller.h"
+#include "CppUnit/TestSuite.h"
+#include "Poco/OSP/ServiceRegistry.h"
+#include "Poco/OSP/ServiceRef.h"
+#include "Poco/OSP/Service.h"
+#include "Poco/OSP/ServiceFactory.h"
+#include "Poco/OSP/Properties.h"
+#include "Poco/OSP/QLExpr.h"
+#include "Poco/Delegate.h"
+#include "Poco/Event.h"
+#include "Poco/AutoPtr.h"
+#include "Poco/Exception.h"
+#include <atomic>
+#include <string>
+#include <thread>
+#include <vector>
+
+
+using Poco::OSP::ServiceRegistry;
+using Poco::OSP::ServiceRef;
+using Poco::OSP::Service;
+using Poco::OSP::ServiceFactory;
+using Poco::OSP::ServiceEvent;
+using Poco::OSP::Properties;
+using Poco::Delegate;
+
+
+namespace
+{
+	class OtherTestService: public Service
+	{
+	public:
+		using Ptr = Poco::AutoPtr<OtherTestService>;
+
+		[[nodiscard]] const std::type_info& type() const override
+		{
+			return typeid(OtherTestService);
+		}
+
+		[[nodiscard]] bool isA(const std::type_info& otherType) const override
+		{
+			std::string name(typeid(OtherTestService).name());
+			return name == otherType.name() || Service::isA(otherType);
+		}
+	};
+
+	constexpr long WAIT_MS = 10000;
+
+	class BlockingExpr: public Poco::OSP::QLExpr
+		/// Matches every service, and holds each evaluation
+		/// until unblock() is called or WAIT_MS have passed.
+	{
+	public:
+		BlockingExpr() = default;
+		BlockingExpr(const BlockingExpr&) = delete;
+		BlockingExpr(BlockingExpr&&) = delete;
+		BlockingExpr& operator = (const BlockingExpr&) = delete;
+		BlockingExpr& operator = (BlockingExpr&&) = delete;
+
+		[[nodiscard]] bool evaluate(const Properties& /*props*/) const override
+		{
+			_evaluating.set();
+			if (!_released.tryWait(WAIT_MS)) _timedOut = true;
+			return true;
+		}
+
+		[[nodiscard]] Poco::Event& evaluating()
+		{
+			return _evaluating;
+		}
+
+		void unblock()
+			/// Named so as not to hide RefCountedObject::release().
+		{
+			_released.set();
+		}
+
+		[[nodiscard]] bool timedOut() const
+		{
+			return _timedOut;
+		}
+
+	protected:
+		~BlockingExpr() override = default;
+
+	private:
+		mutable Poco::Event _evaluating;
+		mutable Poco::Event _released{Poco::Event::EVENT_MANUALRESET};
+		mutable std::atomic<bool> _timedOut{false};
+	};
+
+	class TestServiceFactory: public ServiceFactory
+	{
+	public:
+		[[nodiscard]] Service::Ptr createService() override
+		{
+			return new TestService;
+		}
+	};
+}
+
+
+ServiceRegistryTest::ServiceRegistryTest(const std::string& name): CppUnit::TestCase(name)
+{
+}
+
+
+ServiceRegistryTest::~ServiceRegistryTest() = default;
+
+
+void ServiceRegistryTest::testRegisterFindAndUnregisterServices()
+{
+	ServiceRegistry reg;
+	reg.serviceRegistered   += Delegate<ServiceRegistryTest, ServiceEvent>(this, &ServiceRegistryTest::handleEvent);
+	reg.serviceUnregistered += Delegate<ServiceRegistryTest, ServiceEvent>(this, &ServiceRegistryTest::handleEvent);
+
+	_events.clear();
+
+	Service::Ptr pService1 = new TestService;
+	reg.registerService("Service1", pService1, Properties());
+
+	assert (_events.size() == 1);
+	assert (_events[0].service()->name() == "Service1");
+	assert (_events[0].what() == ServiceEvent::EV_SERVICE_REGISTERED);
+
+	ServiceRef::Ptr pRef = reg.findByName("Service1");
+	assert (pRef->instance() == pService1);
+	assert (pRef->name() == "Service1");
+
+	pRef = reg.findByName("Service2");
+	assert (pRef.isNull());
+
+	std::vector<ServiceRef::Ptr> svcs;
+	std::size_t n = reg.find("name == \"Service1\"", svcs);
+	assert (n == 1);
+	assert (svcs.size() == 1);
+	assert (svcs[0]->instance() == pService1);
+
+	assert (!reg.find("").empty());
+
+	Service::Ptr pService2 = new TestServiceFactory;
+
+	Properties props;
+	props.set("foo", "bar");
+
+	_events.clear();
+	pRef = reg.registerService("Service2", pService2, props);
+
+	assert (_events.size() == 1);
+	assert (_events[0].service()->name() == "Service2");
+	assert (_events[0].what() == ServiceEvent::EV_SERVICE_REGISTERED);
+
+	assert (pRef->name() == "Service2");
+	Service::Ptr pService21 = pRef->instance();
+	assert (pService21 != pService2);
+
+	Service::Ptr pService22 = pRef->instance();
+	assert (pService22 != pService21);
+
+	TestService::Ptr pTestService = pRef->castedInstance<TestService>();
+	assert (pTestService != nullptr);
+
+	try
+	{
+		OtherTestService::Ptr pOtherTestService = pRef->castedInstance<OtherTestService>();
+		fail("bad cast - must throw");
+	}
+	catch (Poco::BadCastException&)
+	{
+	}
+
+	n = reg.find("foo == \"bar\"", svcs);
+	assert (n == 1);
+	assert (svcs.size() == 1);
+	assert (svcs[0]->name() == "Service2");
+
+	pRef->properties().set("foo", "BAR");
+	n = reg.find("foo == \"bar\"", svcs);
+	assert (n == 0);
+	assert (svcs.size() == 0);
+
+	n = reg.find("name =~ \"Service?\"", svcs);
+	assert (n == 2);
+	assert (svcs.size() == 2);
+	assert (svcs[0]->name() == "Service1");
+	assert (svcs[1]->name() == "Service2");
+
+	pRef = reg.findByName("Service1");
+	assert (pRef->name() == "Service1");
+
+	pRef = reg.findByName("Service2");
+	assert (pRef->name() == "Service2");
+
+	try
+	{
+		Service::Ptr pService11 = new TestService;
+		reg.registerService("Service1", pService11, Properties());
+		fail("service already registered - must throw");
+	}
+	catch (Poco::ExistsException&)
+	{
+	}
+
+	_events.clear();
+	reg.unregisterService("Service1");
+	assert (_events.size() == 1);
+	assert (_events[0].service()->name() == "Service1");
+	assert (_events[0].what() == ServiceEvent::EV_SERVICE_UNREGISTERED);
+
+	n = reg.find("name =~ \"Service?\"", svcs);
+	assert (n == 1);
+	assert (svcs.size() == 1);
+	assert (svcs[0]->name() == "Service2");
+}
+
+
+void ServiceRegistryTest::testServicesReturnsCopy()
+{
+	ServiceRegistry reg;
+	Service::Ptr pService = new TestService;
+	reg.registerService("Service1", pService, Properties());
+
+	const ServiceRegistry::ServiceMap& services = reg.services();
+	reg.unregisterService("Service1");
+
+	assertTrue (services.size() == 1);
+	assertTrue (services.contains("Service1"));
+	assertTrue (reg.services().empty());
+}
+
+
+void ServiceRegistryTest::testUnregisterOfUnknownServiceThrowsNotFound()
+{
+	ServiceRegistry reg;
+	try
+	{
+		reg.unregisterService("Service1");
+		fail("unknown service - must throw");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+
+	ServiceRef::Ptr pRef = reg.registerService("Service1", new TestService, Properties());
+	reg.unregisterService(pRef);
+	assertTrue (reg.findByName("Service1") == nullptr);
+	try
+	{
+		reg.unregisterService(pRef);
+		fail("service already unregistered - must throw");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+}
+
+
+void ServiceRegistryTest::testUnregisterOfStaleRefKeepsServiceOfSameName()
+{
+	ServiceRegistry reg;
+	ServiceRef::Ptr pOldRef = reg.registerService("Service1", new TestService, Properties());
+	reg.unregisterService(pOldRef);
+	ServiceRef::Ptr pNewRef = reg.registerService("Service1", new TestService, Properties());
+
+	try
+	{
+		reg.unregisterService(pOldRef);
+		fail("service already unregistered - must throw");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+	assertTrue (reg.findByName("Service1") == pNewRef);
+}
+
+
+void ServiceRegistryTest::testFindWithSyntaxErrorKeepsResults()
+{
+	ServiceRegistry reg;
+	reg.registerService("Service1", new TestService, Properties());
+	std::vector<ServiceRef::Ptr> results;
+	assertEqual (1, static_cast<int>(reg.find("name == \"Service1\"", results)));
+
+	try
+	{
+		reg.find("name ==", results);
+		fail("syntax error - must throw");
+	}
+	catch (Poco::SyntaxException&)
+	{
+	}
+	assertTrue (results.size() == 1);
+}
+
+
+void ServiceRegistryTest::testLookupDoesNotWaitForQueryEvaluation()
+{
+	ServiceRegistry reg;
+	reg.registerService("Service1", new TestService, Properties());
+	Poco::AutoPtr<BlockingExpr> pExpr(new BlockingExpr);
+
+	std::vector<ServiceRef::Ptr> results;
+	std::thread finding([&]()
+	{
+		reg.find(*pExpr, results);
+	});
+	const bool evaluating = pExpr->evaluating().tryWait(WAIT_MS);
+	reg.registerService("Service2", new TestService, Properties());
+	const bool found = reg.findByName("Service1") != nullptr;
+	reg.unregisterService("Service2");
+	pExpr->unblock();
+	finding.join();
+
+	assertTrue (evaluating);
+	assertTrue (found);
+	// The evaluation would have timed out if the lookup had waited for it.
+	assertFalse (pExpr->timedOut());
+	assertEqual (1, static_cast<int>(results.size()));
+}
+
+
+void ServiceRegistryTest::handleEvent(const void* /*sender*/, Poco::OSP::ServiceEvent& event)
+{
+	_events.push_back(event);
+}
+
+
+void ServiceRegistryTest::setUp()
+{
+}
+
+
+void ServiceRegistryTest::tearDown()
+{
+}
+
+
+CppUnit::Test* ServiceRegistryTest::suite()
+{
+	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("ServiceRegistryTest");
+
+	CppUnit_addTest(pSuite, ServiceRegistryTest, testRegisterFindAndUnregisterServices);
+	CppUnit_addTest(pSuite, ServiceRegistryTest, testServicesReturnsCopy);
+	CppUnit_addTest(pSuite, ServiceRegistryTest, testUnregisterOfUnknownServiceThrowsNotFound);
+	CppUnit_addTest(pSuite, ServiceRegistryTest, testUnregisterOfStaleRefKeepsServiceOfSameName);
+	CppUnit_addTest(pSuite, ServiceRegistryTest, testFindWithSyntaxErrorKeepsResults);
+	CppUnit_addTest(pSuite, ServiceRegistryTest, testLookupDoesNotWaitForQueryEvaluation);
+
+	return pSuite;
+}

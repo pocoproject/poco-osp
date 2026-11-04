@@ -1,0 +1,246 @@
+//
+// CommandProcessor.cpp
+//
+// Library: OSP/Shell
+// Package: OSPShell
+// Module:  CommandProcessor
+//
+// Copyright (c) 2009, Applied Informatics Software Engineering GmbH.
+// All rights reserved.
+//
+// SPDX-License-Identifier:	BSL-1.0
+//
+
+
+#include "Poco/OSP/Shell/CommandProcessor.h"
+#include "Poco/OSP/Shell/Command.h"
+#include "Poco/OSP/Shell/Session.h"
+#include "Poco/Exception.h"
+#include "Poco/SharedPtr.h"
+#include <string>
+
+
+using Poco::FastMutex;
+
+
+namespace Poco::OSP::Shell {
+
+
+namespace
+{
+	[[nodiscard]] bool runsBeforeLogin(const std::string& command)
+		/// Returns true for the commands that a session runs before a login.
+	{
+		return command == "login" || command == "help" || command == "quit";
+	}
+}
+
+
+CommandProcessor::CommandProcessor(Poco::OSP::BundleContext::Ptr pContext):
+	_pContext(pContext)
+{
+}
+
+
+CommandProcessor::~CommandProcessor() = default;
+
+
+int CommandProcessor::execute(Session& session, const std::string& commandLine, std::ostream& ostr)
+{
+	std::vector<std::string> items;
+	parseCommandLine(commandLine, items);
+	if (!items.empty())
+	{
+		const std::string& command = items[0];
+		Poco::SharedPtr<Command> pCommand;
+		try
+		{
+			pCommand = createCommand(session, command);
+		}
+		catch (Poco::NotFoundException&)
+		{
+			// Before login, an unknown command gets the same reply as a command
+			// that the session may not run.
+			if (!session.authenticated()) return Command::STATUS_DENIED;
+			throw;
+		}
+		if (pCommand != nullptr)
+			return pCommand->execute(session, items, ostr);
+		else
+			return Command::STATUS_DENIED;
+	}
+	else return Command::STATUS_OK;
+}
+
+
+void CommandProcessor::addCommand(const std::string& command, const std::set<std::string>& aliases, FactoryPtr pFactory, const std::string& permission)
+{
+	FastMutex::ScopedLock lock(_mutex);
+
+	if (!_commandMap.contains(command))
+	{
+		CommandInfo& info = _commandMap[command];
+		info.name        = command;
+		info.aliases     = aliases;
+		info.pFactory    = pFactory;
+		info.permission  = permission;
+	}
+	else throw Poco::ExistsException(command);
+}
+
+
+void CommandProcessor::removeCommand(const std::string& command)
+{
+	FastMutex::ScopedLock lock(_mutex);
+
+	CommandMap::iterator it = _commandMap.find(command);
+	if (it != _commandMap.end())
+		_commandMap.erase(it);
+	else
+		throw Poco::NotFoundException(command);
+}
+
+
+void CommandProcessor::removeBundle(Poco::OSP::Bundle::Ptr pBundle)
+{
+	FastMutex::ScopedLock lock(_mutex);
+
+	CommandMap::iterator it = _commandMap.begin();
+	while (it != _commandMap.end())
+	{
+		if (it->second.pFactory->context()->thisBundle() == pBundle)
+		{
+			CommandMap::iterator delIt(it);
+			++it;
+			_commandMap.erase(delIt);
+		}
+		else ++it;
+	}
+}
+
+
+void CommandProcessor::listCommands(std::vector<std::string>& commands) const
+{
+	FastMutex::ScopedLock lock(_mutex);
+
+	for (CommandMap::const_iterator it = _commandMap.begin(); it != _commandMap.end(); ++it)
+	{
+		commands.push_back(it->first);
+	}
+}
+
+
+void CommandProcessor::listCommands(const Session& session, std::vector<std::string>& commands) const
+{
+	FastMutex::ScopedLock lock(_mutex);
+
+	for (const auto& [name, info]: _commandMap)
+	{
+		if (session.authenticated() || runsBeforeLogin(name))
+		{
+			commands.push_back(name);
+		}
+	}
+}
+
+
+void CommandProcessor::aliases(const std::string& command, std::set<std::string>& aliases) const
+{
+	FastMutex::ScopedLock lock(_mutex);
+
+	CommandMap::const_iterator it = _commandMap.find(command);
+	if (it != _commandMap.end())
+	{
+		aliases = it->second.aliases;
+	}
+}
+
+
+Command* CommandProcessor::createCommand(const Session& session, const std::string& command)
+{
+	FastMutex::ScopedLock lock(_mutex);
+
+	CommandMap::iterator it = _commandMap.find(command);
+	if (it == _commandMap.end())
+	{
+		// look for aliases
+		for (it = _commandMap.begin(); it != _commandMap.end(); ++it)
+		{
+			if (it->second.aliases.contains(command))
+				break;
+		}
+	}
+
+	if (it != _commandMap.end())
+	{
+		if (!session.authenticated() && !runsBeforeLogin(it->first))
+			return nullptr;
+		if (it->second.permission.empty() || session.authorize(it->second.permission))
+			return it->second.pFactory->createCommand();
+		else
+			return nullptr;
+	}
+	else throw Poco::NotFoundException(command);
+}
+
+
+void CommandProcessor::parseCommandLine(const std::string& commandLine, std::vector<std::string>& items)
+{
+	std::string::const_iterator it  = commandLine.begin();
+	std::string::const_iterator end = commandLine.end();
+
+	std::string item;
+	while (it != end)
+	{
+		switch (*it)
+		{
+		case '"':
+			++it;
+			while (it != end && *it != '"')
+			{
+				if (*it == '\\')
+				{
+					++it;
+					if (it == end) break;
+				}
+				item += *it++;
+			}
+			if (it != end) ++it;
+			break;
+		case '\'':
+			++it;
+			while (it != end && *it != '\'')
+			{
+				if (*it == '\\')
+				{
+					++it;
+					if (it == end) break;
+				}
+				item += *it++;
+			}
+			if (it != end) ++it;
+			break;
+		case '\\':
+			++it;
+			if (it != end) item += *it++;
+			break;
+		case ' ':
+		case '\t':
+			if (!item.empty())
+			{
+				items.push_back(item);
+				item.clear();
+			}
+			++it;
+			break;
+		default:
+			item += *it++;
+			break;
+		}
+	}
+	if (!item.empty())
+		items.push_back(item);
+}
+
+
+} // namespace Poco::OSP::Shell

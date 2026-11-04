@@ -1,0 +1,15 @@
+<AppConfig>
+	<RemoteGen>
+		<files>
+			<include>
+				${CMAKE_CURRENT_SOURCE_DIR}/base/include/Real.h
+			</include>
+		</files>
+		<output>
+			<mode>server</mode>
+			<include>real/include</include>
+			<src>real/src</src>
+			<namespace>Sample</namespace>
+		</output>
+	</RemoteGen>
+</AppConfig>

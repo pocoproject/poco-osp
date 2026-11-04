@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<bundlespec>
+  <manifest>
+    <name>OSP Authentication and Authorization Service (Core)</name>
+    <symbolicName>com.appinf.osp.auth</symbolicName>
+    <version>1.11.0</version>
+    <vendor>Applied Informatics</vendor>
+    <copyright>(c) 2012-2026, Applied Informatics Software Engineering GmbH</copyright>
+    <activator>
+      <class>Poco::OSP::Auth::AuthBundleActivator</class>
+      <library>com.appinf.osp.auth</library>
+    </activator>
+    <lazyStart>false</lazyStart>
+    <runLevel>010</runLevel>
+  </manifest>
+  <code>
+    ${bin}/*.dll,
+    ${bin}/*.pdb,
+    ../../${bin}/PocoOSPAuth${64}.dll,
+    ../../${bin}/PocoOSPAuth${64}d.dll,
+    ../../${bin}/PocoOSPAuth${64}d.pdb,
+    bin/${osName}/${osArch}/*.so,
+    bin/${osName}/${osArch}/*.dylib,
+    ../../lib/${osName}/${osArch}/libPocoOSPAuth.so.*,
+    ../../lib/${osName}/${osArch}/libPocoOSPAuthd.so.*,
+    ../../lib/${osName}/${osArch}/libPocoOSPAuth.*.dylib,
+    ../../lib/${osName}/${osArch}/libPocoOSPAuthd.*.dylib
+  </code>
+</bundlespec>

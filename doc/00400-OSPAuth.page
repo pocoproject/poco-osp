@@ -1,0 +1,1038 @@
+OSP User Authentication and Authorization
+Open Service Platform
+
+!!! Introduction
+
+The Open Service Platform provides some basic support for user authentication and authorization,
+based on the Poco::OSP::Auth::AuthService interface. The OSP core library itself does not provide
+an implementation of the <[AuthService]> interface. A very simple implementation of the interface
+is provided by the <*SimpleAuthService*> sample, found in the <[samples]> directory.
+
+Poco::OSP::Auth::AuthService defines the methods <[authenticate()]>, <[authenticateAccount()]>
+and <[authorize()]>. The first two are used to authenticate a user based on a user name and
+credentials/password combination. The last one is used to verify that a given user has a certain
+permission.
+
+!!! Authentication
+
+Authentication in OSP is based on user name and credentials. In the simplest case, the credentials
+used to authenticate a user consist of a simple password. However, more complex schemes (e.g., based
+on certificates) are theoretically possible. An implementation of the <[AuthService]> normally
+is based on a database of user names and passwords. The <[authenticate()]> member function of
+a subclass of <[Poco::OSP::Auth::AuthService]> has to verify that the given combination of
+user name and credentials is a valid one. The <[authenticate()]> member function is defined
+as follows:
+
+    bool authenticate(const std::string& userName, const std::string& credentials) const;
+----
+
+A user may be able to log in with several names, for example with the account name or the user
+principal name of a directory service. The <[authenticateAccount()]> member function checks the
+credentials like <[authenticate()]> and also returns the account name, under which the service
+knows the user:
+
+    bool authenticateAccount(const std::string& userName, const std::string& credentials,
+        std::string& accountName) const;
+----
+
+The other members of the service, such as <[authorize()]>, take the account name. So an
+application logs users in with <[authenticateAccount()]> and keeps the returned account name,
+for example in the session, for the later calls of the service. A web application gives the
+session a new ID at the login with Poco::OSP::Web::WebSessionManager::renew(), so that a session
+ID known before the login cannot be used for the session of the logged-in user (see the
+documentation of the Web bundle):
+
+    std::string accountName;
+    if (pAuthService->authenticateAccount(userName, password, accountName))
+    {
+        pSession = pSessionManager->renew(appName, request, pSession);
+        pSession->setValue<std::string>("username", accountName);
+    }
+----
+
+The default implementation of <[authenticateAccount()]> calls <[authenticate()]> and returns
+the given user name as the account name.
+
+!!! Authorization
+
+Authorization in OSP is based on the concept of permissions. In OSP, a permission is a simple string
+denoting a certain privilege. The <[authorize()]> method of Poco::OSP::Auth::AuthService checks
+whether a user identified by a user name has a certain permission. How user names and permissions
+are associated is up to the actual implementation of <[AuthService]>. The possibilities range from
+a simple configuration file specifying the permissions for each user name to a sophisticated
+authorization concept based on user groups and roles.
+For the most part, OSP does not care about user permissions. For example, the Web bundle allows
+to specify a required permission for accessing a certain path on the server. How the permission
+is named is not of interest to the Web library -- it simply checks that the user (obtained from
+HTTP Basic authentication) has the specified permission.
+
+The <[authorize()]> member function is defined as follows:
+
+    bool authorize(const std::string& userName, const std::string& permission) const;
+----
+
+
+!!! The SimpleAuthService Sample
+
+A very simple implementation of <[AuthService]> can be found in the
+<[samples/SimpleAuthService]> directory. The sample is for testing on
+this computer only. The <[com.appinf.osp.simple-auth]> bundle provides
+the same service with hashed passwords in the configuration.
+
+The <[SimpleAuthService]> only knows two users -- "admin" and "user".
+Their passwords are set (as clear text) in the global configuration file
+with the "adminPassword" and "userPassword" properties, e.g.:
+
+	adminPassword = s3cr3t
+	userPassword = t0p53cr3t
+----
+
+There is no default password. Without "adminPassword", the service is
+not registered and the bundle logs an error. Without "userPassword",
+"user" cannot log in. The service compares the SHA-256 digests of the
+passwords in constant time.
+
+The "admin" user has all permissions in the checks without a role or
+scope. The service knows no roles or scopes, so it denies every check that
+is restricted to one (<[authorize()]> with a role or scope), also for
+"admin". By default, "user" has no
+permissions. The set of permissions for "user" can be set in the global
+configuration file, using the "userPermissions" property. The permissions
+are specified as a comma-separated list, e.g.
+
+    userPermissions = somePermission, someOtherPermission
+----
+
+The service is registered under the service name "osp.auth" and
+can be obtained using the Poco::OSP::ServiceFinder helper class:
+
+    Poco::OSP::Auth::AuthService::Ptr pAuthService =
+        Poco::OSP::ServiceFinder::findByName<Poco::OSP::Auth::AuthService>(pContext, "osp.auth");
+----
+
+
+!!! Database and LDAP-based Authentication - The AuthAdminService
+
+OSP comes with an extended implementation of the <[AuthService]>. The service
+is called <[AuthAdminService]> and is defined and
+implemented in the <[com.appinf.osp.auth]> bundle. As its name implies the service
+not only provides the <[authenticate()]> and <[authorize()]> methods known from
+the <[Poco::OSP::Auth::AuthService]>, it also provides methods for managing
+user accounts and permissions. There is also a shell command available for managing
+users, roles and permissions.
+
+The following features are supported:
+  * User and role-based permission grants.
+  * User accounts and permissions are stored in a SQL Database (other database
+    types can be supported as well).
+  * LDAP server integration. Users can be authenticated via an LDAP server and
+    permissions and roles can be assigned via LDAP attributes.
+  * In-memory caching of password hashes and permissions.
+
+User authentication and authorization is based on the concepts of users, roles and
+permissions. Every user account can be assigned a list of permissions and a list of roles.
+Every role can be assigned a list of permissions as well.
+The effective permissions of a user are the permissions directly granted to him,
+as well as the permissions granted via its assigned roles.
+
+
+!! Setting up the Authentication/Authorization Database
+
+The default <[AuthAdminService]> implementation in the <[com.appinf.osp.auth.data]>
+bundle uses a SQL database for managing users, roles and
+permissions. In order to use the service, a database must be set up and the
+service must be configured to use a specific database. The Data library from
+the POCO C++ Libraries is used for database access, therefore the service
+is independent from the underlying database engine. ODBC, MySQL, PostgreSQL and SQLite
+can be used.
+
+Following is the database schema required by the <[AuthAdminService]>, as created
+by <[Auth/sql/createdb.sql]>. A password hash of version 4 (see <*auth.hashVersion*>)
+has more than 64 characters:
+
+    CREATE TABLE auth_user
+    (
+        username VARCHAR(256) PRIMARY KEY,
+        password VARCHAR(256) NOT NULL,
+        auth_failures INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE auth_role
+    (
+        rolename VARCHAR(256) PRIMARY KEY
+    );
+
+    CREATE TABLE auth_user_roles
+    (
+        username VARCHAR(256) NOT NULL REFERENCES auth_user(username) ON DELETE CASCADE,
+        rolename VARCHAR(256) NOT NULL REFERENCES auth_role(rolename) ON DELETE CASCADE
+    );
+
+    CREATE TABLE auth_user_permissions
+    (
+        username VARCHAR(256) NOT NULL REFERENCES auth_user(username) ON DELETE CASCADE,
+        permission VARCHAR(32) NOT NULL
+    );
+
+    CREATE TABLE auth_role_permissions
+    (
+        rolename VARCHAR(256) NOT NULL REFERENCES auth_role(rolename) ON DELETE CASCADE,
+        permission VARCHAR(32) NOT NULL
+    );
+
+    CREATE TABLE auth_user_attributes
+    (
+        username VARCHAR(64) NOT NULL REFERENCES auth_user(username) ON DELETE CASCADE,
+        attribute VARCHAR(64) NOT NULL,
+        value VARCHAR(256) NOT NULL
+    );
+
+    CREATE TABLE auth_role_attributes
+    (
+        rolename VARCHAR(64) NOT NULL REFERENCES auth_role(rolename) ON DELETE CASCADE,
+        attribute VARCHAR(64) NOT NULL,
+        value VARCHAR(256) NOT NULL
+    );
+
+    CREATE TABLE auth_role_mappings
+    (
+        external_role VARCHAR(256) PRIMARY KEY REFERENCES auth_role(rolename) ON DELETE CASCADE,
+        internal_role VARCHAR(256) NOT NULL REFERENCES auth_role(rolename) ON DELETE CASCADE
+    );
+----
+
+The column <[auth_failures]> counts the failed logins of a user. Without it,
+users are not locked out after <*auth.maxFailures*> failed logins, and a
+warning is logged at startup.
+
+After setting up the tables, at least one initial user account must be created.
+Usually, this will be an administrator account with the necessary permissions to
+perform further administrative tasks using the OSP Shell service.
+
+The following statement creates a user named "admin" with password "admin":
+
+    INSERT INTO auth_user (username, password) VALUES('admin', '3d29e163b9107fcb31077b45b47026e2');
+----
+
+If LDAP authentication is enabled, the following statement marks "admin" as a
+local user, so that its password is checked against the database and not by
+the LDAP server:
+
+    INSERT INTO auth_user_attributes VALUES('admin', 'auth_ldap', 'false');
+----
+
+The password is not stored in clear text in the database. Only a salted hash of the
+password is stored. The salted hash of the password is computed by concatenating
+the salt with the password and computing the MD5:
+
+    passwordHash = MD5(salt | password)
+----
+
+The salt can be configured in the bundle.properties file in the <[com.appinf.osp.auth.data]>
+bundle (property <[auth.passwordSalt]>) and should be unique for each application.
+
+On Linux systems, the has can be computed with the md5sum command:
+
+    $ echo -n "saltpassword" | md5sum
+----
+
+On OS X and BSD systems, the md5 utility can be used:
+
+    $ md5 -s "saltpassword"
+----
+
+<!Important!>: MD5 hashes are no longer considered secure. The AuthAdminService
+replaces the initial MD5 password hash with a hash of the configured version
+(PBKDF2, see <*auth.hashVersion*>) upon the first successful login.
+Nevertheless, only the initial account should be created this way.
+
+The following permissions used by OSP should be granted to the administrator:
+
+  * bundleAdmin: allow access to the <*BundleAdmin*> web application.
+  * authAdmin: allow access to the <[auth]> Shell command.
+
+This can be done with the following SQL statements:
+
+    INSERT INTO auth_user_permissions VALUES('admin', 'bundleAdmin');
+    INSERT INTO auth_user_permissions VALUES('admin', 'authAdmin');
+----
+
+Instead of granting the permissions directly to the user account, a role
+can be used instead. In this case, the permissions are granted to the role, and
+then the role is assigned to one or more user accounts:
+
+    INSERT INTO auth_role VALUES('systemAdmin');
+    INSERT INTO auth_role_permissions VALUES('systemAdmin', 'bundleAdmin');
+    INSERT INTO auth_role_permissions VALUES('systemAdmin', 'authAdmin');
+    INSERT INTO auth_user_roles VALUES('admin', 'systemAdmin');
+----
+
+After the database tables have been set up, the service must be configured.
+
+
+!! Configuring the AuthAdminService
+
+The <[AuthAdminService]> default implementation in the <[com.appinf.osp.auth.data]> bundle
+is configured using the global application configuration file. At least the
+<*auth.db.connector*> and <*auth.db.connectionString*> configuration
+properties must be specified.
+
+The following configuration properties are available:
+
+  * auth.db.connector
+  * auth.db.connectionString
+  * auth.db.sessionTimeout
+  * auth.db.databaseStartupTimeout
+  * auth.poolSize
+  * auth.cacheSize
+  * auth.cacheTimeout
+  * auth.hashVersion
+  * auth.saltLength
+  * auth.pbkdf2Rounds
+  * auth.credentialsSalt
+  * auth.maxFailures
+  * auth.lockOutTime
+  * auth.neverLockOutUsers
+  * auth.ldap.uri
+  * auth.ldap.authMode
+  * auth.ldap.bindDN
+  * auth.ldap.bindUser
+  * auth.ldap.bindPassword
+  * auth.ldap.bindMode
+  * auth.ldap.searchBase
+  * auth.ldap.userObjectClass
+  * auth.ldap.groupObjectClass
+  * auth.ldap.timeout
+  * auth.ldap.permissionAttribute
+  * auth.ldap.roleAttribute
+  * auth.ldap.rolePermissionAttribute
+  * auth.ldap.roleFilter
+  * auth.ldap.localRoles
+  * auth.ldap.localUsers
+  * auth.ldap.extraAttributes
+  * auth.ldap.inaccessible.fallbackToLocal
+  * auth.ldap.cache.lifetimeDays
+
+
+! auth.db.connector
+
+This setting specifies which SQL database backend to use for accessing the database.
+Valid values are "ODBC", "MySQL", "PostgreSQL" and "SQLite".
+The respective POCO Data bundle (poco.data.odbc, poco.data.mysql, poco.data.postgresql or
+poco.data.sqlite) must be available as well.
+
+If this setting is not specified, the <[AuthAdminService]> will be disabled.
+
+
+! auth.db.connectionString
+
+This setting specifies the connection string for connecting to the specific database
+instance. For SQLite, this is simply the path of the database file to use.
+For MySQL, the format of this string is:
+
+    user=<username>;password=<password>;db=<database>;compress=true|false;auto-reconnect=true|false
+----
+
+For ODBC, please refer to your system's ODBC documentation for obtaining the connection string.
+
+
+! auth.db.sessionTimeout
+
+The time in seconds after which a database session that has not been used is
+discarded and a new one is created. This is not the connection timeout of the
+connection string. Default is 0, which disables the timeout.
+
+
+! auth.db.databaseStartupTimeout
+
+The time in seconds for which the bundle retries to connect to the database at
+its start, every two seconds. Default is 10. If the database cannot be used after
+that time, an error is logged and the service is not registered.
+
+
+! auth.poolSize
+
+The number of database sessions that serve the requests to the service at the same
+time. Default is 1. With a value greater than 1, the service is a
+Poco::OSP::Auth::PooledAuthAdminService with that number of <[AuthAdminService]>
+instances, each with a session of its own.
+
+
+! auth.cacheSize
+
+This setting allows configuring the maximum number of entries in the
+internal permissions cache. This is used to reduce database accesses for
+user authorization and thus speed up operation. Default is 1024. Should
+be at least the number of maximum concurrent users expected on the
+system.
+
+
+! auth.cacheTimeout
+
+This setting allows configuring the timeout of the password cache. The
+password cache is used to reduce database accesses or LDAP lookups (if
+LDAP authentication is enabled).
+
+
+! auth.hashVersion
+
+Specifies the version of the password hashing algorithm.
+
+  - Version 1 uses MD5 with a global salt. This is considered insecure and should
+    no longer be used.
+  - Version 2 uses PBKDF2 with HMAC-SHA1 and per-user random salt.
+  - Version 3 uses PBKDF2 with HMAC-SHA1 and per-user random salt with additional
+    MD5 password hashing allowing implementation of secure challenge-response
+    authentication mechanisms such as SCRAM-SHA1.
+  - Version 4 uses PBKDF2 with HMAC-SHA256 and per-user random salt with additional
+    SHA-1 password hashing, with at least 50000 iterations and a salt of at least
+    8 bytes (default, recommended).
+
+The default version is 4. A stored hash of a lower version than the configured one,
+and a stored hash of the configured version (3 or 4) with fewer iterations than configured,
+is replaced when the user successfully authenticates. A login that the LDAP server
+has accepted and that stores the user's LDAP data also replaces a stored hash that
+the password does not match. A login that checks the password of an unknown user,
+or of a user without a stored hash, takes about as long as the check of a stored hash
+of the configured version and iteration count.
+
+A value other than 1 to 4 fails the start of the <[com.appinf.osp.auth.data]> bundle.
+
+
+! auth.saltLength
+
+The length of the generated per-user salt in bytes. Defaults to 7. Version 4 uses
+at least 8 bytes.
+
+
+! auth.pbkdf2Rounds
+
+The number of iterations for the PBKDF2 algorithm. Defaults to 1024; version 4
+uses at least 50000 iterations, whatever this setting is.
+Note that existing Version 2 hashes cannot be validated anymore if this value is
+changed. Version 3 and 4 hashes store their number of iterations and are not affected.
+A value of 0 or less fails the start of the <[com.appinf.osp.auth.data]> bundle.
+
+
+! auth.credentialsSalt
+
+An additional salt value for the initial MD5 (Version 3) or SHA-1 (Version 4) hash
+that is the input for the main PBKDF2 hash. Defaults to "poco". Can be left at default
+value. If changed while in deployment, Version 3 and 4 hashes cannot be validated anymore.
+
+
+! auth.maxFailures
+
+The number of failed logins after which a user is locked out for
+<*auth.lockOutTime*> seconds. Default is 0, which disables the lock-out. The failed
+logins are counted in the column <[auth_failures]> of the user table.
+
+A login of a user that is not an LDAP user counts as a failed login if the
+password does not match the stored hash or the user has no stored hash. Which
+logins of an LDAP user count is described in the section on LDAP below. A login
+refused during a lock-out, or one that fails because the account or its stored
+password hash changed during the login, is not counted.
+
+The count is kept until a login of the user accepts the password or the user is
+unlocked, so after a lock-out has ended, the next failed login locks the user out
+again. While a user is locked out, every login of the user is refused, and the web
+server does not authenticate the user's sessions and bearer tokens. The
+<*auth unlock*> shell command (Poco::OSP::Auth::AuthAdminService::unlockOutUser())
+ends a lock-out and resets the count.
+
+
+! auth.lockOutTime
+
+The time in seconds for which a user is locked out after <*auth.maxFailures*>
+failed logins. Default is 600. A value of 0 disables the lock-out.
+
+
+! auth.neverLockOutUsers
+
+A comma- or semicolon-separated list of user names that failed logins never lock
+out, for example the main administrator account, so that failed logins of others
+with its name cannot lock the administrator out. A name is compared exactly with
+the account name of the login, whose ASCII letters are in lower case for an LDAP
+user. The lock-out of the second factor (see Two-Factor Authentication below)
+applies to these users too. A login of a local user under a name that the
+database collation treats as the same user name (another letter case, other
+accents, trailing spaces) is not exempted and can still lock the user out.
+
+
+! auth.ldap.uri
+
+If user authentication via LDAP is enabled, this setting specifies the
+URI of the LDAP server to use. Example: <[ldap://ldap-server.company.com]>
+(unencrypted connection) or <[ldaps://ldap-server.company.com]> (secure
+connection).
+
+Only an <[ldaps://]> URI keeps passwords off the network in clear text:
+with an <[ldap://]> URI, the password of every user who logs in, and the
+password of <*auth.ldap.bindUser*>, are sent to the LDAP server
+unencrypted. StartTLS is not supported.
+
+The LDAP settings are checked at startup. An error is logged for a setting
+that cannot be used: an <*auth.ldap.authMode*>, or in the ACCOUNT mode an
+<*auth.ldap.bindMode*>, that is not one of its values, a DN template of the
+DN mode without exactly one placeholder (see <*auth.ldap.bindDN*>), or an
+<*auth.ldap.roleFilter*> or <*auth.ldap.localRoles*> that is not a valid
+regular expression. The LDAP server is then not used: a login of an LDAP
+user is handled as when the LDAP directory cannot be used (see the section
+on LDAP below). If OSP Auth is built without LDAP support, an error is logged
+when <*auth.ldap.uri*> is set, and every user is checked against the
+database.
+
+
+! auth.ldap.authMode
+
+The way the entry of a user is found: DN (the default) or ACCOUNT, in any
+letter case. In the DN mode, the user binds with the DN built from
+<*auth.ldap.bindDN*> (or <*auth.ldap.searchBase*>). In the ACCOUNT mode, the
+entry of the user is searched below <*auth.ldap.searchBase*> by its
+<[sAMAccountName]> or <[userPrincipalName]> (see <*auth.ldap.bindMode*> and the
+section on LDAP below).
+
+
+! auth.ldap.bindDN
+
+If user authentication via LDAP is enabled, in the DN mode, this setting
+specifies the distinguished name (DN) to bind to in order to authenticate a
+user. The DN must contain the placeholder %s exactly once, which will be
+replaced during authentication with the actual username. Example:
+
+    uid=%s,cn=users,dc=orgunit,dc=company,dc=com
+----
+
+The user name is escaped as an LDAP DN attribute value before it replaces
+the placeholder. If <*auth.ldap.bindDN*> is not set, the DN is built from
+<*auth.ldap.searchBase*> instead, and a warning is logged at startup.
+
+
+! auth.ldap.bindUser
+
+The name with which the service account binds in the SERVICE bind mode of
+the ACCOUNT mode (see <*auth.ldap.bindMode*>). Not used in the DN mode.
+
+
+! auth.ldap.bindPassword
+
+The password of <*auth.ldap.bindUser*>. If it is empty in the SERVICE bind
+mode, an error is logged at startup, and the LDAP directory cannot be used
+for logins (see the section on LDAP below).
+
+
+! auth.ldap.bindMode
+
+In the ACCOUNT mode, the account that searches and reads the entries, in any
+letter case:
+
+  * SERVICE: <*auth.ldap.bindUser*> searches the entry of the user, the user
+    binds with its DN only to check the password, and <*auth.ldap.bindUser*>
+    reads the entry and the group entries.
+  * USER: the user binds with the name the user typed, and that connection
+    searches and reads the entries.
+
+If it is not set, the mode is SERVICE if <*auth.ldap.bindUser*> is set, and
+USER otherwise. SERVICE without <*auth.ldap.bindUser*> is USER, and a warning
+is logged at startup.
+
+
+! auth.ldap.searchBase
+
+In the DN mode (<*auth.ldap.authMode*> = DN, the default), the attributes of the
+user are read from the user's entry, whose DN is built from <*auth.ldap.bindDN*>;
+<*auth.ldap.searchBase*> is used instead only if <*auth.ldap.bindDN*> is not set,
+with the same placeholder. In the ACCOUNT mode, it is the DN of the subtree in which
+the user's entry is searched, without a placeholder. Defaults to <*auth.ldap.bindDN*>.
+
+
+! auth.ldap.userObjectClass
+
+The object class of the user entries (default "user", for Active Directory;
+"inetOrgPerson" for OpenLDAP). Only entries of this class are found and read
+as the entries of users.
+
+
+! auth.ldap.groupObjectClass
+
+The object class of the group entries that are read for
+<*auth.ldap.rolePermissionAttribute*> (default "group", for Active Directory;
+"groupOfNames" for OpenLDAP).
+
+
+! auth.ldap.timeout
+
+If user authentication via LDAP is enabled, this setting specifies the
+timeout in seconds (default 30) for connecting to the LDAP server and for
+each LDAP operation. An LDAP server that does not answer within this time
+is treated as inaccessible. A value of 0 or less is replaced by the
+default of 30 seconds, and a warning is logged at startup.
+
+
+! auth.ldap.permissionAttribute
+
+If user authentication via LDAP is enabled, this setting can be used to
+configure the <[AuthAdminService]> to obtain user permissions from the LDAP
+server. For that purpose, the LDAP server must provide permissions using
+the LDAP attribute specified in this setting. If this setting is provided,
+the user's permissions in the database are replaced with the permissions
+that the LDAP server lists, also if it lists none, when a login that the
+LDAP server has accepted is stored. A login that is accepted without that
+store (from the password cache, or with the stored password, also after the
+LDAP server has accepted the password and reading an entry has failed)
+leaves them unchanged.
+
+
+! auth.ldap.roleAttribute
+
+If user authentication via LDAP is enabled, this setting can be used to
+configure the <[AuthAdminService]> to obtain user role assignments from the
+LDAP server. For that purpose, the LDAP server must provide role names
+using the attribute specified in this setting. If this setting is
+provided, the user's role assignments in the database are replaced with the
+roles that are imported from the LDAP server (see <*auth.ldap.roleFilter*>
+and <*auth.ldap.localRoles*>), also if there are none, when a login that the
+LDAP server has accepted is stored. A login that is accepted without that
+store leaves them unchanged (see <*auth.ldap.permissionAttribute*>). The
+setting does not depend on <*auth.ldap.permissionAttribute*>.
+
+
+! auth.ldap.rolePermissionAttribute
+
+If user authentication via LDAP is enabled, this setting can be used to
+obtain the permissions of the roles from the LDAP server. Each role
+provided through <*auth.ldap.roleAttribute*> that is imported (see
+<*auth.ldap.roleFilter*> and <*auth.ldap.localRoles*> in the section on LDAP
+below) must then be the distinguished name of a group entry that the
+connection reading the user's attributes can read (in the USER bind mode,
+the user's own connection), and the permissions of the role are replaced
+with the values of the attribute specified in this setting when the login is
+stored (see <*auth.ldap.permissionAttribute*>). If such a group
+entry cannot be read, the LDAP directory cannot be used for the login (see
+the section on LDAP below). A role that is not imported needs no group
+entry. If this setting is not provided, the imported roles are assigned and
+their permissions are kept.
+
+
+! auth.ldap.roleFilter
+
+A regular expression for the LDAP roles that may be imported and assigned to
+the user: a role is imported only if the expression matches its whole name,
+which is in ASCII lower case, as described in the section on LDAP below:
+<[ops|ops-.*]> does not match <[ops-read]>, <[(ops|ops-.*)$]> does. If it is
+not set, every role may be imported. The local roles (the ones of
+<*auth.ldap.localRoles*> and the roles created in the database while LDAP
+authentication is enabled) are never imported (see the section on LDAP
+below).
+
+
+! auth.ldap.localRoles
+
+A regular expression for the LDAP roles that are neither imported nor
+assigned to the user, so that a local role with the same name keeps its
+permissions (see the section on LDAP below). The role names are in ASCII
+lower case, and the expression must match a whole name as described there:
+<[admin|admins]> does not match <[admins]>, <[(admin|admins)$]> does.
+
+
+! auth.ldap.localUsers
+
+A regular expression for the names of local users, whose passwords are
+checked against the database and not by the LDAP server. A user marked as an
+LDAP user (user attribute <[auth_ldap]> = true) is an LDAP user even if the
+expression matches its name, and a user marked as a local user
+(<[auth_ldap]> = false) is a local user even if it does not. The expression
+must match the whole name as described in the section on LDAP below:
+<[admin|administrator]> does not match <[administrator]>,
+<[(admin|administrator)$]> does. The name is the one given at the login if the
+database has a user of that name, and otherwise that name with its ASCII
+letters in lower case. With an invalid regular expression, the start of the
+<[com.appinf.osp.auth.data]> bundle fails when it creates the
+<[AuthAdminService]>.
+
+
+! auth.ldap.extraAttributes
+
+If user authentication via LDAP is enabled, this setting can be used to
+configure the <[AuthAdminService]> to obtain additional user attributes from the
+LDAP server containing application-specific information. The attribute
+names must be separated by commas or semicolons. Once obtained from the LDAP server, the
+attributes and their values can be queried using
+the <[getUserAttribute()]> and <[attributesForUser()]> methods.
+
+It is also possible to map an LDAP attribute name to a user attribute name,
+by specifying both names separated by a colon. Example:
+
+  auth.ldap.extraAttributes = givenname:firstName,surname:lastName
+----
+
+In the given example, the LDAP attribute <[givenname]> will be mapped to the
+user attribute <[firstName]> and the LDAP attribute <[surname]> will be mapped
+to <[lastName]>.
+
+At most 8 attributes are read; if more are listed, a warning is logged at
+startup, and only the first 8 are read. A user attribute name that starts with
+<[auth_]>, in any letter case, is reserved for the <[AuthAdminService]>: the
+value of an attribute mapped to such a name is not stored, and an error is
+logged at startup.
+
+
+! auth.ldap.inaccessible.fallbackToLocal
+
+If true, a login of an LDAP user while the LDAP server is unavailable or the
+LDAP directory cannot be used is checked against the copy of the password
+stored in the database (see the section on LDAP below). Default is false.
+
+
+! auth.ldap.cache.lifetimeDays
+
+The number of days after the last successful LDAP login of a user for which
+<*auth.ldap.inaccessible.fallbackToLocal*> allows the stored copy of the
+password. Default is 7.
+
+
+!! Using the AuthAdminService
+
+The <[AuthAdminService]> provides methods for managing users, roles and permissions.
+Please refer to the documentation of the Poco::OSP::Auth::AuthAdminService interface
+and the Poco::OSP::Auth::Data::AuthAdminServiceImpl class for more information.
+
+The <[AuthAdminService]> is registered under the service name "osp.auth" and
+can be obtained using the Poco::OSP::ServiceFinder helper class:
+
+    Poco::OSP::Auth::AuthAdminService::Ptr pAuthService =
+        Poco::OSP::ServiceFinder::find<Poco::OSP::Auth::AuthAdminService>(pContext);
+----
+
+
+!! Managing Users, Roles and Permissions
+
+In order to manage users, roles and permissions, the <*auth*> shell command is provided.
+The command is implemented in the <*com.appinf.osp.auth.command*> bundle.
+
+In order to use the <*auth*> command, the user must have the <*authAdmin*> permission.
+
+From within the OSP Shell, enter <[auth]> command without arguments for a help screen.
+
+
+! Creating a User Account
+
+To create a user account, use the <*auth add user*> command and specify the
+user name and its password as arguments. The following command will
+create a user named alice with the password s3cr3t.
+
+    osp> auth add user alice s3cr3t
+----
+
+
+! Granting a Permission to a User
+
+To grant a permission to a user, use the <*auth grant user*> command, giving
+the user name and permission as argument. For example, to grant user
+alice access to the Bundle Administration Utility web application and related
+shell commands:
+
+    osp> auth grant user alice bundleAdmin
+----
+
+
+! Creating a Role
+
+If multiple user accounts should have the same permissions, it makes
+sense to define a role. This is done with the <*auth add role*> command. For
+example, to define a role named <*superUsers*>:
+
+    osp> auth add role superUsers
+----
+
+
+! Granting a Permission to a Role
+
+To grant a permission to a role, use the <*auth grant role*> command, giving
+the role name and permission as argument. For example, to grant role
+<*superUsers*> access to the Bundle Administration Utility web application and related
+shell commands:
+
+    osp> auth grant role superUsers bundleAdmin
+----
+
+
+! Assigning a Role to a User
+
+To assign a role to a user, use the <*auth assign*> command, giving the user
+name and role name as arguments. For example, to assign user <*alice*> the
+role <*superUsers*>:
+
+    osp> auth assign alice superUsers
+----
+
+
+! Removing a Role From a User
+
+To revoke a role from a user, use the <*auth unassign*> command, giving the
+user name and role name as arguments. For example, to remove the role
+<*superUsers*> from user <*alice*>:
+
+    osp> auth unassign alice superUsers
+----
+
+
+! Revoking a Permission
+
+A permission can be revoked from a user or role with the
+<*auth revoke user*>, or <*auth revoke role*> command, respectively.
+Specify the user or role name and permission as arguments. Example:
+
+    osp> auth revoke user alice bundleAdmin
+----
+
+
+! Changing a User's Password
+
+To change a user's password, use the <*auth passwd*> command, giving the
+user name and new password as arguments. Example:
+
+    osp> auth passwd alice sup3rs3cr3t
+----
+
+
+! Showing Information About Users, Roles and Permissions
+
+To display information about a specific user, role or permission, or to
+list all defined users, roles and permissions, use the <*auth show*>
+command. For example, to show the <*admin*> user:
+
+    osp> auth show user admin
+----
+
+
+!! Using LDAP for User Authentication and Authorization
+
+Optionally, <[AuthAdminService]> can use LDAP for user authentication
+and authorization. LDAP can be used for authentication (validating
+passwords) only, or for both authentication and authorization (obtaining
+a list of permissions and role assignments for an user).
+
+To enable LDAP authentication, the following configuration settings must
+be added to the global application configuration file:
+
+  * auth.ldap.uri
+  * auth.ldap.bindDN
+
+To enable LDAP authorization, additionally one or both of the following
+configuration settings must be added to the global application configuration file:
+
+  * auth.ldap.permissionAttribute
+  * auth.ldap.roleAttribute
+
+Specifically, for LDAP authorization of permissions, the LDAP server must provide the
+attribute specified in the <*auth.ldap.permissionAttribute*> configuration
+setting. This attribute is used to store the permissions for a user.
+In order to provide role assignments, the LDAP
+server must provide the attribute specified in the
+<*auth.ldap.roleAttribute*> configuration setting.
+
+With these settings, the permissions that the LDAP server lists and the
+roles imported from it replace the ones stored for that user in the database
+when a login that the LDAP server has accepted is stored (see
+<*auth.ldap.permissionAttribute*>).
+Permissions and roles are obtained from the LDAP server immediately
+after the user account has been successfully validated by performing an
+LDAP bind operation with the user's credentials.
+
+A login of an LDAP user with an empty password, or with a user name or
+password that contains a NUL character, is rejected without contacting the
+LDAP server, as the server may accept a bind without a password as an
+unauthenticated bind.
+
+The result of the bind with the user's credentials decides how a login
+that the LDAP server does not accept fails:
+
+  * invalidCredentials (49, also for a locked, disabled or expired account
+    in Active Directory), inappropriateAuthentication (48),
+    insufficientAccessRights (50), unwillingToPerform (53) and
+    constraintViolation (19, for example from a password policy): the
+    password is rejected. The login counts as a failed login, and the copy
+    of the password that an LDAP login has stored in the database is cleared.
+  * busy (51), unavailable (52), timeLimitExceeded (3), and a connection that
+    fails, breaks or times out before the result arrives: the LDAP server is
+    treated as unavailable (see below).
+  * Any other result: the login fails and counts as a failed login, the
+    stored copy of the password is kept, and a warning names the result code.
+
+Failed logins are counted only for users that have an account in the
+database. The wrong passwords of an LDAP user who has never logged in are
+limited only by the LDAP server, for example by its password policy.
+
+In the ACCOUNT mode (<*auth.ldap.authMode*> = ACCOUNT), a user can log in
+with several names, such as <[alice]>, <[alice@company.com]> or
+<[COMPANY\alice]>. The local account of the user, its failure count and
+lock-out, the data stored from the LDAP server and the two-factor secret are
+kept under the account name: the value of the attribute <[sAMAccountName]>
+of the user's entry, with its ASCII letters in lower case. If the entry has
+no <[sAMAccountName]>, and in the DN mode, the name the user typed, with its
+ASCII letters in lower case, is used. An entry
+with more than one <[sAMAccountName]> value is an error of the LDAP
+directory. A login whose account name is the name of a local user, or matches
+<*auth.ldap.localUsers*>, is refused.
+
+In the USER bind mode, the LDAP server checks the password of the name the
+user typed, and it may accept that name for another user than the entry found
+by it, such as a user of another domain. So the entry is used only if the
+typed name is one of its names, compared ignoring case: a name with a domain,
+such as <[COMPANY\alice]>, must be the <[msDS-PrincipalName]> of the entry, a
+name with <[@]> its <[userPrincipalName]>, and any other name its
+<[sAMAccountName]>. Otherwise the login fails as for a bind result that
+neither accepts nor rejects the password (see above), a warning is logged, and
+nothing of the entry is stored. Logins as <[DOMAIN\name]> therefore need a
+directory that provides <[msDS-PrincipalName]>, such as Active Directory; a
+login with a <[userPrincipalName]> does not. The LDAP server binds a name
+without a domain and without <[@]> in its own domain. If
+<*auth.ldap.searchBase*> spans several domains that have an entry with that
+<[sAMAccountName]>, the search finds several entries, and the LDAP directory
+cannot be used for the login (see below).
+
+In the SERVICE bind mode (<*auth.ldap.bindUser*> is set), the account name is
+read before the password is sent to the LDAP server: a locked-out account is
+refused through every name without a bind of the user, and a wrong password
+counts under the account name. In the USER bind mode, the entry can be read
+only after the LDAP server has accepted the password: a locked-out account is
+refused through every name, but a wrong password counts under the name the
+user typed, and only if a local account has that name; otherwise only the
+lock-out of the LDAP server applies. The logins of a user wait for each other
+while the LDAP server checks the password, so that concurrent logins get no
+more guesses than the failure count allows: in the SERVICE bind mode through
+every name of the user, in the USER bind mode only through the same name. Use
+the SERVICE bind mode where the local lock-out must cover every name of a user.
+While the LDAP server cannot be used, the stored copy of the password is
+checked under the account name if the search of the SERVICE bind mode has read
+it, otherwise under the name the user typed.
+
+Applications log users in with Poco::OSP::Auth::AuthService::authenticateAccount()
+and use the account name that it returns for the session and for the later
+calls of the service. Poco::OSP::Auth::AuthService::authenticate() returns
+false for a login with another name than the account name, and logs a warning.
+
+Note: local accounts that earlier versions stored under another name of a
+directory user, such as <[alice@company.com]>, are not used for the logins of
+that user while the LDAP server can be used, as these use the account name.
+While the LDAP server cannot be used and the account name has not been read,
+a login with that name still logs in with the stored password of such an
+account, without the lock-out and the two-factor secret of the account name.
+Remove such accounts, and enable two-factor authentication for the user
+again, under the account name.
+
+Permission assignments to roles are always stored in the <[AuthAdminService]> database.
+
+The names of the roles provided by the LDAP server are used with their ASCII
+letters in lower case. The regular expressions of <*auth.ldap.roleFilter*>,
+<*auth.ldap.localRoles*> and <*auth.ldap.localUsers*> are case-sensitive
+except where they set the option i (a leading <[(?i)]> sets it for the whole
+expression), and match a name only if the first non-empty match that the
+expression finds at the start of the name covers the whole name. An
+alternative that matches only the start of the name therefore hides a later
+one that matches all of it: <[a|ab]> does not match <[ab]>. An expression
+with alternatives puts them in a group followed by <[$]>, for example
+<[(admin|admins)$]>; in <[admin|admins$]> the <[$]> belongs to the last
+alternative only.
+
+If <*auth.ldap.roleFilter*> is set, only the LDAP roles whose names match
+its regular expression are imported and assigned to the user; the other
+roles provided by the LDAP server are skipped. If it is not set, all roles
+are imported, except the local roles below.
+
+An LDAP role whose name matches the regular expression in
+<*auth.ldap.localRoles*>, or equals the name of a role created in the
+database while LDAP authentication is enabled, is neither imported nor
+assigned to the user, so the local role keeps its permissions.
+
+If the LDAP server is unavailable, or the LDAP directory cannot be used
+(the service account is rejected, the search for the user's entry fails or
+finds more than one entry, or the LDAP server accepts the password but the
+user's entry or the permissions of one of the user's groups cannot be read),
+the <[AuthAdminService]> checks the password against the copy stored in the
+database only if <*auth.ldap.inaccessible.fallbackToLocal*> is true and the
+last successful LDAP login of the user is not older than
+<*auth.ldap.cache.lifetimeDays*> days. Otherwise the login fails. A password
+that does not match the stored copy counts as a failed login, except after
+the LDAP server has accepted it and only reading the user's entry or group
+permissions has failed.
+
+
+!!! Two-Factor Authentication
+
+The <[com.appinf.osp.auth.twofactor]> bundle provides the
+Poco::OSP::Auth::TwoFactor::TwoFactorService, which validates time-based
+one-time passwords (TOTPs, RFC 6238) as a second factor. A code is
+accepted for the current 30-second time step and for the steps before and
+after it, and only once: after a code has been accepted, codes of the same
+or an earlier time step are rejected for that user. The validations of one
+instance of the service are serialised for this check, so instances that
+share one SQL user database, such as those of several processes, can each accept
+the same code once. Each call of the service uses the <[AuthAdminService]>
+registered at that time, which keeps the secrets, the failure counts and the
+lock-outs; without one, the call throws a Poco::NotFoundException.
+
+Note: the second factor is checked only by a login handler of the application
+that calls Poco::OSP::Auth::TwoFactor::TwoFactorService::validateTOTP(); no component
+of OSP calls it. A mapping of the web server that must require the second factor
+allows only session authentication (<[authMethods="session"]>), with the session
+created by that login handler. HTTP Basic authentication and bearer tokens on other
+mappings, the shell and the metrics server accept a user without the second factor.
+Remote calls through the Auth/Remoting library take the user that the web server has
+authenticated for the mapping of the call, so the rule for mappings applies to them.
+
+The service is configured in the global application configuration file:
+
+  * auth.twofactor.passphrase: the passphrase from which the key that
+    encrypts the stored secrets is derived. Required.
+  * auth.twofactor.issuer: the issuer name shown by authenticator apps. Required.
+  * auth.twofactor.keySalt: the salt from which, with the passphrase, the key
+    is derived. Optional; see below.
+  * auth.twofactor.secretLengthBits: the length of a generated secret in bits
+    (default 128), a multiple of 8 and at least 80.
+  * auth.twofactor.codeDigits: the number of digits of a code (default 6),
+    from 6 to 8.
+  * auth.twofactor.maxFailures: the number of wrong codes since the last
+    accepted code at which the user is locked out (default 5). A value of 0
+    disables the count and the lock-out.
+  * auth.twofactor.lockOutPeriod: the time in seconds for which the user
+    is locked out (default 600). While the user is locked out, every code
+    is rejected and the <[AuthAdminService]> rejects the password.
+
+The bundle does not start if <*auth.twofactor.secretLengthBits*> or
+<*auth.twofactor.codeDigits*> is out of range. Without <*auth.twofactor.passphrase*>
+or <*auth.twofactor.issuer*>, the bundle starts, logs a notice and registers no
+service. The bundle requires the module <[osp.auth]> 1.8.0 or newer, which the
+<[com.appinf.osp.auth.data]> bundle provides.
+
+A wrong code is counted only while the user is not locked out; a valid code
+of the time step of the last accepted code, or of an earlier one, is rejected
+but not counted. The count is kept until a code is accepted or two-factor
+authentication is disabled for the user, so after a lock-out has ended, the
+next wrong code locks the user out again. The lock-out is set in the
+<[AuthAdminService]>, as after failed logins, and applies to every user, also
+to the users of <*auth.neverLockOutUsers*>. A login handler that checks the
+code only after the password has been accepted keeps others from locking such
+a user out with wrong codes. The <*auth unlock*> shell
+command (Poco::OSP::Auth::AuthAdminService::unlockOutUser()) ends the lock-out
+and resets the count of failed logins, but not the count of wrong codes: after
+an unlock of this lock-out, the next wrong code locks the user out again, until
+a code is accepted or two-factor authentication is disabled for the user.
+
+The secrets are stored as user attributes, encrypted with AES-256-GCM and
+bound to the user name. The key is derived from <*auth.twofactor.passphrase*>
+and <*auth.twofactor.keySalt*>. If <*auth.twofactor.keySalt*> is not set,
+the bundle generates a random salt at its first start and keeps it in its
+preferences (setting <*keySalt*>). If the passphrase or the salt changes, or
+the preferences of the bundle with the generated salt are lost, the stored
+secrets cannot be decrypted, and two-factor authentication must be enabled
+again for the users.
+
+A secret encrypted with AES-256-CBC and a key derived from the passphrase and a
+fixed salt is read as well, and is stored again with AES-256-GCM after the first
+accepted code; software that reads only AES-256-CBC secrets cannot read it then.
+
+Several instances that share one SQL user database must use the same
+<*auth.twofactor.passphrase*> and the same <*auth.twofactor.keySalt*>, so
+that each instance can decrypt the secrets that another one has stored.

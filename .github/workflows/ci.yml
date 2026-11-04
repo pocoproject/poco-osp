@@ -1,0 +1,673 @@
+# Retry wrapper: .github/actions/retry-action (wraps nick-fields/retry).
+# Set retry_on to `timeout`, `error`, or `any` as needed.
+#
+# The configure pulls POCO (cmake/PocoOSPFetchPoco.cmake), except in the superbuild probe.
+
+name: Compile and Testrun
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - '**/doc/**'
+      - 'CONTRIBUTORS'
+      - 'LICENSE'
+  push:
+    branches:
+      - main
+      - devel
+      - 'poco-*'
+    paths-ignore:
+      - '**/*.md'
+      - '**/doc/**'
+      - 'CONTRIBUTORS'
+      - 'LICENSE'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Reusable cmake flag blocks. Data MySQL, PostgreSQL and ODBC need client
+# libraries, which only the Data and warnings jobs install; ODBC is in the
+# Windows set, where it is a system library.
+env:
+  # The POCO every job pulls (POCO_OSP_POCO_VERSION): latest (POCO main) until
+  # a POCO 2.0 release exists, then release.
+  POCO_OSP_CI_POCO_VERSION: latest
+  # Full functional set (Linux sanitizer matrices + macOS).
+  POCO_OSP_CMAKE_FULL_COMMON: >-
+    -DPOCO_OSP_MINIMAL_BUILD=ON -DPOCO_OSP_ENABLE_TESTS=ON -DPOCO_OSP_ENABLE_SAMPLES=ON
+    -DENABLE_OSP_BUNDLES=ON -DENABLE_OSP_BUNDLESIGN=ON -DENABLE_OSP_STRIPBUNDLE=ON -DENABLE_OSP_CODECACHE=ON
+    -DENABLE_OSP_CORE=ON -DENABLE_OSP_UNIT=ON
+    -DENABLE_OSP_NET=ON -DENABLE_OSP_NETSSL=ON -DENABLE_OSP_CRYPTO=ON -DENABLE_OSP_JWT=ON
+    -DENABLE_OSP_MAIL=ON -DENABLE_OSP_PROMETHEUS=ON -DENABLE_OSP_REDIS=ON
+    -DENABLE_OSP_WEB=ON -DENABLE_OSP_BUNDLEADMIN=ON -DENABLE_OSP_SIMPLEAUTH=ON -DENABLE_OSP_AUTH=ON
+    -DENABLE_OSP_DATA=ON -DENABLE_OSP_DATA_SQLITE=ON -DENABLE_OSP_ACTIVERECORD=ON
+    -DENABLE_OSP_SHELL=ON -DENABLE_OSP_SHELL_SSH=ON -DENABLE_OSP_SHELL_CLIENT=ON
+    -DENABLE_OSP_REMOTING=ON
+  # OSP Auth LDAP refuses macOS, where the system LDAP library is deprecated.
+  POCO_OSP_CMAKE_FULL_LINUX_EXTRA: >-
+    -DENABLE_OSP_AUTH_LDAP=ON
+  # Windows x64 primary signal: the full set with LDAP (WinLDAP), Data ODBC and TRACE.
+  POCO_OSP_CMAKE_WINDOWS_FULL: >-
+    -DPOCO_OSP_MINIMAL_BUILD=ON -DPOCO_OSP_ENABLE_TESTS=ON -DPOCO_OSP_ENABLE_SAMPLES=ON -DENABLE_TRACE=ON
+    -DENABLE_OSP_BUNDLES=ON -DENABLE_OSP_BUNDLESIGN=ON -DENABLE_OSP_STRIPBUNDLE=ON -DENABLE_OSP_CODECACHE=ON
+    -DENABLE_OSP_CORE=ON -DENABLE_OSP_UNIT=ON
+    -DENABLE_OSP_NET=ON -DENABLE_OSP_NETSSL=ON -DENABLE_OSP_CRYPTO=ON -DENABLE_OSP_JWT=ON
+    -DENABLE_OSP_MAIL=ON -DENABLE_OSP_PROMETHEUS=ON -DENABLE_OSP_REDIS=ON
+    -DENABLE_OSP_WEB=ON -DENABLE_OSP_BUNDLEADMIN=ON -DENABLE_OSP_SIMPLEAUTH=ON
+    -DENABLE_OSP_AUTH=ON -DENABLE_OSP_AUTH_LDAP=ON
+    -DENABLE_OSP_DATA=ON -DENABLE_OSP_DATA_SQLITE=ON -DENABLE_OSP_DATA_ODBC=ON -DENABLE_OSP_ACTIVERECORD=ON
+    -DENABLE_OSP_SHELL=ON -DENABLE_OSP_SHELL_SSH=ON -DENABLE_OSP_SHELL_CLIENT=ON
+    -DENABLE_OSP_REMOTING=ON
+  POCO_OSP_CMAKE_WARNINGS_EXTRA: >-
+    -DENABLE_COMPILER_WARNINGS=ON
+    -DENABLE_OSP_DATA_ODBC=ON
+  # Shared ctest options: dump failing output, fail on zero-match filter, JUnit report.
+  POCO_CTEST_COMMON: "--output-on-failure --no-tests=error --output-junit test-report.xml"
+  # Sanitizer extra: lift the 300KB output cap so long stack traces survive.
+  POCO_CTEST_SANITIZER_EXTRA: "--test-output-size-failed 0 --test-output-truncation tail"
+
+jobs:
+  # Change detection. Narrow-scope jobs gate on
+  # `<output> || ci_core || push`; primary sanitizer jobs always run.
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      ci_core: ${{ steps.filter.outputs.ci_core }}
+      osp_core: ${{ steps.filter.outputs.osp_core }}
+      tools: ${{ steps.filter.outputs.tools }}
+      data: ${{ steps.filter.outputs.data }}
+      sources: ${{ steps.filter.outputs.sources }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: .github/path-filters.yml
+
+  # ------------------------------------------------------------------------
+  # Linux x64
+  # ------------------------------------------------------------------------
+
+  # Primary Linux signal: 3 non-hidden sanitizers + 1 hidden+asan. TRACE on.
+  linux-gcc-cmake-sanitizers:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: asan
+            visibility: default
+            sanitize_flags: "-fsanitize=address"
+          - name: ubsan
+            visibility: default
+            sanitize_flags: "-fsanitize=undefined;-fno-sanitize=vptr"
+          - name: tsan
+            visibility: default
+            sanitize_flags: "-fsanitize=thread"
+          - name: hidden-asan
+            visibility: hidden
+            sanitize_flags: "-fsanitize=address"
+    env:
+      TSAN_OPTIONS: ${{ matrix.name == 'tsan' && format('suppressions={0}/cmake-build/tsan.suppress,second_deadlock_stack=1', github.workspace) || '' }}
+      ASAN_OPTIONS: ${{ matrix.name == 'hidden-asan' && 'detect_odr_violation=2' || '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: sysctl vm.legacy_va_layout
+      - run: sysctl kernel.randomize_va_space
+      - run: sudo sysctl vm.mmap_rnd_bits
+      - run: sudo sysctl -w vm.mmap_rnd_bits=28
+      - run: sudo apt -y update && sudo apt -y install libssl-dev libssh-dev libldap-dev libedit-dev
+      - run: >-
+          cmake -S. -Bcmake-build -GNinja
+          ${{ matrix.visibility == 'hidden' && '-DCMAKE_CXX_VISIBILITY_PRESET=hidden' || '' }}
+          -DPOCO_SANITIZEFLAGS="${{ matrix.sanitize_flags }}"
+          -DENABLE_TRACE=ON
+          -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          ${{ env.POCO_OSP_CMAKE_FULL_COMMON }}
+          ${{ env.POCO_OSP_CMAKE_FULL_LINUX_EXTRA }}
+      # The tests run POCO's code and the repository's, so both suppression files apply.
+      - run: cat tsan.suppress cmake-build/_deps/poco-src/tsan.suppress >cmake-build/tsan.suppress
+      - run: cmake --build cmake-build --target all --parallel $(nproc)
+      - uses: ./.github/actions/retry-action
+        with:
+          timeout_minutes: 90
+          max_attempts: 3
+          retry_on: any
+          command: >-
+            cd cmake-build &&
+            PWD=`pwd`
+            ctest ${{ env.POCO_CTEST_COMMON }} ${{ env.POCO_CTEST_SANITIZER_EXTRA }} --parallel $(nproc)
+      - uses: ./.github/actions/upload-test-report
+        if: always()
+        with:
+          suffix: ${{ matrix.name }}
+
+  # The sanitizer matrix of linux-gcc-cmake-sanitizers with clang.
+  linux-clang-cmake-sanitizers:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: asan
+            visibility: default
+            sanitize_flags: "-fsanitize=address"
+          - name: ubsan
+            visibility: default
+            sanitize_flags: "-fsanitize=undefined;-fno-sanitize=vptr"
+          - name: tsan
+            visibility: default
+            sanitize_flags: "-fsanitize=thread"
+          - name: hidden-asan
+            visibility: hidden
+            sanitize_flags: "-fsanitize=address"
+    env:
+      TSAN_OPTIONS: ${{ matrix.name == 'tsan' && format('suppressions={0}/cmake-build/tsan.suppress,second_deadlock_stack=1', github.workspace) || '' }}
+      ASAN_OPTIONS: ${{ matrix.name == 'hidden-asan' && 'detect_odr_violation=2' || '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: sysctl vm.legacy_va_layout
+      - run: sysctl kernel.randomize_va_space
+      - run: sudo sysctl vm.mmap_rnd_bits
+      - run: sudo sysctl -w vm.mmap_rnd_bits=28
+      - run: sudo apt -y update && sudo apt -y install libssl-dev libssh-dev libldap-dev libedit-dev
+      - run: >-
+          cmake -S. -Bcmake-build -GNinja
+          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          ${{ matrix.visibility == 'hidden' && '-DCMAKE_CXX_VISIBILITY_PRESET=hidden' || '' }}
+          -DPOCO_SANITIZEFLAGS="${{ matrix.sanitize_flags }}"
+          -DENABLE_TRACE=ON
+          -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          ${{ env.POCO_OSP_CMAKE_FULL_COMMON }}
+          ${{ env.POCO_OSP_CMAKE_FULL_LINUX_EXTRA }}
+      # The tests run POCO's code and the repository's, so both suppression files apply.
+      - run: cat tsan.suppress cmake-build/_deps/poco-src/tsan.suppress >cmake-build/tsan.suppress
+      - run: cmake --build cmake-build --target all --parallel $(nproc)
+      - uses: ./.github/actions/retry-action
+        with:
+          timeout_minutes: 90
+          max_attempts: 3
+          retry_on: any
+          command: >-
+            cd cmake-build &&
+            PWD=`pwd`
+            ctest ${{ env.POCO_CTEST_COMMON }} ${{ env.POCO_CTEST_SANITIZER_EXTRA }} --parallel $(nproc)
+      - uses: ./.github/actions/upload-test-report
+        if: always()
+        with:
+          suffix: ${{ matrix.name }}
+
+  # POCO release probe: the newest POCO release the configure resolves (POCO
+  # main while no POCO 2.0 release exists).
+  linux-gcc-cmake-poco-release:
+    runs-on: ubuntu-24.04
+    needs: changes
+    if: |
+      needs.changes.outputs.sources == 'true' ||
+      needs.changes.outputs.ci_core == 'true' ||
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt -y update && sudo apt -y install cmake ninja-build libssl-dev libssh-dev libldap-dev libedit-dev
+      - run: >-
+          cmake -S. -Bcmake-build -GNinja
+          -DPOCO_OSP_POCO_VERSION=release
+          ${{ env.POCO_OSP_CMAKE_FULL_COMMON }}
+          ${{ env.POCO_OSP_CMAKE_FULL_LINUX_EXTRA }}
+      - run: cmake --build cmake-build --target all --parallel $(nproc)
+      - uses: ./.github/actions/retry-action
+        with:
+          timeout_minutes: 90
+          max_attempts: 3
+          retry_on: any
+          command: >-
+            cd cmake-build &&
+            PWD=`pwd`
+            ctest ${{ env.POCO_CTEST_COMMON }} --parallel $(nproc)
+      - uses: ./.github/actions/upload-test-report
+        if: always()
+
+  # GCC 11 probe: g++ 11 rejects an attribute in the head of an exported class.
+  # CMake of the runner image: the Ubuntu 22.04 package is older than 3.26.
+  # Shell SSH is off: Ubuntu 22.04 ships libssh 0.9.6, and POCO SSH is not
+  # checked against it.
+  linux-gcc11-cmake:
+    runs-on: ubuntu-22.04
+    needs: changes
+    if: |
+      needs.changes.outputs.sources == 'true' ||
+      needs.changes.outputs.ci_core == 'true' ||
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt -y update && sudo apt -y install ninja-build g++-11 libssl-dev libldap-dev libedit-dev
+      - run: >-
+          cmake -S. -Bcmake-build -GNinja
+          -DCMAKE_C_COMPILER=gcc-11 -DCMAKE_CXX_COMPILER=g++-11
+          -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          ${{ env.POCO_OSP_CMAKE_FULL_COMMON }}
+          ${{ env.POCO_OSP_CMAKE_FULL_LINUX_EXTRA }}
+          -DENABLE_OSP_SHELL_SSH=OFF
+      - run: cmake --build cmake-build --target all --parallel $(nproc)
+      - uses: ./.github/actions/retry-action
+        with:
+          timeout_minutes: 90
+          max_attempts: 3
+          retry_on: any
+          command: >-
+            cd cmake-build &&
+            PWD=`pwd`
+            ctest ${{ env.POCO_CTEST_COMMON }} --parallel $(nproc)
+      - uses: ./.github/actions/upload-test-report
+        if: always()
+
+  # Install probe: the default options in a Release build, installed and used
+  # by an out-of-tree find_package() consumer.
+  linux-gcc-cmake-install-consumer:
+    runs-on: ubuntu-24.04
+    needs: changes
+    if: |
+      needs.changes.outputs.tools == 'true' ||
+      needs.changes.outputs.ci_core == 'true' ||
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt -y update && sudo apt -y install cmake ninja-build libssl-dev
+      - run: >-
+          cmake -S. -Bcmake-build -GNinja -DCMAKE_BUILD_TYPE=Release
+          -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          -DPOCO_OSP_ENABLE_TESTS=ON
+      - run: cmake --build cmake-build --target all --parallel $(nproc)
+      - uses: ./.github/actions/retry-action
+        with:
+          timeout_minutes: 30
+          max_attempts: 3
+          retry_on: any
+          command: >-
+            cd cmake-build &&
+            PWD=`pwd`
+            ctest ${{ env.POCO_CTEST_COMMON }} -R "^OSP(InstallConsumer|BundleFunction)$"
+      - uses: ./.github/actions/upload-test-report
+        if: always()
+
+  # Superbuild probe: a superproject adds POCO main, then the repository, which
+  # pulls nothing and requires the POCO components its options need.
+  linux-gcc-cmake-superbuild:
+    runs-on: ubuntu-24.04
+    needs: changes
+    if: |
+      needs.changes.outputs.ci_core == 'true' ||
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: poco-osp
+      - uses: actions/checkout@v5
+        with:
+          repository: pocoproject/poco
+          path: poco
+      - run: sudo apt -y update && sudo apt -y install cmake ninja-build libssl-dev libssh-dev libldap-dev libedit-dev
+      - run: |
+          cat >CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.26)
+          project(Superbuild LANGUAGES C CXX)
+          enable_testing()
+          include(GNUInstallDirs)
+          set(CMAKE_INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+          add_subdirectory(poco)
+          add_subdirectory(poco-osp)
+          EOF
+      - run: >-
+          cmake -S. -Bcmake-build -GNinja
+          -DPOCO_MINIMAL_BUILD=ON -DENABLE_CPPUNIT=ON
+          -DENABLE_XML=ON -DENABLE_JSON=ON -DENABLE_UTIL=ON -DENABLE_NET=ON -DENABLE_ZIP=ON
+          -DENABLE_CRYPTO=ON -DENABLE_NETSSL=ON -DENABLE_JWT=ON
+          -DENABLE_DATA=ON -DENABLE_DATA_SQLITE=ON -DENABLE_ACTIVERECORD=ON
+          -DENABLE_REDIS=ON -DENABLE_PROMETHEUS=ON -DENABLE_SSH=ON
+          -DENABLE_REMOTINGNG=ON -DENABLE_REMOTINGNG_TCP=ON -DENABLE_REMOTINGNG_REST=ON
+          ${{ env.POCO_OSP_CMAKE_FULL_COMMON }}
+          ${{ env.POCO_OSP_CMAKE_FULL_LINUX_EXTRA }}
+      - run: cmake --build cmake-build --target all --parallel $(nproc)
+      - uses: ./poco-osp/.github/actions/retry-action
+        with:
+          timeout_minutes: 90
+          max_attempts: 3
+          retry_on: any
+          command: >-
+            cd cmake-build &&
+            PWD=`pwd`
+            ctest ${{ env.POCO_CTEST_COMMON }} --parallel $(nproc)
+      - uses: ./poco-osp/.github/actions/upload-test-report
+        if: always()
+
+  # Data probe: the MySQL, PostgreSQL and ODBC bundles. Build only: no OSP
+  # test needs a database server.
+  linux-gcc-cmake-data:
+    runs-on: ubuntu-24.04
+    needs: changes
+    if: |
+      needs.changes.outputs.data == 'true' ||
+      needs.changes.outputs.ci_core == 'true' ||
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt -y update && sudo apt -y install cmake ninja-build unixodbc-dev libmysqlclient-dev libpq-dev
+      - run: >-
+          cmake -S. -Bcmake-build -GNinja
+          -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          -DPOCO_OSP_MINIMAL_BUILD=ON -DENABLE_OSP_BUNDLES=ON
+          -DENABLE_OSP_DATA=ON -DENABLE_OSP_DATA_SQLITE=ON -DENABLE_OSP_ACTIVERECORD=ON
+          -DENABLE_OSP_DATA_MYSQL=ON -DENABLE_OSP_DATA_POSTGRESQL=ON -DENABLE_OSP_DATA_ODBC=ON
+      - run: cmake --build cmake-build --target all --parallel $(nproc)
+
+  # ------------------------------------------------------------------------
+  # Linux cross-compile build-only probes
+  # ------------------------------------------------------------------------
+
+  # Android cross-compile, build only, with the NDK, ABIs and platform of
+  # POCO's job. Not gated by path filters, as in POCO. The configure of a cross
+  # build needs the bundle creator of the build host in PATH.
+  android-ndk-cmake:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - abi: arm64-v8a
+          - abi: armeabi-v7a
+    steps:
+      - uses: actions/checkout@v5
+      - uses: nttld/setup-ndk@v1.6.0
+        with:
+          ndk-version: r27d
+          add-to-path: true
+      - run: sudo apt -y update && sudo apt -y install cmake ninja-build
+      - name: Build the bundle creator for the build host
+        run: |
+          cmake -S. -Bcmake-build-host -GNinja -DPOCO_OSP_MINIMAL_BUILD=ON \
+            -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          cmake --build cmake-build-host --target BundleCreator --parallel $(nproc)
+          echo "${GITHUB_WORKSPACE}/cmake-build-host/bin" >>"$GITHUB_PATH"
+      - run: >-
+          cmake -S. -Bcmake-build -GNinja -DANDROID_ABI=${{ matrix.abi }} -DANDROID_PLATFORM=android-21
+          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake
+          -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          -DPOCO_OSP_MINIMAL_BUILD=ON
+          -DENABLE_OSP_BUNDLES=ON -DENABLE_OSP_STRIPBUNDLE=ON -DENABLE_OSP_CODECACHE=ON
+      - run: cmake --build cmake-build --target all --parallel $(nproc)
+
+  # ARM cross-compile: two codegen flag sets (generic armv7-a NEON VFPv4 and
+  # older Cortex-A8 NEON) catch regressions specific to one. A cross build
+  # creates the bundles with the bundle creator of the build host, from PATH.
+  linux-gcc-cmake-armv7l:
+    runs-on: ubuntu-24.04
+    needs: changes
+    if: |
+      needs.changes.outputs.osp_core == 'true' ||
+      needs.changes.outputs.tools == 'true' ||
+      needs.changes.outputs.ci_core == 'true' ||
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: armv7l-neon-vfpv4
+            cflags: "-march=armv7-a -mfloat-abi=hard -mfpu=neon-vfpv4"
+          - name: cortex-a8-neon
+            cflags: "-mcpu=cortex-a8 -mfpu=neon"
+    name: linux-gcc-cmake-armv7l (${{ matrix.name }})
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt -y update && sudo apt -y install g++-arm-linux-gnueabihf
+      - run: sudo apt -y update && sudo apt -y install cmake ninja-build
+      - name: Build the bundle creator for the build host
+        run: |
+          cmake -S. -Bcmake-build-host -GNinja -DPOCO_OSP_MINIMAL_BUILD=ON \
+            -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          cmake --build cmake-build-host --target BundleCreator --parallel $(nproc)
+          echo "${GITHUB_WORKSPACE}/cmake-build-host/bin" >>"$GITHUB_PATH"
+      - env:
+          CC: "arm-linux-gnueabihf-gcc"
+          CXX: "arm-linux-gnueabihf-g++"
+          CFLAGS: ${{ matrix.cflags }}
+          CXXFLAGS: ${{ matrix.cflags }}
+        run: >-
+          cmake -S. -Bcmake-build -GNinja -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=armv7l
+          -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          -DPOCO_OSP_MINIMAL_BUILD=ON -DPOCO_OSP_ENABLE_TESTS=ON
+          -DENABLE_OSP_BUNDLES=ON -DENABLE_OSP_STRIPBUNDLE=ON -DENABLE_OSP_CODECACHE=ON
+      - run: cmake --build cmake-build --target all --parallel $(nproc)
+
+  # ------------------------------------------------------------------------
+  # macOS arm64 (macos-latest)
+  # ------------------------------------------------------------------------
+
+  # Primary macos-arm64 signal: the full set without a sanitizer, TRACE on. The
+  # sanitizer matrix runs on Linux only: macOS arm64 runners are scarce.
+  # ctest does not run as root: the bundle tests rely on a directory without
+  # write permission.
+  macos-clang-cmake:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install OpenSSL, libssh
+        run: brew install openssl@3 libssh
+      - run: >-
+          cmake -S. -Bcmake-build
+          -DENABLE_TRACE=ON
+          -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          ${{ env.POCO_OSP_CMAKE_FULL_COMMON }}
+          -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)
+      - run: cmake --build cmake-build --target all --parallel $(sysctl -n hw.ncpu)
+      - uses: ./.github/actions/retry-action
+        with:
+          timeout_minutes: 90
+          max_attempts: 3
+          retry_on: any
+          command: >-
+            cd cmake-build &&
+            PWD=`pwd`
+            ctest ${{ env.POCO_CTEST_COMMON }} --parallel $(sysctl -n hw.ncpu)
+      - uses: ./.github/actions/upload-test-report
+        if: always()
+
+  # Build-only: compile-warnings-as-signal across as many modules as possible.
+  macos-clang-cmake-warnings:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: brew install openssl@3 libssh mysql-client unixodbc libpq
+      - run: >-
+          cmake -S. -Bcmake-build
+          -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          ${{ env.POCO_OSP_CMAKE_FULL_COMMON }}
+          ${{ env.POCO_OSP_CMAKE_WARNINGS_EXTRA }}
+          -DENABLE_OSP_DATA_POSTGRESQL=ON -DENABLE_OSP_DATA_MYSQL=ON
+          -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)
+          -DMYSQL_ROOT_DIR=$(brew --prefix mysql-client)
+          -DPostgreSQL_ROOT=$(brew --prefix libpq)
+      - run: cmake --build cmake-build --target all --parallel $(sysctl -n hw.ncpu)
+
+  # ------------------------------------------------------------------------
+  # Windows
+  # ------------------------------------------------------------------------
+
+  # Primary Windows signal: msvc x64 shared, OpenSSL and libssh from vcpkg,
+  # TRACE on, LTO on.
+  windows-2025-msvc-cmake:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v5
+      - uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+      - name: Cache vcpkg binary archives and downloads
+        # Two disjoint caches rolled into one step:
+        #  1. %LOCALAPPDATA%\vcpkg\archives -- file-based binary cache of built
+        #     ports, keyed by ABI hash. Reused across runs; invalidates when a
+        #     port's ABI changes (new version, new patch, new transitive dep).
+        #  2. C:\vcpkg\downloads -- source tarballs (openssl, libssh, ...) and
+        #     tool installs (cmake, ninja, perl, powershell-core). vcpkg re-
+        #     downloads these on every cache miss in (1); persisting them
+        #     avoids the ~30-60s cmake/powershell/perl zip download each run.
+        # Key rotates on run_id so each run writes a fresh entry; restore-keys
+        # picks the most recent prefix match. GHA LRU handles eviction.
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~\AppData\Local\vcpkg\archives
+            C:\vcpkg\downloads
+          key: vcpkg-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+      - name: Uninstall pre-existing OpenSSL / libssh
+        shell: pwsh
+        # Runner images carry preinstalled OpenSSL/OpenSSH and cached vcpkg
+        # ports. Scrub all three so only our vcpkg install remains. vcpkg is
+        # the single source of OpenSSL (pulled in as a transitive dep of
+        # libssh), matching the rule: no second OpenSSL in CI.
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          vcpkg --vcpkg-root="$env:VCPKG_INSTALLATION_ROOT" remove libssh:x64-windows openssl:x64-windows --recurse 2>&1 | Out-Host
+          $drop = @(
+            'C:\Program Files\OpenSSL\bin',
+            'C:\Program Files\OpenSSL-Win64\bin',
+            'C:\OpenSSL-Win64\bin',
+            'C:\Windows\System32\OpenSSH'
+          )
+          $clean = ($env:PATH -split ';' | Where-Object {
+            $p = $_.TrimEnd('\'); $drop -notcontains $p
+          }) -join ';'
+          "PATH=$clean" | Out-File -FilePath $env:GITHUB_ENV -Append
+          foreach ($d in 'C:\OpenSSL-Win64','C:\Program Files\OpenSSL','C:\Program Files\OpenSSL-Win64') {
+            if (Test-Path $d) { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $d }
+          }
+      - name: Install OpenSSL + libssh (vcpkg)
+        shell: pwsh
+        # libssh drags in openssl as a transitive dep -- we deliberately use
+        # that single copy for the whole build. Explicit Test-Path assertions
+        # fail fast on missing files.
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          vcpkg --vcpkg-root="$env:VCPKG_INSTALLATION_ROOT" install libssh:x64-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $root = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows"
+          # Fixed paths -- no recursive globbing. vcpkg's x64-windows triplet
+          # places runtime DLLs flat under $root\bin\, including OpenSSL
+          # provider modules (legacy.dll, default.dll). If this ever diverges,
+          # we want a hard fail, not a silent pick of a wrong copy.
+          $providerDir = "$root\bin"
+          $required = @(
+            "$root\bin\libcrypto-3-x64.dll",
+            "$root\bin\libssl-3-x64.dll",
+            "$root\bin\ssh.dll",
+            "$root\lib\libcrypto.lib",
+            "$root\lib\libssl.lib",
+            "$root\lib\ssh.lib",
+            "$root\include\openssl\ssl.h",
+            "$root\include\libssh\libssh.h",
+            "$providerDir\legacy.dll"
+          )
+          foreach ($p in $required) {
+            if (-not (Test-Path $p)) { Write-Error "Missing: $p"; exit 1 }
+          }
+          "OPENSSL_ROOT_DIR=$root"          | Out-File -FilePath $env:GITHUB_ENV -Append
+          "LIBSSH_ROOT_DIR=$root"           | Out-File -FilePath $env:GITHUB_ENV -Append
+          "OPENSSL_MODULES=$providerDir"    | Out-File -FilePath $env:GITHUB_ENV -Append
+          Add-Content $env:GITHUB_PATH "$root\bin"
+          Write-Host "OPENSSL_ROOT_DIR=$root"
+          Write-Host "LIBSSH_ROOT_DIR=$root"
+          Write-Host "OPENSSL_MODULES=$providerDir"
+      - name: Verify OpenSSL / libssh DLL resolution
+        shell: pwsh
+        # Prove the loader will pick DLLs from the vcpkg tree, not from
+        # residue elsewhere on the runner. Fails the job on any mismatch.
+        run: |
+          foreach ($dll in 'libcrypto-3-x64.dll','libssl-3-x64.dll','ssh.dll','legacy.dll') {
+            $cmd = Get-Command $dll -ErrorAction SilentlyContinue
+            if ($null -eq $cmd) { Write-Error "$dll not resolvable on PATH"; exit 1 }
+            $resolved = [System.IO.Path]::GetFullPath($cmd.Source)
+            $expected = [System.IO.Path]::GetFullPath("$env:LIBSSH_ROOT_DIR\bin\$dll")
+            Write-Host "$dll -> $resolved"
+            if ($resolved -ne $expected) {
+              Write-Error "$dll resolves to $resolved, expected $expected"
+              exit 1
+            }
+          }
+      - run: >-
+          cmake -S. -Bcmake-build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
+          -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          ${{ env.POCO_OSP_CMAKE_WINDOWS_FULL }}
+          -DOPENSSL_ROOT_DIR="${{ env.OPENSSL_ROOT_DIR }}"
+          -DCMAKE_PREFIX_PATH="${{ env.LIBSSH_ROOT_DIR }}"
+      - run: cmake --build cmake-build --parallel $env:NUMBER_OF_PROCESSORS
+      - uses: ./.github/actions/retry-action
+        with:
+          timeout_minutes: 90
+          max_attempts: 3
+          retry_on: any
+          command: >-
+            cd cmake-build;
+            ctest ${{ env.POCO_CTEST_COMMON }} --parallel $env:NUMBER_OF_PROCESSORS
+      - uses: ./.github/actions/upload-test-report
+        if: always()
+      - name: Uninstall OpenSSL / libssh
+        if: always()
+        shell: pwsh
+        run: |
+          vcpkg --vcpkg-root="$env:VCPKG_INSTALLATION_ROOT" remove libssh:x64-windows openssl:x64-windows --recurse 2>&1 | Out-Host
+
+  # Static linkage probes on Windows x64, build only: a static build has no
+  # bundles and no tests, which load bundles; the libraries and tools remain.
+  windows-2025-msvc-cmake-static:
+    runs-on: windows-2025
+    needs: changes
+    if: |
+      needs.changes.outputs.osp_core == 'true' ||
+      needs.changes.outputs.tools == 'true' ||
+      needs.changes.outputs.ci_core == 'true' ||
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: static
+            poco_mt: "OFF"
+          - name: static-mt
+            poco_mt: "ON"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+      - run: >-
+          cmake -S. -Bcmake-build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
+          -DBUILD_SHARED_LIBS=OFF -DPOCO_MT=${{ matrix.poco_mt }}
+          -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          -DPOCO_OSP_MINIMAL_BUILD=ON -DENABLE_OSP_STRIPBUNDLE=ON -DENABLE_OSP_CODECACHE=ON
+      - run: cmake --build cmake-build --parallel $env:NUMBER_OF_PROCESSORS
+
+  # Build-only warnings probe: extra compiler warnings enabled. Without
+  # OpenSSL, so the parts that need Crypto or NetSSL are off.
+  windows-msvc-cmake-warnings:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v5
+      - uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+      - run: >-
+          cmake -S. -Bcmake-build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          -DPOCO_OSP_MINIMAL_BUILD=ON -DPOCO_OSP_ENABLE_TESTS=ON -DPOCO_OSP_ENABLE_SAMPLES=ON
+          -DENABLE_OSP_BUNDLES=ON -DENABLE_OSP_STRIPBUNDLE=ON -DENABLE_OSP_CODECACHE=ON
+          -DENABLE_OSP_CORE=ON -DENABLE_OSP_UNIT=ON
+          -DENABLE_OSP_NET=ON -DENABLE_OSP_MAIL=ON -DENABLE_OSP_PROMETHEUS=ON -DENABLE_OSP_REDIS=ON
+          -DENABLE_OSP_WEB=ON -DENABLE_OSP_BUNDLEADMIN=ON -DENABLE_OSP_SIMPLEAUTH=ON
+          -DENABLE_OSP_DATA=ON -DENABLE_OSP_DATA_SQLITE=ON -DENABLE_OSP_ACTIVERECORD=ON
+          -DENABLE_OSP_SHELL=ON -DENABLE_OSP_SHELL_CLIENT=ON
+          ${{ env.POCO_OSP_CMAKE_WARNINGS_EXTRA }}
+      - run: cmake --build cmake-build --parallel $env:NUMBER_OF_PROCESSORS

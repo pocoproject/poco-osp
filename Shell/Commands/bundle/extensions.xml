@@ -1,0 +1,11 @@
+<extensions>
+  <extension point="com.appinf.osp.shell.command" command="bundles" aliases="ls, ss" class="Poco::OSP::Shell::BundlesCommandFactory"/>
+  <extension point="com.appinf.osp.shell.command" command="services" aliases="lss" class="Poco::OSP::Shell::ServicesCommandFactory"/>
+  <extension point="com.appinf.osp.shell.command" command="start" permission="bundleAdmin" class="Poco::OSP::Shell::StartCommandFactory"/>
+  <extension point="com.appinf.osp.shell.command" command="stop" permission="bundleAdmin" class="Poco::OSP::Shell::StopCommandFactory"/>
+  <extension point="com.appinf.osp.shell.command" command="resolve" permission="bundleAdmin" class="Poco::OSP::Shell::ResolveCommandFactory"/>
+  <extension point="com.appinf.osp.shell.command" command="uninstall" aliases="rm" permission="bundleAdmin" class="Poco::OSP::Shell::UninstallCommandFactory"/>
+  <extension point="com.appinf.osp.shell.command" command="info" class="Poco::OSP::Shell::InfoCommandFactory"/>
+  <extension point="com.appinf.osp.shell.command" command="install" permission="bundleAdmin" class="Poco::OSP::Shell::InstallCommandFactory"/>
+  <extension point="com.appinf.osp.shell.command" command="upgrade" permission="bundleAdmin" class="Poco::OSP::Shell::UpgradeCommandFactory"/>
+</extensions>
