@@ -1372,7 +1372,8 @@ bool AuthAdminServiceImpl::applyLDAPResultImpl(Poco::Data::Session& sess, const 
 			// that other users have as well.
 			_permissionsCache.clear();
 		}
-		reloadPermissions(sess, username);
+		// Loaded by authorize() after the commit, as in acceptStoredCredentialsImpl().
+		_permissionsCache.remove(username);
 		unlockOutUserImpl(sess, username);
 		if (getUserAttributeImpl(sess, username, USER_ATTR_LDAP, ""s).empty())
 		{
@@ -1503,7 +1504,8 @@ void AuthAdminServiceImpl::storeCredentialsImpl(Poco::Data::Session& sess, const
 
 void AuthAdminServiceImpl::acceptStoredCredentialsImpl(Poco::Data::Session& sess, const std::string& username) const
 {
-	reloadPermissions(sess, username);
+	// authorize() loads them after the commit, so that a rolled-back login leaves nothing in the cache.
+	_permissionsCache.remove(username);
 	unlockOutUserImpl(sess, username);
 }
 
@@ -2389,14 +2391,6 @@ AuthAdminServiceImpl::PermissionsPtr AuthAdminServiceImpl::loadPermissions(Poco:
 	_permissionsCache.add(username, pPerms);
 	return pPerms;
 }
-
-
-void AuthAdminServiceImpl::reloadPermissions(Poco::Data::Session& sess, const std::string& username) const
-{
-	_permissionsCache.remove(username);
-	loadPermissions(sess, username);
-}
-
 
 
 void AuthAdminServiceImpl::lockOutUserIfTooManyFailures(Poco::Data::Session& sess, const std::string& username) const

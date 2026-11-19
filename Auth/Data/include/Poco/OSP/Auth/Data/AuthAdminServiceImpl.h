@@ -46,8 +46,10 @@ class OSPAuthData_API AuthAdminServiceImpl: public AbstractLDAPAuthAdminService
 	/// via the POCO Data library, and optionally LDAP for password verification
 	/// and permissions.
 	///
-	/// Upon successful authentication of a user, the class will cache the permissions
-	/// for the user so that further permission checks are very quick.
+	/// The class caches the permissions of a user at the first permission check, so that
+	/// further permission checks are very quick. A login that checks the password against
+	/// the stored hash or the LDAP server removes them from the cache, so that the next
+	/// check loads them after the login is committed.
 	///
 	/// This implementation supports multiple variants/versions of storing
 	/// password hashes.
@@ -477,7 +479,7 @@ private:
 		/// does not exist or has no password hash.
 	[[nodiscard]] bool applyPasswordCheckImpl(Poco::Data::Session& sess, const std::string& username,
 		const PasswordCheck& check, bool countFailure) const;
-		/// Returns check.matches. Stores the new hash, loads the permissions
+		/// Returns check.matches. Stores the new hash, removes the cached permissions
 		/// and clears the lock-out if the credentials match; otherwise counts the
 		/// failure if countFailure is true.
 	void storeCredentialsImpl(Poco::Data::Session& sess, const std::string& username,
@@ -485,7 +487,7 @@ private:
 		/// Adds the user with the new hash of check, or stores the new hash
 		/// for an existing user if check has one.
 	void acceptStoredCredentialsImpl(Poco::Data::Session& sess, const std::string& username) const;
-		/// Caches the permissions of a user whose credentials match the
+		/// Removes the cached permissions of a user whose credentials match the
 		/// stored password hash, and clears the lock-out and the failure count.
 	void rememberCheckImpl(const std::string& username, const std::string& credentials,
 		const PasswordCheck& check) const;
@@ -494,7 +496,6 @@ private:
 		/// the check of the credentials (see AuthParams::credentialsCacheTimeout).
 	[[nodiscard]] bool validateUserImpl(Poco::Data::Session& sess, const std::string& username, bool valid) const;
 	PermissionsPtr loadPermissions(Poco::Data::Session& sess, const std::string& username) const;
-	void reloadPermissions(Poco::Data::Session& sess, const std::string& username) const;
 	[[nodiscard]] bool isInlineAttribute(const std::string& attribute) const;
 	[[nodiscard]] bool isAuthAttributeName(const std::string& attribute) const;
 		/// Returns true if the attribute name starts with auth_ in lower case, as the names of

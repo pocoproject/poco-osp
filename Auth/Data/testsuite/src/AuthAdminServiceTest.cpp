@@ -3293,6 +3293,42 @@ void AuthAdminServiceTest::testLDAPLoginUpdatesRolePermissionsOfOtherUsers()
 }
 
 
+void AuthAdminServiceTest::testFailedLDAPLoginCommitKeepsStoredPermissions()
+{
+	// A short busy timeout, so that the commit fails soon while another session reads.
+	_pProperties->setString("auth.sql.init.SQLite", "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 100");
+	Directory directory;
+	directory.passwords[userDN("alice")] = "A";
+	directory.roles = {"dev"};
+	directory.groupPermissions = {{"dev", {"build"}}};
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
+	assertTrue (pAAS->authenticate("alice", "A"));
+	assertTrue (pAAS->authorize("alice", "build"));
+	// A new password, so that the login asks the LDAP server and stores the new permissions of the role.
+	directory.passwords[userDN("alice")] = "A2";
+	directory.groupPermissions = {{"dev", {"deploy"}}};
+
+	Poco::Data::Session reader("SQLite", _dbPath);
+	reader.begin();
+	int users = 0;
+	reader << "SELECT COUNT(*) FROM auth_user", into(users), now;
+	try
+	{
+		static_cast<void>(pAAS->authenticate("alice", "A2"));
+		fail("the login must fail when its transaction cannot be committed");
+	}
+	catch (Poco::Data::DataException&)
+	{
+	}
+	reader.rollback();
+
+	assertEqual (1, users);
+	assertTrue (pAAS->authorize("alice", "build"));
+	assertFalse (pAAS->authorize("alice", "deploy"));
+}
+
+
 void AuthAdminServiceTest::testLoginNamesOfDirectoryUserShareOneAccount()
 {
 	Directory directory;
@@ -4383,6 +4419,7 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthorizeProceedsWhileLDAPLoginChecksPassword);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPasswordChangedDuringLDAPLoginCheckRefusesLogin);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLDAPLoginUpdatesRolePermissionsOfOtherUsers);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testFailedLDAPLoginCommitKeepsStoredPermissions);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLoginNamesOfDirectoryUserShareOneAccount);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testFailedLoginsThroughEveryNameLockOutAccount);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLockedOutAccountIsNotTriedThroughOtherName);

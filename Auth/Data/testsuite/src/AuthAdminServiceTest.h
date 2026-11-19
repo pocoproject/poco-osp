@@ -120,6 +120,7 @@ public:
 	void testAuthorizeProceedsWhileLDAPLoginChecksPassword();
 	void testPasswordChangedDuringLDAPLoginCheckRefusesLogin();
 	void testLDAPLoginUpdatesRolePermissionsOfOtherUsers();
+	void testFailedLDAPLoginCommitKeepsStoredPermissions();
 	void testLoginNamesOfDirectoryUserShareOneAccount();
 	void testFailedLoginsThroughEveryNameLockOutAccount();
 	void testLockedOutAccountIsNotTriedThroughOtherName();
