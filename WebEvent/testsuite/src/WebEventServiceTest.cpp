@@ -43,6 +43,7 @@
 #include "Poco/Clock.h"
 #include "Poco/Thread.h"
 #include "Poco/Timestamp.h"
+#include "Poco/Logger.h"
 #include "Poco/Message.h"
 #include "Poco/UTF8String.h"
 #if defined(OSP_WEBEVENT_ENABLE_TLS)
@@ -3732,6 +3733,368 @@ void WebEventServiceTest::testThrowingDelegateIsLoggedEscaped()
 }
 
 
+void WebEventServiceTest::testSubjectAuthorizerDecidesSubscriptions()
+	/// The authorizer is asked with the user of the connection; a subject it
+	/// refuses is left out, and the other subjects of the message are
+	/// subscribed.
+{
+	const std::string publicSubject("com.example.public");
+	const std::string secretSubject("com.example.secret");
+
+	LocalService local(1, 0);
+	local.pService->setSubjectAuthorizer([&](const std::string& username, const std::string& subject, WebEventService::SubjectAction action)
+		{
+			return action == WebEventService::SubjectAction::SUBSCRIBE && (subject != secretSubject || username == "alice");
+		});
+
+	Poco::Net::WebSocket bob = connectWebSocket(local.port, "bob");
+	bob.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(bob, publicSubject + "," + secretSubject);
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(publicSubject) == 1; }, 5000));
+	assertTrue(local.pService->waitForMainThread());
+	assertEqual(0, local.pService->subscriberCount(secretSubject));
+
+	Poco::Net::WebSocket alice = connectWebSocket(local.port, "alice");
+	alice.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(alice, secretSubject);
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(secretSubject) == 1; }, 5000));
+
+	local.pService->notify(secretSubject, "secret");
+	local.pService->notify(publicSubject, "marker");
+	assertEquals(std::string("secret"), receiveNotification(alice).second);
+	const WebEventService::NotificationEvent notification = receiveNotification(bob);
+	assertEquals(publicSubject, notification.first);
+	assertEquals(std::string("marker"), notification.second);
+
+	for (auto* pWS: {&alice, &bob})
+	{
+		try
+		{
+			pWS->shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+			pWS->close();
+		}
+		catch (...) {}
+	}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testSubjectAuthorizerDecidesClientNotifications()
+	/// A NOTIFY of a subject the authorizer refuses is dropped, and the other
+	/// subjects of the message are notified. What the server notifies is not
+	/// asked about.
+{
+	const std::string publicSubject("com.example.public");
+	const std::string secretSubject("com.example.secret");
+
+	LocalService local(1, 0, true);
+	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction action)
+		{
+			return action == WebEventService::SubjectAction::SUBSCRIBE || subject != secretSubject;
+		});
+
+	Poco::Net::WebSocket listener = connectWebSocket(local.port);
+	listener.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(listener, publicSubject + "," + secretSubject);
+	assertTrue(waitUntil([&]
+		{
+			return local.pService->subscriberCount(publicSubject) == 1 && local.pService->subscriberCount(secretSubject) == 1;
+		}, 5000));
+
+	Poco::Net::WebSocket sender = connectWebSocket(local.port);
+	sender.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendText(sender, "NOTIFY " + publicSubject + "," + secretSubject + " WebEvent/1.0\r\nclient");
+	WebEventService::NotificationEvent notification = receiveNotification(listener);
+	assertEquals(publicSubject, notification.first);
+	assertEquals(std::string("client"), notification.second);
+
+	// Notified after the client's message has been handled: the next frame
+	// is this one, so the client's NOTIFY of the secret subject was dropped.
+	local.pService->notify(publicSubject, "marker");
+	notification = receiveNotification(listener);
+	assertEquals(publicSubject, notification.first);
+	assertEquals(std::string("marker"), notification.second);
+
+	local.pService->notify(secretSubject, "server");
+	notification = receiveNotification(listener);
+	assertEquals(secretSubject, notification.first);
+	assertEquals(std::string("server"), notification.second);
+
+	for (auto* pWS: {&listener, &sender})
+	{
+		try
+		{
+			pWS->shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+			pWS->close();
+		}
+		catch (...) {}
+	}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testClientNotificationNeedsEveryAncestorAllowed()
+	/// A notification reaches the subscribers of the subject's ancestors as
+	/// well, so a client cannot notify a protected subject through a subject
+	/// below it; a subject beside it is notified.
+{
+	const std::string protectedSubject("com.example.protected");
+	const std::string openSubject("com.example.open");
+
+	LocalService local(1, 0, true);
+	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction action)
+		{
+			return action == WebEventService::SubjectAction::SUBSCRIBE || subject != protectedSubject;
+		});
+
+	Poco::Net::WebSocket listener = connectWebSocket(local.port);
+	listener.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(listener, protectedSubject + "," + openSubject);
+	assertTrue(waitUntil([&]
+		{
+			return local.pService->subscriberCount(protectedSubject) == 1 && local.pService->subscriberCount(openSubject) == 1;
+		}, 5000));
+
+	// The sender's frames are handled in order: the first frame the listener
+	// receives shows that the notification below the protected subject was dropped.
+	Poco::Net::WebSocket sender = connectWebSocket(local.port);
+	sender.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendText(sender, "NOTIFY " + protectedSubject + ".child WebEvent/1.0\r\nprotected");
+	sendText(sender, "NOTIFY " + openSubject + ".child WebEvent/1.0\r\nopen");
+	const WebEventService::NotificationEvent notification = receiveNotification(listener);
+	assertEquals(openSubject + ".child", notification.first);
+	assertEquals(std::string("open"), notification.second);
+
+	for (auto* pWS: {&listener, &sender})
+	{
+		try
+		{
+			pWS->shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+			pWS->close();
+		}
+		catch (...) {}
+	}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testThrowingSubjectAuthorizerRefuses()
+	/// A subject for which the authorizer throws, a standard or a Poco
+	/// exception, is refused; the connection and the other subjects of the
+	/// message stay.
+{
+	const std::string allowedSubject("com.example.allowed");
+	const std::string stdSubject("com.example.std");
+	const std::string pocoSubject("com.example.poco");
+
+	LocalService local(1, 0);
+	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction)
+		{
+			if (subject == stdSubject) throw std::runtime_error("authorizer failed");
+			if (subject == pocoSubject) throw Poco::IllegalStateException("authorizer failed");
+			return true;
+		});
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	ws.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(ws, allowedSubject + "," + stdSubject + "," + pocoSubject);
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(allowedSubject) == 1; }, 5000));
+	assertTrue(local.pService->waitForMainThread());
+	assertEqual(0, local.pService->subscriberCount(stdSubject));
+	assertEqual(0, local.pService->subscriberCount(pocoSubject));
+
+	local.pService->notify(allowedSubject, "marker");
+	assertEquals(std::string("marker"), receiveNotification(ws).second);
+
+	try
+	{
+		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testRefusedSubjectIsLoggedEscaped()
+	/// The subject comes from the client: a control character in it, or in
+	/// the exception of an authorizer that quotes it, reaches the log escaped,
+	/// for a subscription and for a notification.
+{
+	const std::string publicSubject("com.example.public");
+	const std::string refusedSubject("com.example.refused\x1bX");
+	const std::string failingSubject("com.example.failing\x1bY");
+	const std::string notifiedSubject("com.example.notified\x1bZ");
+
+	LogCapture capture("Poco.OSP.WebEvent");
+	LocalService local(1, 0, true);
+	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction)
+		{
+			if (subject == failingSubject) throw std::runtime_error("authorizer failed for " + subject);
+			return subject != refusedSubject && subject != notifiedSubject;
+		});
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	ws.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(ws, publicSubject + "," + refusedSubject + "," + failingSubject);
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(publicSubject) == 1; }, 5000));
+	// Frames are handled in order: once the second NOTIFY has come back, the
+	// first one has been refused.
+	sendText(ws, "NOTIFY " + notifiedSubject + " WebEvent/1.0\r\nrefused");
+	sendText(ws, "NOTIFY " + publicSubject + " WebEvent/1.0\r\nmarker");
+	assertEquals(std::string("marker"), receiveNotification(ws).second);
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(3);
+	const auto logged = [&](const std::string& text, Poco::Message::Priority priority)
+	{
+		return std::ranges::any_of(messages, [&](const Poco::Message& message)
+		{
+			return message.getPriority() == priority && message.getText().find(text) != std::string::npos;
+		});
+	};
+	assertTrue(logged(Poco::UTF8::escape(refusedSubject), Poco::Message::PRIO_NOTICE));
+	assertTrue(logged(Poco::UTF8::escape(failingSubject) + " of WebSocket subscriber", Poco::Message::PRIO_WARNING));
+	assertTrue(logged("authorizer failed for " + Poco::UTF8::escape(failingSubject), Poco::Message::PRIO_WARNING));
+	assertTrue(logged("not allowed to notify " + Poco::UTF8::escape(notifiedSubject), Poco::Message::PRIO_NOTICE));
+	for (const auto& message: messages)
+	{
+		assertTrue(message.getText().find('\x1b') == std::string::npos);
+	}
+
+	try
+	{
+		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testSubjectRefusalsAreThrottled()
+	/// A client cannot fill the log with refused subjects: the first refusal
+	/// is logged at notice level, the next ones at debug level. The failures
+	/// of an authorizer that throws are limited the same way, the first one
+	/// logged at warning level.
+{
+	const std::string publicSubject("com.example.public");
+	const std::string failingPrefix("com.example.failing");
+
+	LogCapture capture("Poco.OSP.WebEvent");
+	Poco::Logger::get("Poco.OSP.WebEvent").setLevel(Poco::Message::PRIO_DEBUG);
+	LocalService local(1, 0);
+	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction)
+		{
+			if (subject.starts_with(failingPrefix)) throw Poco::IllegalStateException("authorizer failed");
+			return subject == publicSubject;
+		});
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	ws.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(ws, "com.example.first,com.example.second," + failingPrefix + "1," + failingPrefix + "2," + publicSubject);
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(publicSubject) == 1; }, 5000));
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(0);
+	const auto priorities = [&](const std::string& text)
+	{
+		std::vector<Poco::Message::Priority> result;
+		for (const auto& message: messages)
+		{
+			if (message.getText().find(text) != std::string::npos) result.push_back(message.getPriority());
+		}
+		return result;
+	};
+	const std::vector<Poco::Message::Priority> refusals = priorities("is not allowed to subscribe to");
+	assertEqual(2, refusals.size());
+	assertTrue(refusals[0] == Poco::Message::PRIO_NOTICE);
+	assertTrue(refusals[1] == Poco::Message::PRIO_DEBUG);
+	const std::vector<Poco::Message::Priority> failures = priorities("The subject authorizer failed");
+	assertEqual(2, failures.size());
+	assertTrue(failures[0] == Poco::Message::PRIO_WARNING);
+	assertTrue(failures[1] == Poco::Message::PRIO_DEBUG);
+
+	try
+	{
+		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testRemovedSubjectAuthorizerAsksNothing()
+	/// After setSubjectAuthorizer(nullptr), a subject the authorizer refused
+	/// is subscribed.
+{
+	const std::string publicSubject("com.example.public");
+	const std::string secretSubject("com.example.secret");
+
+	LocalService local(1, 0);
+	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction)
+		{
+			return subject != secretSubject;
+		});
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	ws.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(ws, publicSubject + "," + secretSubject);
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(publicSubject) == 1; }, 5000));
+	assertTrue(local.pService->waitForMainThread());
+	assertEqual(0, local.pService->subscriberCount(secretSubject));
+
+	local.pService->setSubjectAuthorizer(nullptr);
+	sendSubscribe(ws, secretSubject);
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(secretSubject) == 1; }, 5000));
+
+	try
+	{
+		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testRefusedSubjectGetsNoInitialData()
+	/// A refused subject is not subscribed, so no initial data is requested
+	/// or sent for it.
+{
+	const std::string publicSubject("com.example.public");
+	const std::string secretSubject("com.example.secret");
+
+	InitialDataProvider provider;
+	provider.subject = secretSubject;
+	provider.data = "secret";
+	LocalService local(1, 0);
+	local.pService->initialDataRequested += delegate(&provider, &InitialDataProvider::onInitialDataRequested);
+	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction)
+		{
+			return subject != secretSubject;
+		});
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	ws.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(ws, publicSubject + "," + secretSubject);
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(publicSubject) == 1; }, 5000));
+
+	local.pService->notify(publicSubject, "marker");
+	const WebEventService::NotificationEvent notification = receiveNotification(ws);
+	assertEquals(publicSubject, notification.first);
+	assertEquals(std::string("marker"), notification.second);
+
+	local.pService->initialDataRequested -= delegate(&provider, &InitialDataProvider::onInitialDataRequested);
+	try
+	{
+		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
 void WebEventServiceTest::testConcurrentApiAccess()
 {
 	// Hammers the public API from non-service threads while the main thread
@@ -3768,6 +4131,24 @@ void WebEventServiceTest::testConcurrentApiAccess()
 		}
 	});
 
+	// installed and removed while a worker asks it about the churning subscriptions
+	std::thread authorizerSetter([&]{
+		for (int i = 0; i < 3000; ++i)
+		{
+			if (i % 2 == 0)
+			{
+				_pService->setSubjectAuthorizer([](const std::string&, const std::string&, WebEventService::SubjectAction)
+				{
+					return true;
+				});
+			}
+			else
+			{
+				_pService->setSubjectAuthorizer(nullptr);
+			}
+		}
+	});
+
 	Poco::Net::WebSocket churn = connectWebSocket(_port);
 	for (int i = 0; i < 1000; ++i)
 	{
@@ -3782,6 +4163,7 @@ void WebEventServiceTest::testConcurrentApiAccess()
 
 	counter.join();
 	inserter.join();
+	authorizerSetter.join();
 	_pService->subjectNotified("com.example.hammer.h0") -= delegate(this, &WebEventServiceTest::onChildNotified);
 	assertFalse(failed.load());
 	assertTrue(testable.waitForMainThread());
@@ -3867,6 +4249,14 @@ CppUnit::Test* WebEventServiceTest::suite()
 	CppUnit_addTest(pSuite, WebEventServiceTest, testInitialDataNamesTheSubscribedSubject);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testThrowingInitialDataDelegateKeepsSubscription);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testThrowingDelegateIsLoggedEscaped);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testSubjectAuthorizerDecidesSubscriptions);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testSubjectAuthorizerDecidesClientNotifications);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testClientNotificationNeedsEveryAncestorAllowed);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testThrowingSubjectAuthorizerRefuses);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testRefusedSubjectIsLoggedEscaped);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testSubjectRefusalsAreThrottled);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testRemovedSubjectAuthorizerAsksNothing);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testRefusedSubjectGetsNoInitialData);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testConcurrentApiAccess);
 
 	return pSuite;

@@ -85,6 +85,14 @@ public:
 	void testInitialDataNamesTheSubscribedSubject();
 	void testThrowingInitialDataDelegateKeepsSubscription();
 	void testThrowingDelegateIsLoggedEscaped();
+	void testSubjectAuthorizerDecidesSubscriptions();
+	void testSubjectAuthorizerDecidesClientNotifications();
+	void testClientNotificationNeedsEveryAncestorAllowed();
+	void testThrowingSubjectAuthorizerRefuses();
+	void testRefusedSubjectIsLoggedEscaped();
+	void testSubjectRefusalsAreThrottled();
+	void testRemovedSubjectAuthorizerAsksNothing();
+	void testRefusedSubjectGetsNoInitialData();
 	void testConcurrentApiAccess();
 
 	void setUp() override;

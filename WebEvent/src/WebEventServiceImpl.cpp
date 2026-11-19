@@ -28,6 +28,7 @@
 #include "Poco/Exception.h"
 #include "Poco/Format.h"
 #include "Poco/Logger.h"
+#include "Poco/Message.h"
 #include "Poco/Notification.h"
 #include "Poco/Thread.h"
 #include "Poco/Timespan.h"
@@ -38,6 +39,7 @@
 #include <exception>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <utility>
 
 
@@ -73,6 +75,29 @@ namespace
 	}
 
 
+	std::string currentExceptionText()
+		/// Returns the text of the exception being handled. Must be called
+		/// in a catch block.
+	{
+		try
+		{
+			throw;
+		}
+		catch (Poco::Exception& exc)
+		{
+			return exc.displayText();
+		}
+		catch (std::exception& exc)
+		{
+			return exc.what();
+		}
+		catch (...)
+		{
+			return "unknown exception";
+		}
+	}
+
+
 	template <typename TEvent, typename TArgs>
 	void fireEvent(TEvent& event, const void* pSender, TArgs& args, Poco::Logger& logger, const std::string& eventName, const std::string& consequence)
 		/// Fires the event. A delegate's exception is logged rather than
@@ -82,27 +107,16 @@ namespace
 		/// strategy stops at the exception); consequence says what has
 		/// happened all the same.
 	{
-		std::string reason;
 		try
 		{
 			event.notify(pSender, args);
-			return;
-		}
-		catch (Poco::Exception& exc)
-		{
-			reason = exc.displayText();
-		}
-		catch (std::exception& exc)
-		{
-			reason = exc.what();
 		}
 		catch (...)
 		{
-			reason = "unknown exception";
+			// The event name can carry a subject of a client, which the exception may quote as well.
+			logger.error(Poco::format("A delegate of the WebEvent service event %s failed: %s. The delegates after it were not called; %s.",
+				Poco::UTF8::escape(eventName), Poco::UTF8::escape(currentExceptionText()), consequence));
 		}
-		// The event name can carry a subject of a client, which the reason may quote as well.
-		logger.error(Poco::format("A delegate of the WebEvent service event %s failed: %s. The delegates after it were not called; %s.",
-			Poco::UTF8::escape(eventName), Poco::UTF8::escape(reason), consequence));
 	}
 }
 
@@ -536,6 +550,81 @@ void WebEventServiceImpl::setUserResolver(UserResolver resolver)
 	Poco::FastMutex::ScopedLock lock(_userResolverMutex);
 
 	_userResolver = std::move(resolver);
+}
+
+
+void WebEventServiceImpl::setSubjectAuthorizer(SubjectAuthorizer authorizer)
+{
+	Poco::FastMutex::ScopedLock lock(_subjectAuthorizerMutex);
+
+	_subjectAuthorizer = std::move(authorizer);
+}
+
+
+bool WebEventServiceImpl::authorizedSubject(const Subscriber& subscriber, const std::string& subject, SubjectAction action)
+{
+	SubjectAuthorizer authorizer;
+	{
+		Poco::FastMutex::ScopedLock lock(_subjectAuthorizerMutex);
+		authorizer = _subjectAuthorizer;
+	}
+	if (authorizer == nullptr) return true;
+
+	std::optional<std::string> refusedSubject;
+	std::optional<std::string> failure;
+	const auto ask = [&](const std::string& askedSubject)
+	{
+		if (refusedSubject.has_value()) return;
+		try
+		{
+			if (!authorizer(subscriber.username, askedSubject, action)) refusedSubject = askedSubject;
+		}
+		catch (...)
+		{
+			refusedSubject = askedSubject;
+			failure = currentExceptionText();
+		}
+	};
+	if (action == SubjectAction::NOTIFY)
+	{
+		// A notification reaches the subscribers of every ancestor as well, so
+		// a client must not reach a protected subject through a descendant.
+		forSubjectAndAncestors(subject, ask);
+	}
+	else
+	{
+		ask(subject);
+	}
+	if (!refusedSubject.has_value()) return true;
+
+	// The subjects come from the client and the exception may quote them: escaped,
+	// so that control characters cannot forge or garble log lines.
+	const std::string refused = Poco::UTF8::escape(*refusedSubject);
+	const std::string asked = Poco::UTF8::escape(subject);
+	const std::string consequence = action == SubjectAction::SUBSCRIBE
+		? std::string("the subject is left out of the subscription")
+		: Poco::format("the notification of %s is dropped", asked);
+	if (failure.has_value())
+	{
+		logRejection(Rejection::AUTHORIZER, Poco::format("The subject authorizer failed for subject %s of WebSocket subscriber %s, so %s: %s",
+			refused, describe(subscriber), consequence, Poco::UTF8::escape(*failure)), Poco::Message::PRIO_WARNING);
+	}
+	else if (action == SubjectAction::SUBSCRIBE)
+	{
+		logRejection(Rejection::SUBSCRIBE, Poco::format("WebSocket subscriber %s is not allowed to subscribe to %s; %s.",
+			describe(subscriber), asked, consequence));
+	}
+	else if (*refusedSubject == subject)
+	{
+		logRejection(Rejection::NOTIFY, Poco::format("WebSocket subscriber %s is not allowed to notify %s; %s.",
+			describe(subscriber), asked, consequence));
+	}
+	else
+	{
+		logRejection(Rejection::NOTIFY, Poco::format("WebSocket subscriber %s is not allowed to notify %s, which a notification of %s reaches; %s.",
+			describe(subscriber), refused, asked, consequence));
+	}
+	return false;
 }
 
 
@@ -1334,7 +1423,15 @@ void WebEventServiceImpl::receiveImpl(Subscriber::Ptr pSubscriber)
 			{
 				if (verb == SUBSCRIBE)
 				{
-					subscribe(pWS, subjectNames);
+					// Filtered before the subscription, so that nothing is fired or
+					// sent for a refused subject.
+					std::set<std::string> allowedSubjects;
+					std::ranges::copy_if(subjectNames, std::inserter(allowedSubjects, allowedSubjects.end()),
+						[&](const std::string& subjectName)
+						{
+							return authorizedSubject(*pSubscriber, subjectName, SubjectAction::SUBSCRIBE);
+						});
+					if (!allowedSubjects.empty()) subscribe(pWS, allowedSubjects);
 				}
 				else if (verb == UNSUBSCRIBE)
 				{
@@ -1352,7 +1449,10 @@ void WebEventServiceImpl::receiveImpl(Subscriber::Ptr pSubscriber)
 						}
 						else if (_clientNotify)
 						{
-							notify(subjectName, data);
+							if (authorizedSubject(*pSubscriber, subjectName, SubjectAction::NOTIFY))
+							{
+								notify(subjectName, data);
+							}
 						}
 						else if (logger().debug())
 						{
@@ -1830,14 +1930,14 @@ void WebEventServiceImpl::preflightRequest(Poco::Net::HTTPServerRequest& request
 		if (_socketCount.compare_exchange_weak(count, count + 1)) return;
 	}
 	request.response().setStatusAndReason(Poco::Net::HTTPResponse::HTTP_SERVICE_UNAVAILABLE);
-	logRejectedUpgrade(Rejection::LIMIT,
+	logRejection(Rejection::LIMIT,
 		Poco::format("WebSocket connection from %s rejected: the limit of %d WebSocket connections "
 			"(osp.web.event.maxWebSockets) is reached.",
 			request.clientAddress().toString(), _maxSockets));
 }
 
 
-void WebEventServiceImpl::logRejectedUpgrade(Rejection rejection, const std::string& message)
+void WebEventServiceImpl::logRejection(Rejection rejection, const std::string& message, Poco::Message::Priority priority)
 {
 	bool notice = false;
 	{
@@ -1852,7 +1952,7 @@ void WebEventServiceImpl::logRejectedUpgrade(Rejection rejection, const std::str
 	}
 	if (notice)
 	{
-		logger().notice(message);
+		logger().log(Poco::Message(logger().name(), message, priority));
 	}
 	else if (logger().debug())
 	{

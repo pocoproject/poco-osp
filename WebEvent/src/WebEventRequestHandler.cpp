@@ -76,7 +76,7 @@ void WebEventRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request
 					}
 					else
 					{
-						_pWebEventServiceImpl->logRejectedUpgrade(WebEventServiceImpl::Rejection::DELEGATE,
+						_pWebEventServiceImpl->logRejection(WebEventServiceImpl::Rejection::DELEGATE,
 							Poco::format("WebSocket connection from %s rejected by a delegate "
 								"of the requestReceived event (status %d).",
 								request.clientAddress().toString(),
@@ -131,7 +131,7 @@ void WebEventRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request
 	}
 	else
 	{
-		_pWebEventServiceImpl->logRejectedUpgrade(WebEventServiceImpl::Rejection::ORIGIN,
+		_pWebEventServiceImpl->logRejection(WebEventServiceImpl::Rejection::ORIGIN,
 			Poco::format("WebSocket connection from %s rejected: origin %s is neither the server's own "
 				"nor listed in osp.web.event.allowedOrigins.",
 				request.clientAddress().toString(),

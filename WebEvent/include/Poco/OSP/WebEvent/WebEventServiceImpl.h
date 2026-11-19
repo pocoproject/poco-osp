@@ -29,6 +29,7 @@
 #include "Poco/RefCountedObject.h"
 #include "Poco/Clock.h"
 #include "Poco/Logger.h"
+#include "Poco/Message.h"
 #include "Poco/AutoPtr.h"
 #include "Poco/SharedPtr.h"
 #include "Poco/Mutex.h"
@@ -156,6 +157,7 @@ public:
 	void notify(const std::string& subjectName, const std::string& data) override;
 	void notifyUser(const std::string& username, const std::string& subjectName, const std::string& data) override;
 	void setUserResolver(UserResolver resolver) override;
+	void setSubjectAuthorizer(SubjectAuthorizer authorizer) override;
 	[[nodiscard]] int subscriberCount(const std::string& subject) override;
 	SubscriberInfoVec listSubscribers() override;
 
@@ -275,26 +277,36 @@ private:
 	void releaseSocketSlot();
 
 	enum class Rejection
-		/// Why an upgrade request is rejected.
+		/// Why an upgrade request, or a subject of a client's message, is
+		/// rejected.
 	{
 		ORIGIN,
 		LIMIT,
-		DELEGATE
+		DELEGATE,
+		SUBSCRIBE,
+		NOTIFY,
+		AUTHORIZER
 	};
-	static constexpr std::size_t REJECTION_REASON_COUNT = 3;
+	static constexpr std::size_t REJECTION_REASON_COUNT = 6;
 		/// The number of Rejection values.
-	static_assert(static_cast<std::size_t>(Rejection::DELEGATE) + 1 == REJECTION_REASON_COUNT);
+	static_assert(static_cast<std::size_t>(Rejection::AUTHORIZER) + 1 == REJECTION_REASON_COUNT);
 
-	void logRejectedUpgrade(Rejection rejection, const std::string& message);
-		/// Logs the rejection of an upgrade request: at notice level at
-		/// most once every WEBEVENT_REJECTION_NOTICE_INTERVAL for each
-		/// reason, otherwise at debug level, so that a client that retries
-		/// in a loop does not fill the log.
+	void logRejection(Rejection rejection, const std::string& message, Poco::Message::Priority priority = Poco::Message::PRIO_NOTICE);
+		/// Logs the rejection of an upgrade request or of a subject: at the
+		/// given priority at most once every WEBEVENT_REJECTION_NOTICE_INTERVAL
+		/// for each reason, otherwise at debug level, so that a client that
+		/// retries in a loop does not fill the log.
 
 	void runMain();
 	void runWorker();
 	void addSubscriber(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::string& username = std::string(), const std::string& page = std::string(), const std::string& clientAddress = std::string());
 	void removeSubscriber(Poco::SharedPtr<Poco::Net::WebSocket> pWS, bool clientShutdown);
+	[[nodiscard]] bool authorizedSubject(const Subscriber& subscriber, const std::string& subject, SubjectAction action);
+		/// Returns whether the subject authorizer lets the user of the
+		/// subscriber do that with the subject, and for NOTIFY with each of
+		/// its ancestors as well: true without an authorizer, false if it
+		/// throws. A refusal is logged with logRejection(), at warning level
+		/// if the authorizer throws.
 	void subscribe(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::set<std::string>& subjectNames);
 	void unsubscribe(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::set<std::string>& subjectNames);
 	void enqueueSend(Subscriber::Ptr pSubscriber, const std::string& subject, std::shared_ptr<const std::string> pFrame, int flags = Poco::Net::WebSocket::FRAME_TEXT);
@@ -454,6 +466,8 @@ private:
 	Poco::FastMutex _rejectionLogMutex;
 	UserResolver _userResolver;
 	mutable Poco::FastMutex _userResolverMutex;
+	SubjectAuthorizer _subjectAuthorizer;
+	Poco::FastMutex _subjectAuthorizerMutex;
 	std::atomic<bool> _stopped;
 	Poco::FastMutex _stopMutex;
 	Poco::Logger& _logger;

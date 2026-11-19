@@ -364,6 +364,55 @@ connections. Beyond that, a delegate of the requestReceived event can reject a
 connection for reasons of its own.
 
 
+!! Subject Authorizer
+
+The permission decides who may connect. Which subjects a connection may subscribe
+to, and notify, is decided by the subject authorizer, a function installed with
+Poco::OSP::WebEvent::WebEventService::setSubjectAuthorizer(). It is asked with the
+user of the connection (as the resolver installed with setUserResolver() gave it;
+empty for none), the subject, and the action:
+
+    pWebEventService->setSubjectAuthorizer(
+        [](const std::string& username, const std::string& subject,
+            Poco::OSP::WebEvent::WebEventService::SubjectAction action)
+        {
+            if (subject == "sample" || subject.starts_with("sample.private"))
+                return username == "admin";
+            return action == Poco::OSP::WebEvent::WebEventService::SubjectAction::SUBSCRIBE;
+        });
+----
+
+The authorizer is asked for each subject of a SUBSCRIBE message, and of a NOTIFY
+message while osp.web.event.clientNotify is true. A subject it refuses is left out
+of the subscription, or not notified; the rest of the message is processed. A
+refusal is logged at notice level at most once every five seconds, and at debug
+level otherwise, so that a client cannot fill the log. A subject for which the
+authorizer throws is refused as well, and logged at warning level, with the same
+limit. No initial data is requested for a refused subject. Subscriptions made
+before the authorizer is installed are not checked again. What the server
+notifies with notify() or notifyUser() is not asked about. Without an authorizer,
+every connection may subscribe to and notify every subject; pass nullptr to remove
+it, for example when the bundle that installed it stops.
+
+The authorizer runs on the worker threads that read the frames of the clients,
+possibly on several at once. It must be thread-safe, and it must not block, for
+example on a database or a remote service: a worker that waits holds up the frames
+of other clients. An authorizer that needs such data looks it up in advance.
+
+Subjects have ancestors: a subscription to "sample" receives what is notified for
+"sample.private.data" as well. The two actions treat them differently:
+
+  - SUBSCRIBE: the authorizer is asked about the subject of the
+    subscription only. An authorizer that protects a subject must therefore also
+    refuse every ancestor of it, up to the first part of the name, to a user who
+    may not see it, as the example above does for "sample".
+  - NOTIFY: a notification of "sample.private.data" reaches the
+    subscribers of "sample.private" and "sample" as well, so the authorizer is
+    asked about the subject and each of its ancestors, and the notification is
+    dropped if it refuses any of them. A client therefore cannot notify the
+    subscribers of a protected subject through a subject below it.
+
+
 !!! Security Considerations
 
 A browser does not restrict a WebSocket connection to the origin of the page
@@ -386,7 +435,7 @@ requestReceived event, which is fired for every upgrade request that passed the
 checks above. The delegate can inspect the request and reject the connection by
 setting the status of the response to anything other than 200 (OK).
 
-There is no permission per subject: a connection that has been admitted may
+Without a subject authorizer (see above), a connection that has been admitted may
 subscribe to every subject. Credentials are checked once, on the upgrade
 request: a connection stays open after the session it was opened with has
 ended, or after the user has lost the permission.

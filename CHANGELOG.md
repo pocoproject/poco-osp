@@ -155,6 +155,8 @@ other changes that are not listed here. The release notes (`doc/99100-OSPRelease
 
 - WebEvent: the event `WebEventService::initialDataRequested` lets an application answer a new subscription with the
   current value of the subject, sent to the subscribing socket only.
+- WebEvent: `WebEventService::setSubjectAuthorizer()` installs a function that decides, with the user of the
+  connection, which subjects a client may subscribe to and notify; a refused subject is left out of the message.
 
 ### New components
 

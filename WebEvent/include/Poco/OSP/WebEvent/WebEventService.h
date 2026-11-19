@@ -122,13 +122,25 @@ class OSPWebEvent_API WebEventService: public Poco::OSP::Service
 	/// session once it has logged in. A request without valid
 	/// credentials is answered with 401 Unauthorized, one of a user without
 	/// the permission with 403 Forbidden. A connection that has been
-	/// admitted may subscribe to every subject; there is no permission per
-	/// subject.
+	/// admitted may subscribe to every subject that the subject authorizer,
+	/// if one is installed, allows (see setSubjectAuthorizer()).
 {
 public:
 	using Ptr = Poco::AutoPtr<WebEventService>;
 	using NotificationEvent = std::pair<std::string, std::string>;
 	using UserResolver = std::function<std::string(const Poco::Net::HTTPServerRequest&)>;
+
+	enum class SubjectAction
+		/// What a client asks to do with a subject.
+	{
+		SUBSCRIBE, /// The client asks to be sent what is notified for the subject.
+		NOTIFY     /// The client notifies the subject itself.
+	};
+
+	using SubjectAuthorizer = std::function<bool(const std::string& username, const std::string& subject, SubjectAction action)>;
+		/// Says whether the user of a WebSocket connection (as the user
+		/// resolver gave it; empty for none) may subscribe to a subject, or
+		/// notify it.
 
 	struct SubscriberInfo
 		/// Information about a connected WebSocket subscriber, captured
@@ -275,6 +287,35 @@ public:
 		/// the connection is upgraded. It should return an empty string for
 		/// anonymous connections. Pass nullptr to remove the resolver (e.g.
 		/// when the installing bundle stops).
+
+	virtual void setSubjectAuthorizer(SubjectAuthorizer authorizer) = 0;
+		/// Installs the authorizer that is asked whether a client may
+		/// subscribe to a subject or notify it. Without one, every client
+		/// that has a connection may do both for every subject.
+		///
+		/// The authorizer is asked for each subject a client names in a
+		/// SUBSCRIBE message, and in a NOTIFY message while client
+		/// notifications are enabled. A subject it refuses, or for which it
+		/// throws, is left out of the subscription (or not notified), and the
+		/// rest of the message is processed. Subscriptions made before the
+		/// authorizer is installed are not checked again.
+		///
+		/// The authorizer runs on the worker threads that read the frames of
+		/// the clients, possibly on several at once: it must be thread-safe,
+		/// and it must not block, because a worker that waits holds up the
+		/// frames of other clients.
+		///
+		/// Subjects have ancestors (see notify()). A notification of "a.b.c"
+		/// reaches the subscribers of "a.b" and "a" as well, so for a NOTIFY
+		/// the authorizer is asked about the subject and each of its
+		/// ancestors, and the notification is dropped if it refuses any of
+		/// them. For a SUBSCRIBE it is asked about the subject only, but a
+		/// subscription to "a.b" is sent what is notified for "a.b.c" as
+		/// well, so the authorizer must refuse an ancestor of what it
+		/// protects to a user who may not see all that is below it.
+		///
+		/// What the server itself notifies (notify(), notifyUser()) is not
+		/// asked about. Pass nullptr to remove the authorizer.
 
 	[[nodiscard]] virtual int subscriberCount(const std::string& subject) = 0;
 		/// Returns the number of subscribers to the subject.
