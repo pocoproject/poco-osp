@@ -31,6 +31,14 @@ if(ENABLE_OSP_BUNDLE_CREATOR)
 			-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/BundleFunctionTest
 			-P ${CMAKE_CURRENT_SOURCE_DIR}/BundleFunctionTest.cmake
 	)
+	add_test(
+		NAME OSPBundleGenerated
+		COMMAND ${CMAKE_COMMAND}
+			-DBUNDLE_CREATOR=$<TARGET_FILE:BundleCreator>
+			-DGENERATOR=${CMAKE_GENERATOR}
+			-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/BundleGeneratedTest
+			-P ${CMAKE_CURRENT_SOURCE_DIR}/BundleGeneratedTest.cmake
+	)
 endif()
 
 # The test configures the repository on its own, with the POCO sources of this build and a

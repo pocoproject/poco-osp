@@ -87,6 +87,7 @@ endfunction()
 #                 [CODE <files>...]
 #                 [DEPENDS <dependencies>...]
 #                 [WORKING_DIRECTORY <directory>]
+#                 [GENERATED <directories>...]
 #                 [SYMLINKS]
 #                 [INSTALL_COMPONENT <component>]
 #                )
@@ -101,6 +102,12 @@ endfunction()
 #   libraries in CODE; files listed here also create the bundle again when they change.
 # WORKING_DIRECTORY: The directory of the paths in the spec and of its bundle/ directory, whose files
 #   the bundle depends on; the directory of the spec by default.
+# GENERATED: Directories below bundle/, relative to it, that a build writes, such as a web app built into
+#   the bundle; DEPENDS names what writes them. Their files are not dependencies of the bundle, so that a
+#   build that writes them under other names neither misses a file of an earlier build nor configures again.
+#   Where a call gives no GENERATED values, the variable POCO_OSP_BUNDLE_GENERATED gives the directories; a
+#   function that builds a web app into its bundles can set it for its caller, and a caller unsets or
+#   empties it to switch that off. Nothing by default.
 # SYMLINKS: Symbolic links in the <files> of the spec are stored as links (BundleCreator --symlinks).
 # INSTALL_COMPONENT: Installs the bundle file, <symbolic name>_<version>.bndl from the spec, into
 #   ${POCO_INSTALL_BUNDLEDIR} (bundles if it is not set) with this install component.
@@ -108,7 +115,7 @@ function(poco_osp_bundle BUNDLE_TARGET)
 	set(prefix "BUNDLE")
 	set(options "SYMLINKS")
 	set(oneValueArgs SPEC DESTINATION WORKING_DIRECTORY INSTALL_COMPONENT)
-	set(multiValueArgs CODE DEPENDS)
+	set(multiValueArgs CODE DEPENDS GENERATED)
 	cmake_parse_arguments("${prefix}" "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
 	# A misspelt keyword would otherwise drop the values that follow it.
@@ -201,9 +208,33 @@ function(poco_osp_bundle BUNDLE_TARGET)
 	# The bundle content (extensions.xml, bundle.properties, web resources, ...)
 	# lives in the spec's bundle/ directory; without these dependencies, edits
 	# there never re-trigger bundle creation and stale .bndl files get shipped.
-	# The build checks the glob again, so that files added, renamed or removed
-	# after configure are picked up.
-	file(GLOB_RECURSE BUNDLE_CONTENT_FILES CONFIGURE_DEPENDS ${BUNDLE_WORKING_DIRECTORY}/bundle/*)
+	# The build checks the globs again, so that files added, renamed or removed
+	# after configure are picked up. The directories in GENERATED are not
+	# globbed: a build that writes them would make CMake configure again.
+	if(NOT DEFINED BUNDLE_GENERATED)
+		set(BUNDLE_GENERATED ${POCO_OSP_BUNDLE_GENERATED})
+	endif()
+	list(TRANSFORM BUNDLE_GENERATED REPLACE "/+$" "")
+	set(_bundle_dir ${BUNDLE_WORKING_DIRECTORY}/bundle)
+	set(BUNDLE_CONTENT_FILES "")
+	set(_patterns ${_bundle_dir}/*)
+	while(_patterns)
+		list(POP_FRONT _patterns _pattern)
+		file(GLOB _entries RELATIVE ${_bundle_dir} CONFIGURE_DEPENDS ${_pattern})
+		foreach(_entry IN LISTS _entries)
+			if(_entry IN_LIST BUNDLE_GENERATED)
+				continue()
+			endif()
+			# As with file(GLOB_RECURSE), a symbolic link to a directory is not followed.
+			if(IS_DIRECTORY ${_bundle_dir}/${_entry} AND NOT IS_SYMLINK ${_bundle_dir}/${_entry})
+				# The name becomes part of a glob expression, which must match it literally.
+				string(REGEX REPLACE "([[*?])" "[\\1]" _escaped "${_entry}")
+				list(APPEND _patterns ${_bundle_dir}/${_escaped}/*)
+			else()
+				list(APPEND BUNDLE_CONTENT_FILES ${_bundle_dir}/${_entry})
+			endif()
+		endforeach()
+	endwhile()
 
 	# OCI container bundles additionally pack the spec's oci/ directory
 	# (rootfs, config.json); track it too, or changes to the rootfs ship

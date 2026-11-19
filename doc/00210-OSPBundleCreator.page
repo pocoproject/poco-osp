@@ -323,7 +323,14 @@ to the Bundle Creator tool with the <[--code]> option, and the <[SYMLINKS]> opti
 passes <[--symlinks]>. The function runs the tool in the directory of the bundle
 specification file, unless another directory is given with <[WORKING_DIRECTORY]>,
 and makes the bundle depend on the files in the <[bundle]> directory of that
-directory. With <[INSTALL_COMPONENT]>, the bundle file is installed into
+directory. <[GENERATED]> names directories below <[bundle]>, relative to it,
+that a build writes, such as a web app built into the bundle; their files are
+not dependencies of the bundle, and <[DEPENDS]> names what writes them instead.
+A call that gives no <[GENERATED]> values takes the directories from the
+variable <[POCO_OSP_BUNDLE_GENERATED]>, which a function that builds a web app
+into its bundles can set for its caller; unsetting or emptying it switches that
+default off. Nothing is left out by default.
+With <[INSTALL_COMPONENT]>, the bundle file is installed into
 <[POCO_INSTALL_BUNDLEDIR]> (<[bundles]> if it is not set) with that install component.
 <[POCO_OSP_BUNDLE_DIR]> is the directory into which the build of poco-osp writes
 the bundles, <[${CMAKE_BINARY_DIR}/${POCO_INSTALL_BUNDLEDIR}]> unless it is set.
