@@ -25,7 +25,11 @@
 #include "Poco/Net/NameValueCollection.h"
 #include "Poco/Exception.h"
 #include "Poco/Net/HTTPServerRequest.h"
+#include "Poco/SHA2Engine.h"
+#include "Poco/DigestEngine.h"
+#include "Poco/Logger.h"
 #include "Poco/Message.h"
+#include <algorithm>
 #include <atomic>
 #include <map>
 #include <thread>
@@ -59,6 +63,16 @@ namespace
 			if (cookie.getName() == name) return cookie;
 		}
 		throw Poco::NotFoundException(name);
+	}
+
+	[[nodiscard]] std::string digestOf(const std::string& sessionId)
+		/// Returns the first eight hex digits of the SHA-256 digest of the session ID.
+	{
+		static constexpr std::string::size_type LOGGED_DIGEST_LENGTH = 8;
+
+		Poco::SHA2Engine sha256;
+		sha256.update(sessionId);
+		return Poco::DigestEngine::digestToHex(sha256.digest()).substr(0, LOGGED_DIGEST_LENGTH);
 	}
 
 }
@@ -551,6 +565,51 @@ void WebSessionManagerTest::testClearCacheKeepsStoredSessions()
 }
 
 
+void WebSessionManagerTest::testSessionIdNotLogged()
+{
+	WebSessionManager::Ptr pManager(new WebSessionManager(_pBundle->context()));
+	pManager->setSessionStore(SessionStoreStub::Ptr(new SessionStoreStub));
+	LogCapture capture("osp.web.session");
+	Poco::Logger::get("osp.web.session").setLevel(Poco::Message::PRIO_DEBUG);
+
+	ServerRequestStub request(CLIENT_ADDRESS, false);
+	WebSession::Ptr pSession = pManager->create("app", request, SESSION_TIMEOUT_SECONDS, _pBundle->context());
+	Poco::Net::NameValueCollection cookies;
+	cookies.add("osp.web.session.app", pSession->id());
+	ServerRequestStub sameClient(CLIENT_ADDRESS, false);
+	sameClient.setCookies(cookies);
+	assertTrue (pManager->find("app", sameClient) != nullptr);
+	ServerRequestStub renewRequest(CLIENT_ADDRESS, false);
+	WebSession::Ptr pRenewed = pManager->renew("app", renewRequest, pSession);
+	cookies.set("osp.web.session.app", pRenewed->id());
+	ServerRequestStub otherClient("127.0.0.2:50000", false);
+	otherClient.setCookies(cookies);
+	assertTrue (pManager->find("app", otherClient) == nullptr);
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
+	for (const auto& message: messages)
+	{
+		assertTrue (message.getText().find(pSession->id()) == std::string::npos);
+		assertTrue (message.getText().find(pRenewed->id()) == std::string::npos);
+	}
+	const auto logged = [&messages](const std::string& text)
+	{
+		return std::ranges::any_of(messages,
+			[&text](const Poco::Message& message) { return message.getText().find(text) != std::string::npos; });
+	};
+	const std::string digest = digestOf(pSession->id());
+	const std::string renewedDigest = digestOf(pRenewed->id());
+	assertTrue (logged("New session with digest " + digest + " created."));
+	assertTrue (logged("Looking up session with digest " + digest + "..."));
+	assertTrue (logged("Session with digest " + digest + " found in cache."));
+	assertTrue (logged("Looking up session with digest " + digest + " in session store..."));
+	assertTrue (logged("Existing session with digest " + digest + " found."));
+	assertTrue (logged("Session with digest " + digest + " renewed as session with digest " + renewedDigest + "."));
+	assertTrue (logged("Removing session with digest " + digest + "."));
+	assertTrue (logged("Client address mismatch for the session with digest " + renewedDigest + " of "));
+}
+
+
 CppUnit::Test* WebSessionManagerTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("WebSessionManagerTest");
@@ -579,6 +638,7 @@ CppUnit::Test* WebSessionManagerTest::suite()
 	CppUnit_addTest(pSuite, WebSessionManagerTest, testReplacedAttributeReleasesSessionOutsideLock);
 	CppUnit_addTest(pSuite, WebSessionManagerTest, testClearCacheReleasesCachedSessions);
 	CppUnit_addTest(pSuite, WebSessionManagerTest, testClearCacheKeepsStoredSessions);
+	CppUnit_addTest(pSuite, WebSessionManagerTest, testSessionIdNotLogged);
 
 	return pSuite;
 }

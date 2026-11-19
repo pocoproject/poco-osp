@@ -23,6 +23,8 @@
 #include "Poco/NumberParser.h"
 #include "Poco/NumberFormatter.h"
 #include "Poco/SHA1Engine.h"
+#include "Poco/SHA2Engine.h"
+#include "Poco/DigestEngine.h"
 #include "Poco/RandomStream.h"
 #include "Poco/Exception.h"
 #include "Poco/Timestamp.h"
@@ -41,6 +43,18 @@ using namespace std::string_literals;
 
 
 namespace Poco::OSP::Web {
+
+
+[[nodiscard]] static std::string digestOf(const std::string& sessionId)
+	// Returns the first eight hex digits of the SHA-256 digest of the given
+	// session ID, which names the session in log messages without the ID.
+{
+	static constexpr std::string::size_type LOGGED_DIGEST_LENGTH = 8;
+
+	Poco::SHA2Engine sha256;
+	sha256.update(sessionId);
+	return Poco::DigestEngine::digestToHex(sha256.digest()).substr(0, LOGGED_DIGEST_LENGTH);
+}
 
 
 const std::string WebSessionManager::COOKIE_NAME("osp.web.session");
@@ -303,7 +317,7 @@ WebSession::Ptr WebSessionManager::renew(const std::string& appName, const Poco:
 	}
 	if (_logger.debug())
 	{
-		_logger.debug("Session %s renewed as %s."s, pSession->id(), pNewSession->id());
+		_logger.debug("Session with digest %s renewed as session with digest %s."s, digestOf(pSession->id()), digestOf(pNewSession->id()));
 	}
 	return pNewSession;
 }
@@ -410,7 +424,7 @@ WebSession::Ptr WebSessionManager::findImpl(const std::string& appName, const Po
 	{
 		if (_logger.debug())
 		{
-			_logger.debug("Looking up session %s..."s, sessionId);
+			_logger.debug("Looking up session with digest %s..."s, digestOf(sessionId));
 		}
 		pSession = findByIdImpl(sessionId, pContext);
 	}
@@ -422,7 +436,7 @@ WebSession::Ptr WebSessionManager::findImpl(const std::string& appName, const Po
 	{
 		if (_logger.debug())
 		{
-			_logger.debug("Existing session %s found."s, sessionId);
+			_logger.debug("Existing session with digest %s found."s, digestOf(sessionId));
 		}
 		if (!_verifyAddress || pSession->clientAddress() == request.clientAddress().host())
 		{
@@ -433,8 +447,8 @@ WebSession::Ptr WebSessionManager::findImpl(const std::string& appName, const Po
 		}
 		else
 		{
-			_logger.notice("Client address mismatch for a session of %s (known address: %s, request address: %s). The session is removed."s,
-				cookieName(appName), pSession->clientAddress().toString(), request.clientAddress().host().toString());
+			_logger.notice("Client address mismatch for the session with digest %s of %s (known address: %s, request address: %s). The session is removed."s,
+				digestOf(sessionId), cookieName(appName), pSession->clientAddress().toString(), request.clientAddress().host().toString());
 
 			// possible attack: same session ID from different host - invalidate session
 			removeImpl(pSession);
@@ -450,13 +464,13 @@ WebSession::Ptr WebSessionManager::findByIdImpl(const std::string& sessionId, Bu
 	WebSession::Ptr pSession = _cache.get(sessionId);
 	if (_logger.debug() && pSession != nullptr)
 	{
-		_logger.debug("Session %s found in cache."s, sessionId);
+		_logger.debug("Session with digest %s found in cache."s, digestOf(sessionId));
 	}
 	if (_pStore != nullptr)
 	{
 		if (_logger.debug())
 		{
-			_logger.debug("Looking up session %s in session store..."s, sessionId);
+			_logger.debug("Looking up session with digest %s in session store..."s, digestOf(sessionId));
 		}
 		if (pSession != nullptr)
 		{
@@ -490,7 +504,7 @@ WebSession::Ptr WebSessionManager::createImpl(const std::string& appName, const 
 	}
 	if (_logger.debug())
 	{
-		_logger.debug("New session %s created."s, pSession->id());
+		_logger.debug("New session with digest %s created."s, digestOf(pSession->id()));
 	}
 	return pSession;
 }
@@ -506,7 +520,7 @@ void WebSessionManager::removeImpl(const std::string& id)
 {
 	if (_logger.debug())
 	{
-		_logger.debug("Removing session %s."s, id);
+		_logger.debug("Removing session with digest %s."s, digestOf(id));
 	}
 	_cache.remove(id);
 	if (_pStore != nullptr)

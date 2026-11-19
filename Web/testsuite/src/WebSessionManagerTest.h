@@ -56,6 +56,7 @@ public:
 	void testReplacedAttributeReleasesSessionOutsideLock();
 	void testClearCacheReleasesCachedSessions();
 	void testClearCacheKeepsStoredSessions();
+	void testSessionIdNotLogged();
 
 	static CppUnit::Test* suite();
 

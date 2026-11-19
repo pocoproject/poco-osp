@@ -56,6 +56,9 @@ class OSPWeb_API WebSessionManager: public WebSessionService<Poco::Net::HTTPServ
 	/// will send the session cookie to all hosts with names in the appinf.com
 	/// domain. If a domain is not given, the session cookie will only be available
 	/// to the host that has originally set it.
+	///
+	/// Log messages name a session by the first eight hex digits of the SHA-256
+	/// digest of its ID, never by the ID, which is the credential of the session.
 {
 public:
 	using Ptr = Poco::AutoPtr<WebSessionManager>;
