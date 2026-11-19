@@ -359,6 +359,10 @@ public:
 		/// is replaced with "***" (http://***@host/), and a non-empty fragment with
 		/// "***". A URI without user info, query and fragment is returned unchanged.
 
+	[[nodiscard]] static std::string loggedRequestURI(const std::string& uri);
+		/// Returns redactRequestURI(uri) with its control characters percent-encoded,
+		/// as the web server writes a request URI to the log.
+
 	[[nodiscard]] static bool isSameOrigin(const Poco::Net::HTTPServerRequest& request, const std::string& origin);
 		/// Returns true if origin, the value of an Origin header field, names the
 		/// origin of the request itself: the scheme of the connection the request was

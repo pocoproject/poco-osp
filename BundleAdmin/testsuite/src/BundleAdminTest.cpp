@@ -21,7 +21,6 @@
 #include "Poco/OSP/CodeCache.h"
 #include "Poco/OSP/LanguageTag.h"
 #include "Poco/OSP/Properties.h"
-#include "Poco/OSP/Service.h"
 #include "Poco/OSP/ServiceRegistry.h"
 #include "Poco/OSP/SystemEvents.h"
 #include "Poco/OSP/Web/WebRequestHandlerFactory.h"
@@ -36,6 +35,7 @@
 #include "Poco/Zip/Compress.h"
 #include "Poco/ClassLoader.h"
 #include "Poco/DateTime.h"
+#include "Poco/Exception.h"
 #include "Poco/File.h"
 #include "Poco/FileStream.h"
 #include "Poco/Message.h"
@@ -50,7 +50,6 @@
 #include <memory>
 #include <sstream>
 #include <string>
-#include <typeinfo>
 #include <vector>
 
 
@@ -128,27 +127,25 @@ namespace
 		return text.find(part) != std::string::npos;
 	}
 
-	class OtherService: public Poco::OSP::Service
-		/// A service that is not a web session manager.
+	class FailingSessionManager: public Poco::OSP::Web::WebSessionManager
+		/// A web session manager whose lookup of a session fails with a control character in the message.
 	{
 	public:
-		OtherService() = default;
-
-		~OtherService() override = default;
-
-		OtherService(const OtherService&) = delete;
-		OtherService(OtherService&&) = delete;
-		OtherService& operator = (const OtherService&) = delete;
-		OtherService& operator = (OtherService&&) = delete;
-
-		[[nodiscard]] const std::type_info& type() const override
+		explicit FailingSessionManager(Poco::OSP::BundleContext::Ptr pContext):
+			Poco::OSP::Web::WebSessionManager(pContext)
 		{
-			return typeid(OtherService);
 		}
 
-		[[nodiscard]] bool isA(const std::type_info& otherType) const override
+		~FailingSessionManager() override = default;
+
+		FailingSessionManager(const FailingSessionManager&) = delete;
+		FailingSessionManager(FailingSessionManager&&) = delete;
+		FailingSessionManager& operator = (const FailingSessionManager&) = delete;
+		FailingSessionManager& operator = (FailingSessionManager&&) = delete;
+
+		[[nodiscard]] Poco::OSP::Web::WebSession::Ptr find(const std::string&, const Poco::Net::HTTPServerRequest&) override
 		{
-			return otherType == typeid(OtherService) || Poco::OSP::Service::isA(otherType);
+			throw Poco::IllegalStateException("session store\r\nunavailable"s);
 		}
 	};
 }
@@ -470,9 +467,9 @@ void BundleAdminTest::testPageIsCompleteWithoutSessionManager()
 void BundleAdminTest::testErrorAfterPartOfPageIsLogged()
 {
 	_pFixture = std::make_unique<Fixture>("web.session = bundleadmin\n"s);
-	_pFixture->registry.registerService(Poco::OSP::Web::WebSessionManager::SERVICE_NAME, new OtherService, Poco::OSP::Properties());
+	_pFixture->registry.registerService(Poco::OSP::Web::WebSessionManager::SERVICE_NAME, new FailingSessionManager(_pFixture->pLoader->contextForBundle(_pFixture->pAdmin)), Poco::OSP::Properties());
 	LogCapture capture("osp.bundle.com.appinf.osp.bundleadmin"s);
-	RequestStub request(Poco::Net::HTTPRequest::HTTP_GET, SHOW_TARGET, ""s);
+	RequestStub request(Poco::Net::HTTPRequest::HTTP_GET, "/bundleAdmin/showBundle\r\n?symbolicName=osp.test.target"s, ""s);
 
 	ResponseStub& response = _pFixture->handle("BundleInfoHandlerFactory"s, request);
 
@@ -481,8 +478,10 @@ void BundleAdminTest::testErrorAfterPartOfPageIsLogged()
 	bool logged = false;
 	for (const auto& msg: capture.channel().waitForMessages(1))
 	{
-		if (msg.getPriority() == Poco::Message::PRIO_ERROR && contains(msg.getText(), "/bundleAdmin/showBundle?symbolicName=***"s)) logged = true;
-		assertTrue (!contains(msg.getText(), SHOW_TARGET));
+		if (msg.getPriority() == Poco::Message::PRIO_ERROR && contains(msg.getText(), "/bundleAdmin/showBundle%0D%0A?symbolicName=***"s)
+			&& contains(msg.getText(), "session store\\r\\nunavailable"s)) logged = true;
+		assertTrue (!contains(msg.getText(), "osp.test.target"s));
+		assertTrue (msg.getText().find_first_of("\r\n"s) == std::string::npos);
 	}
 	assertTrue (logged);
 }

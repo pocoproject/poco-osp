@@ -282,7 +282,7 @@ static bool isPersistentResource(const Poco::OSP::Bundle::ConstPtr& pBundle, con
 	// Returns the URI of the request without the values of its query, its user info and its
 	// fragment, escaped.
 {
-	return loggedText(WebServerDispatcher::redactRequestURI(request.getURI()));
+	return WebServerDispatcher::loggedRequestURI(request.getURI());
 }
 
 
@@ -319,7 +319,7 @@ static bool isPersistentResource(const Poco::OSP::Bundle::ConstPtr& pBundle, con
 		if (!isToken(name) || CREDENTIAL_FIELDS.contains(name) || csrfTokenHeaders.contains(name))
 			result += "<redacted>"s;
 		else if (URI_FIELDS.contains(name))
-			result += loggedText(WebServerDispatcher::redactRequestURI(value));
+			result += WebServerDispatcher::loggedRequestURI(value);
 		else
 			result += loggedText(value);
 	}
@@ -911,7 +911,7 @@ void WebServerDispatcher::logRequest(const Poco::Net::HTTPServerRequest& request
 		message["size"s] = "-";
 
 	message["host"s] = loggedText(request.get("Host"s, ""s));
-	message["referer"s] = loggedText(redactRequestURI(request.get("Referer"s, ""s)));
+	message["referer"s] = loggedRequestURI(request.get("Referer"s, ""s));
 	message["useragent"s] = loggedText(request.get("User-Agent"s, ""s));
 	message["duration"s] = Poco::NumberFormatter::format(static_cast<double>(duration)/Poco::Clock::resolution(), 6);
 
@@ -2388,6 +2388,12 @@ std::string WebServerDispatcher::redactRequestURI(const std::string& uri)
 		if (fragmentPos + 1 < uri.size()) result += "***"s;
 	}
 	return result;
+}
+
+
+std::string WebServerDispatcher::loggedRequestURI(const std::string& uri)
+{
+	return loggedText(redactRequestURI(uri));
 }
 
 

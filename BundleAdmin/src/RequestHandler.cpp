@@ -21,6 +21,7 @@
 #include "Poco/Exception.h"
 #include "Poco/Logger.h"
 #include "Poco/URI.h"
+#include "Poco/UTF8String.h"
 #include <exception>
 #include <set>
 #include <string>
@@ -368,7 +369,7 @@ Poco::OSP::Web::WebSession::Ptr RequestHandler::session()
 
 void RequestHandler::logIncompleteResponse(const std::string& reason)
 {
-	context()->logger().error("The bundle %s sent the page %s incomplete: %s", bundle()->symbolicName(), Poco::OSP::Web::WebServerDispatcher::redactRequestURI(request().getURI()), reason);
+	context()->logger().error("The bundle %s sent the page %s incomplete: %s", bundle()->symbolicName(), Poco::OSP::Web::WebServerDispatcher::loggedRequestURI(request().getURI()), Poco::UTF8::escape(reason));
 }
 
 
