@@ -328,6 +328,17 @@ namespace
 		}
 	};
 
+	class ContentLocationResponseHandler: public Poco::Net::HTTPRequestHandler
+		/// Answers with a Content-Location whose query holds a token.
+	{
+	public:
+		void handleRequest(Poco::Net::HTTPServerRequest&, Poco::Net::HTTPServerResponse& response) override
+		{
+			response.set("Content-Location"s, "/x?token=content-location-secret"s);
+			response.sendBuffer("ok", 2);
+		}
+	};
+
 	class CredentialAndNonTokenFieldResponseHandler: public Poco::Net::HTTPRequestHandler
 		/// Answers with header fields named by a credential field name in either letter case,
 		/// by names that are not HTTP tokens, and by X-Note.
@@ -2114,6 +2125,28 @@ void WebServerDispatcherTest::testRedirectLogsMaskQueryValues()
 }
 
 
+void WebServerDispatcherTest::testFullRequestLogMasksContentLocationQueryValues()
+{
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(
+		_pFixture->dispatcherConfig(WebServerDispatcher::CONF_OPT_LOG_FULL_REQUEST));
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/located"s,
+		new TestHandlerFactory<ContentLocationResponseHandler>, WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle()));
+	LogCapture capture(_pFixture->bundles.context()->logger().name());
+
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	request.setURI("/located"s);
+	pDispatcher->handleRequest(request, request.response(), false);
+	assertTrue (request.response().getStatus() == HTTPResponse::HTTP_OK);
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(2);
+	assertEqual (2, messages.size());
+	const std::string& responseText = messages.at(1).getText();
+	assertTrue (responseText.find("\n\tContent-Location: /x?token=***"s) != std::string::npos);
+	assertTrue (responseText.find("content-location-secret"s) == std::string::npos);
+}
+
+
 void WebServerDispatcherTest::testFullRequestLogHasNoCredentials()
 {
 	WebSessionManager::Ptr pSessionManager = new WebSessionManager(_pFixture->bundles.context());
@@ -3006,6 +3039,7 @@ CppUnit::Test* WebServerDispatcherTest::suite()
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testBadRequestDebugMessageHasNoControlCharacters);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testBadRequestDebugMessageHasNoQueryValues);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRedirectLogsMaskQueryValues);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullRequestLogMasksContentLocationQueryValues);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullRequestLogHasNoCredentials);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullRequestLogRedactsFieldsWithCredentialOrNonTokenNames);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullRequestLogKeepsRequestLineWithFieldNameAsMethod);

@@ -79,6 +79,7 @@ public:
 	void testBadRequestDebugMessageHasNoControlCharacters();
 	void testBadRequestDebugMessageHasNoQueryValues();
 	void testRedirectLogsMaskQueryValues();
+	void testFullRequestLogMasksContentLocationQueryValues();
 	void testFullRequestLogHasNoCredentials();
 	void testFullRequestLogRedactsFieldsWithCredentialOrNonTokenNames();
 	void testFullRequestLogKeepsRequestLineWithFieldNameAsMethod();
