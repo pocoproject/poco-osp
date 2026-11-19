@@ -63,6 +63,11 @@ poco_osp_expect("a static build has no OSP Auth library, whose package would nee
 configure("a minimal build with the tests and without the bundle creator" minimal-tests
 	-DPOCO_OSP_MINIMAL_BUILD=ON -DPOCO_OSP_ENABLE_TESTS=ON -DENABLE_OSP_BUNDLE_CREATOR=OFF)
 
+# The OSP Auth tests link Poco::Net only for the LDAP tests, so they do not need ENABLE_OSP_NET.
+configure("a minimal build with OSP Auth and the tests" minimal-auth
+	-DPOCO_OSP_MINIMAL_BUILD=ON -DPOCO_OSP_ENABLE_TESTS=ON -DENABLE_OSP_BUNDLES=ON -DENABLE_OSP_CRYPTO=ON
+	-DENABLE_OSP_DATA=ON -DENABLE_OSP_DATA_SQLITE=ON -DENABLE_OSP_AUTH=ON)
+
 # Configures the repository in the build directory with the given project include, which takes C++20 away from
 # the compiler, and checks that the configure stops with a message that names the requirement.
 function(configure_without_cxx20 description build include)

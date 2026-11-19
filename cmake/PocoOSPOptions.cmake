@@ -136,7 +136,8 @@ _poco_osp_part(ENABLE_OSP_SIMPLEAUTH NEEDS ENABLE_OSP_BUNDLES
 	POCO Poco::Foundation Poco::XML Poco::JSON Poco::Util)
 _poco_osp_part(ENABLE_OSP_AUTH NEEDS ENABLE_OSP_BUNDLES ENABLE_OSP_CRYPTO ENABLE_OSP_DATA ENABLE_OSP_DATA_SQLITE
 	POCO Poco::Foundation Poco::XML Poco::JSON Poco::Util Poco::Zip Poco::Crypto Poco::Data Poco::DataSQLite)
-_poco_osp_part(ENABLE_OSP_AUTH_LDAP NEEDS ENABLE_OSP_AUTH)
+_poco_osp_part(ENABLE_OSP_AUTH_LDAP NEEDS ENABLE_OSP_AUTH
+	POCO Poco::Net)
 _poco_osp_part(ENABLE_OSP_REMOTING NEEDS ENABLE_OSP_BUNDLES ENABLE_OSP_NET ENABLE_OSP_NETSSL
 	POCO Poco::Foundation Poco::XML Poco::JSON Poco::Util Poco::Net Poco::NetSSL
 		Poco::RemotingNG Poco::RemotingNGTCP Poco::RemotingNGREST)

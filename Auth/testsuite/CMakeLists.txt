@@ -14,5 +14,10 @@ add_test(
 )
 
 target_link_libraries(OSPAuth-testrunner
-	PRIVATE Poco::OSPAuth Poco::OSP Poco::Net Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation Poco::CppUnit
+	PRIVATE Poco::OSPAuth Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::JSON Poco::Foundation Poco::CppUnit
 )
+
+# The LDAP tests run a local TCP server.
+if(ENABLE_OSP_AUTH_LDAP)
+	target_link_libraries(OSPAuth-testrunner PRIVATE Poco::Net)
+endif()
