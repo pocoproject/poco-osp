@@ -77,6 +77,13 @@ class OSPAuthData_API AuthAdminServiceImpl: public AbstractLDAPAuthAdminService
 	/// maxFailures failed logins (needs the auth_failures column); the count is kept until a
 	/// login accepts the password or unlockOutUser() is called.
 	///
+	/// A successful check of a user's credentials is remembered for
+	/// AuthParams::credentialsCacheTimeout seconds under a keyed hash of the credentials, so that
+	/// a login that repeats them is not hashed again; the lock-out check still runs first. Changing
+	/// the password, removing or uncaching the user and a lock-out forget the remembered check;
+	/// failed checks are not remembered. A login accepted by the remembered check posts no
+	/// AuthNotification.
+	///
 	/// As of 2021, the recommended number of iterations for PBKDF2 with HMAC-SHA256
 	/// is 310.000 for HMAC-SHA256 (version 4) and 720.000 for HMAC-SHA1 (version 3).
 	/// See https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
@@ -119,7 +126,11 @@ public:
 		int cacheSize = 1024;
 			/// Size of the permissions cache.
 		int cacheTimeout = 60;
-			/// The timeout for the credentials cache, in seconds.
+			/// The timeout of the permissions cache and of the cache of stored password hashes, in
+			/// seconds.
+		int credentialsCacheTimeout = 60;
+			/// How long a successful check of a user's credentials is remembered, in seconds;
+			/// 0 disables it.
 		int hashVersion = 4;
 			/// The version of the password hash to use:
 			///    - 1: MD5 with common salt (original, no longer considered secure)
@@ -159,7 +170,8 @@ public:
 		/// connection strings.
 		///
 		/// Throws a Poco::InvalidArgumentException if authParams.hashVersion is not
-		/// from 1 to 4 or authParams.pbkdf2Iterations is not positive.
+		/// from 1 to 4, authParams.pbkdf2Iterations is not positive or
+		/// authParams.credentialsCacheTimeout is negative.
 
 	~AuthAdminServiceImpl() override;
 		/// Destroys the AuthAdminServiceImpl.
@@ -464,19 +476,22 @@ private:
 		/// Returns the stored password hash of the user; empty if the user
 		/// does not exist or has no password hash.
 	[[nodiscard]] bool applyPasswordCheckImpl(Poco::Data::Session& sess, const std::string& username,
-		const std::string& credentials, const PasswordCheck& check, bool countFailure) const;
-		/// Returns check.matches. Stores the new hash and updates the caches
-		/// and the lock-out if the credentials match; otherwise counts the
+		const PasswordCheck& check, bool countFailure) const;
+		/// Returns check.matches. Stores the new hash, loads the permissions
+		/// and clears the lock-out if the credentials match; otherwise counts the
 		/// failure if countFailure is true.
 	void storeCredentialsImpl(Poco::Data::Session& sess, const std::string& username,
 		const PasswordCheck& check) const;
 		/// Adds the user with the new hash of check, or stores the new hash
 		/// for an existing user if check has one.
-	void acceptStoredCredentialsImpl(Poco::Data::Session& sess, const std::string& username,
-		const std::string& credentials) const;
-		/// Caches the credentials and the permissions of a user whose
-		/// credentials match the stored password hash, and clears the
-		/// lock-out and the failure count.
+	void acceptStoredCredentialsImpl(Poco::Data::Session& sess, const std::string& username) const;
+		/// Caches the permissions of a user whose credentials match the
+		/// stored password hash, and clears the lock-out and the failure count.
+	void rememberCheckImpl(const std::string& username, const std::string& credentials,
+		const PasswordCheck& check) const;
+		/// Called after the transaction of a login that accepted the credentials
+		/// is committed: caches the stored password hash of check, and remembers
+		/// the check of the credentials (see AuthParams::credentialsCacheTimeout).
 	[[nodiscard]] bool validateUserImpl(Poco::Data::Session& sess, const std::string& username, bool valid) const;
 	PermissionsPtr loadPermissions(Poco::Data::Session& sess, const std::string& username) const;
 	void reloadPermissions(Poco::Data::Session& sess, const std::string& username) const;

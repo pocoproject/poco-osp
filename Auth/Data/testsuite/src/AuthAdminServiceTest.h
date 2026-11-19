@@ -44,6 +44,13 @@ public:
 	void testAuthenticateNotification();
 	void testLoginNotificationIsNotLoggedAsInformation();
 	void testRememberedLoginPostsNoNotification();
+	void testZeroCredentialsCacheTimeoutRemembersNoCheck();
+	void testNegativeCredentialsCacheTimeoutIsRejected();
+	void testPasswordChangeForgetsRememberedCheck();
+	void testUserRemovalForgetsRememberedCheck();
+	void testLockOutForgetsRememberedCheck();
+	void testLockOutAttributeForgetsRememberedCheck();
+	void testFailedLoginCommitRemembersNoCheck();
 	void testLoginOfUserRemovedBeforeNotificationSucceeds();
 	void testChangePasswordOfUnknownUserThrows();
 	void testEmptyPasswordIsRejected();

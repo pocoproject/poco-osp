@@ -58,6 +58,9 @@ other changes that are not listed here. The release notes (`doc/99100-OSPRelease
   `auth.ldap.inaccessible.fallbackToLocal` and within `auth.ldap.cache.lifetimeDays` of the last LDAP login.
 - Auth/Data: an LDAP user is stored under the `sAMAccountName` of its LDAP entry, in lower case, when the entry has one;
   `authenticate()` and `verifyCredentials()` return false for another name, such as the user principal name.
+- Auth/Data: a successful check of a user's credentials is remembered for `auth.credentialsCacheTimeout` seconds
+  (default 60; 0 disables it), not `auth.cacheTimeout`; a login accepted by a remembered check posts no
+  `AuthNotification`.
 - Auth/TwoFactor: after `auth.twofactor.maxFailures` wrong codes (default 5; 0 disables the lock-out), the user is
   locked out for `auth.twofactor.lockOutPeriod` seconds (default 600), also a user of `auth.neverLockOutUsers`.
 - Auth/TwoFactor: the secrets are stored with AES-256-GCM. A secret in the old format is stored again in the new format

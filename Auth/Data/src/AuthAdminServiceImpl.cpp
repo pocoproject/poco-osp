@@ -143,7 +143,8 @@ AuthAdminServiceImpl::AuthAdminServiceImpl(const Poco::Util::AbstractConfigurati
 	_authParams(authParams),
 	_sqlCache(SQL_CACHE_BUCKET_SIZE),
 	_permissionsCache(authParams.cacheSize, Poco::Timespan(authParams.cacheTimeout, 0).totalMilliseconds()),
-	_passwordCache(Poco::Timespan(authParams.cacheTimeout, 0).totalMilliseconds()),
+	// The cache needs a positive timeout; with a credentialsCacheTimeout of 0 nothing is added to it.
+	_passwordCache(Poco::Timespan(std::max(authParams.credentialsCacheTimeout, 1), 0).totalMilliseconds()),
 	_passwordPersistentHashCache(Poco::Timespan(authParams.cacheTimeout, 0).totalMilliseconds()),
 	_cacheSalt(generateCacheSalt())
 {
@@ -156,6 +157,11 @@ AuthAdminServiceImpl::AuthAdminServiceImpl(const Poco::Util::AbstractConfigurati
 	{
 		throw Poco::InvalidArgumentException("auth.pbkdf2Rounds must be positive"s,
 			std::to_string(_authParams.pbkdf2Iterations));
+	}
+	if (_authParams.credentialsCacheTimeout < 0)
+	{
+		throw Poco::InvalidArgumentException("auth.credentialsCacheTimeout must not be negative"s,
+			std::to_string(_authParams.credentialsCacheTimeout));
 	}
 
 	if (!ldapParams.localUsers.empty())
@@ -230,7 +236,6 @@ void AuthAdminServiceImpl::changePassword(const std::string& username, const std
 	if (password.empty()) throw Poco::InvalidArgumentException("The password must not be empty"s, username);
 
 	const std::string hashedCredentials = saltAndHashCredentials(username, password);
-	const std::string cachedCredentials = hashCachedCredentials(username, password);
 
 	Poco::FastMutex::ScopedLock lock(_mutex);
 
@@ -248,7 +253,6 @@ void AuthAdminServiceImpl::changePassword(const std::string& username, const std
 	}
 	xa.commit();
 
-	_passwordCache.update(username, cachedCredentials);
 	_passwordPersistentHashCache.update(username, hashedCredentials);
 }
 
@@ -1025,18 +1029,25 @@ bool AuthAdminServiceImpl::authenticateImpl(std::string& username, const std::st
 				isLDAPUser = ldapUserNameImpl(sess, username, ldapAttr);
 				std::optional<bool> result = authenticateCachedImpl(sess, username, credentials);
 				remembered = result.value_or(false);
+				bool checkAccepted = false;
 				if (!result.has_value() && !isLDAPUser)
 				{
 					storedHash = storedHashImpl(sess, username);
 					if (check.has_value() && check->storedHash == storedHash)
 					{
-						result = applyPasswordCheckImpl(sess, username, credentials, *check, true);
+						checkAccepted = applyPasswordCheckImpl(sess, username, *check, true);
+						result = checkAccepted;
 					}
 				}
 				if (result.has_value())
 				{
 					const bool authenticated = validate ? validateUserImpl(sess, username, *result) : *result;
 					xa.commit();
+					// Only now, so that a login whose transaction fails adds nothing to the caches.
+					if (checkAccepted)
+					{
+						rememberCheckImpl(username, credentials, *check);
+					}
 					return authenticated;
 				}
 				account.ldapUser = isLDAPUser;
@@ -1142,13 +1153,18 @@ bool AuthAdminServiceImpl::authenticateImpl(std::string& username, const std::st
 			if (!checkNeeded || (check.has_value() && check->storedHash == storedHash))
 			{
 				const LoginSessionScope loginSession(*this, sess);
-				bool authenticated = applyLDAPResultImpl(sess, username, credentials, ldapResult, ldapUser,
-					check.value_or(PasswordCheck()));
+				const bool credentialsAccepted = applyLDAPResultImpl(sess, username, credentials, ldapResult,
+					ldapUser, check.value_or(PasswordCheck()));
+				bool authenticated = credentialsAccepted;
 				if (validate)
 				{
 					authenticated = validateUserImpl(sess, username, authenticated);
 				}
 				xa.commit();
+				if (credentialsAccepted)
+				{
+					rememberCheckImpl(username, credentials, check.value_or(PasswordCheck()));
+				}
 				return authenticated;
 			}
 			xa.commit();
@@ -1313,7 +1329,7 @@ bool AuthAdminServiceImpl::applyLDAPResultImpl(Poco::Data::Session& sess, const 
 			// and no partly stored user remains.
 			_logger.error("The LDAP login of user %s cannot be stored in the database, so the login fails and nothing "
 				"of it is stored: %s"s, username, exc.displayText());
-			// The caches may hold the password hash that the rolled-back store has written.
+			// Nothing of the rolled-back store may stay in the caches.
 			uncacheUserImpl(username);
 			throw;
 		}
@@ -1332,11 +1348,11 @@ bool AuthAdminServiceImpl::applyLDAPResultImpl(Poco::Data::Session& sess, const 
 			// with the stored copy counts as a failure.
 			if (!ldapUser.passwordVerified)
 			{
-				return applyPasswordCheckImpl(sess, username, credentials, check, true);
+				return applyPasswordCheckImpl(sess, username, check, true);
 			}
 			// The LDAP server has accepted the password, so a mismatch with
 			// the stored copy is not counted as a failure.
-			if (applyPasswordCheckImpl(sess, username, credentials, check, false))
+			if (applyPasswordCheckImpl(sess, username, check, false))
 			{
 				return true;
 			}
@@ -1357,7 +1373,6 @@ bool AuthAdminServiceImpl::applyLDAPResultImpl(Poco::Data::Session& sess, const 
 			_permissionsCache.clear();
 		}
 		reloadPermissions(sess, username);
-		_passwordCache.update(username, hashCachedCredentials(username, credentials));
 		unlockOutUserImpl(sess, username);
 		if (getUserAttributeImpl(sess, username, USER_ATTR_LDAP, ""s).empty())
 		{
@@ -1369,7 +1384,7 @@ bool AuthAdminServiceImpl::applyLDAPResultImpl(Poco::Data::Session& sess, const 
 	case LDAPResult::INACCESSIBLE:
 		if (canUseLocalCredentials(username))
 		{
-			return applyPasswordCheckImpl(sess, username, credentials, check, true);
+			return applyPasswordCheckImpl(sess, username, check, true);
 		}
 		_logger.warning("The LDAP server is not accessible, so user %s is not authenticated."s, username);
 		return false;
@@ -1450,7 +1465,7 @@ std::string AuthAdminServiceImpl::storedHashImpl(Poco::Data::Session& sess, cons
 
 
 bool AuthAdminServiceImpl::applyPasswordCheckImpl(Poco::Data::Session& sess, const std::string& username,
-	const std::string& credentials, const PasswordCheck& check, bool countFailure) const
+	const PasswordCheck& check, bool countFailure) const
 {
 	if (!check.matches)
 	{
@@ -1461,15 +1476,13 @@ bool AuthAdminServiceImpl::applyPasswordCheckImpl(Poco::Data::Session& sess, con
 		return false;
 	}
 
-	_passwordPersistentHashCache.update(username, check.storedHash);
 	if (!check.newHash.empty())
 	{
 		_logger.information("Upgrading the v%d password hash of user %s to v%d."s, check.storedVersion, username,
 			_authParams.hashVersion);
 		changePasswordImpl(sess, username, check.newHash);
-		_passwordPersistentHashCache.update(username, check.newHash);
 	}
-	acceptStoredCredentialsImpl(sess, username, credentials);
+	acceptStoredCredentialsImpl(sess, username);
 	return true;
 }
 
@@ -1484,17 +1497,29 @@ void AuthAdminServiceImpl::storeCredentialsImpl(Poco::Data::Session& sess, const
 	else if (!check.newHash.empty())
 	{
 		changePasswordImpl(sess, username, check.newHash);
-		_passwordPersistentHashCache.update(username, check.newHash);
 	}
 }
 
 
-void AuthAdminServiceImpl::acceptStoredCredentialsImpl(Poco::Data::Session& sess, const std::string& username,
-	const std::string& credentials) const
+void AuthAdminServiceImpl::acceptStoredCredentialsImpl(Poco::Data::Session& sess, const std::string& username) const
 {
 	reloadPermissions(sess, username);
-	_passwordCache.update(username, hashCachedCredentials(username, credentials));
 	unlockOutUserImpl(sess, username);
+}
+
+
+void AuthAdminServiceImpl::rememberCheckImpl(const std::string& username, const std::string& credentials,
+	const PasswordCheck& check) const
+{
+	const std::string& storedHash = check.newHash.empty() ? check.storedHash : check.newHash;
+	if (!storedHash.empty())
+	{
+		_passwordPersistentHashCache.update(username, storedHash);
+	}
+	if (_authParams.credentialsCacheTimeout > 0)
+	{
+		_passwordCache.update(username, hashCachedCredentials(username, credentials));
+	}
 }
 
 
@@ -2291,6 +2316,9 @@ AuthAdminServiceImpl::PasswordCheck AuthAdminServiceImpl::checkPassword(const st
 void AuthAdminServiceImpl::changePasswordImpl(Poco::Data::Session& sess, const std::string& username, const std::string& hashedCredentials) const
 {
 	sess << sqlFor("changePassword"s), useRef(hashedCredentials), useRef(username), now;
+	// Removed, not replaced: the transaction can still be rolled back.
+	_passwordCache.remove(username);
+	_passwordPersistentHashCache.remove(username);
 }
 
 
@@ -2304,6 +2332,11 @@ void AuthAdminServiceImpl::replaceUserAttributeImpl(Poco::Data::Session& sess, c
 	{
 		sess << sqlFor("removeUserAttribute"s), useRef(username), useRef(attribute), now;
 		sess << sqlFor("setUserAttribute"s), useRef(username), useRef(attribute), useRef(value), now;
+	}
+	if (attribute == USER_ATTR_LOCKOUT)
+	{
+		// So that the first login after the lock-out is checked against the stored credentials.
+		_passwordCache.remove(username);
 	}
 }
 

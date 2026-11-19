@@ -286,6 +286,7 @@ The following configuration properties are available:
   * auth.poolSize
   * auth.cacheSize
   * auth.cacheTimeout
+  * auth.credentialsCacheTimeout
   * auth.hashVersion
   * auth.saltLength
   * auth.pbkdf2Rounds
@@ -369,9 +370,25 @@ system.
 
 ! auth.cacheTimeout
 
-This setting allows configuring the timeout of the password cache. The
-password cache is used to reduce database accesses or LDAP lookups (if
-LDAP authentication is enabled).
+This setting allows configuring the timeout, in seconds, of the permissions
+cache and of the cache of stored password hashes. Default is 600.
+
+
+! auth.credentialsCacheTimeout
+
+How long, in seconds, a successful check of a user's credentials is
+remembered. Default is 60; 0 disables it.
+
+A client that sends the user name and password with every request (HTTP Basic
+authentication) would otherwise cost a password hash, or a request to the LDAP
+server, per request. A successful check is reused for this time: a login that
+repeats the credentials is accepted without hashing them again. The check is
+kept in memory under a keyed hash of the credentials. The lock-out check and
+the reset of the failure count still run for every login. Changing the
+password, removing the user and a lock-out forget the user's check; failed
+checks are not remembered. A login accepted by a remembered check posts no
+<[AuthNotification]>. A password that another program or node changes in the
+database is seen after at most <*auth.credentialsCacheTimeout*> seconds.
 
 
 ! auth.hashVersion
@@ -578,7 +595,7 @@ the LDAP attribute specified in this setting. If this setting is provided,
 the user's permissions in the database are replaced with the permissions
 that the LDAP server lists, also if it lists none, when a login that the
 LDAP server has accepted is stored. A login that is accepted without that
-store (from the password cache, or with the stored password, also after the
+store (by a remembered check, or with the stored password, also after the
 LDAP server has accepted the password and reading an entry has failed)
 leaves them unchanged.
 

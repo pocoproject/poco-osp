@@ -62,6 +62,7 @@ public:
 			authParams.dbSessionTimeout    = pPrefsSvc->configuration()->getInt("auth.db.sessionTimeout"s, 0);
 			authParams.cacheSize           = pPrefsSvc->configuration()->getInt("auth.cacheSize"s, pContext->thisBundle()->properties().getInt("auth.cacheSize"s, 1024));
 			authParams.cacheTimeout        = pPrefsSvc->configuration()->getInt("auth.cacheTimeout"s, pContext->thisBundle()->properties().getInt("auth.cacheTimeout"s, 600));
+			authParams.credentialsCacheTimeout = pPrefsSvc->configuration()->getInt("auth.credentialsCacheTimeout"s, pContext->thisBundle()->properties().getInt("auth.credentialsCacheTimeout"s, 60));
 			authParams.hashVersion         = pPrefsSvc->configuration()->getInt("auth.hashVersion"s, pContext->thisBundle()->properties().getInt("auth.hashVersion"s, 4));
 			authParams.saltLength          = pPrefsSvc->configuration()->getInt("auth.saltLength"s, pContext->thisBundle()->properties().getInt("auth.saltLength"s, 7));
 			authParams.pbkdf2Iterations    = pPrefsSvc->configuration()->getInt("auth.pbkdf2Rounds"s, pContext->thisBundle()->properties().getInt("auth.pbkdf2Rounds"s, 1024));

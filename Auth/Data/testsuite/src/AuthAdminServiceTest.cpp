@@ -1224,6 +1224,160 @@ void AuthAdminServiceTest::testRememberedLoginPostsNoNotification()
 }
 
 
+void AuthAdminServiceTest::testZeroCredentialsCacheTimeoutRemembersNoCheck()
+{
+	auto authParams = backendAuthParams(_dbPath);
+	authParams.cacheTimeout = 3600;
+	authParams.credentialsCacheTimeout = 0;
+	AuthAdminServiceImpl::Ptr pAAS = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(), authParams,
+		AuthAdminServiceImpl::LDAPParams());
+	pAAS->addUser("user1", "pass1");
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool first = pAAS->authenticate("user1", "pass1");
+	const bool second = pAAS->authenticate("user1", "pass1");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertTrue (first);
+	assertTrue (second);
+	assertEqual (2, _notificationCounter);
+}
+
+
+void AuthAdminServiceTest::testNegativeCredentialsCacheTimeoutIsRejected()
+{
+	auto authParams = backendAuthParams(_dbPath);
+	authParams.credentialsCacheTimeout = -1;
+	try
+	{
+		AuthAdminServiceImpl::Ptr pAAS = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(), authParams,
+			AuthAdminServiceImpl::LDAPParams());
+		fail("a negative credentials cache timeout must be rejected");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+}
+
+
+void AuthAdminServiceTest::testPasswordChangeForgetsRememberedCheck()
+{
+	_pAAS->addUser("user1", "pass1");
+	assertTrue (_pAAS->authenticate("user1", "pass1"));
+	_pAAS->changePassword("user1", "pass2");
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool oldPassword = _pAAS->authenticate("user1", "pass1");
+	const bool newPassword = _pAAS->authenticate("user1", "pass2");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertFalse (oldPassword);
+	assertTrue (newPassword);
+	// The login with the new password is checked against the stored credentials.
+	assertEqual (1, _notificationCounter);
+}
+
+
+void AuthAdminServiceTest::testUserRemovalForgetsRememberedCheck()
+{
+	_pAAS->addUser("user1", "pass1");
+	assertTrue (_pAAS->authenticate("user1", "pass1"));
+	_pAAS->removeUser("user1");
+	assertFalse (_pAAS->authenticate("user1", "pass1"));
+	_pAAS->addUser("user1", "pass1");
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool authenticated = _pAAS->authenticate("user1", "pass1");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertTrue (authenticated);
+	assertEqual (1, _notificationCounter);
+}
+
+
+void AuthAdminServiceTest::testLockOutForgetsRememberedCheck()
+{
+	_pAAS->addUser("user1", "pass1");
+	assertTrue (_pAAS->authenticate("user1", "pass1"));
+	_pAAS->lockOutUser("user1", Poco::DateTime() + Poco::Timespan(LOCK_OUT_SECONDS, 0));
+	assertFalse (_pAAS->authenticate("user1", "pass1"));
+	_pAAS->unlockOutUser("user1");
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool authenticated = _pAAS->authenticate("user1", "pass1");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertTrue (authenticated);
+	assertEqual (1, _notificationCounter);
+}
+
+
+void AuthAdminServiceTest::testLockOutAttributeForgetsRememberedCheck()
+{
+	_pAAS->addUser("user1", "pass1");
+	assertTrue (_pAAS->authenticate("user1", "pass1"));
+	const std::string end = Poco::DateTimeFormatter::format(Poco::DateTime() + Poco::Timespan(LOCK_OUT_SECONDS, 0),
+		Poco::DateTimeFormat::ISO8601_FRAC_FORMAT);
+	_pAAS->setAuthAttribute("user1", AuthAdminServiceImpl::USER_ATTR_LOCKOUT, end);
+	assertFalse (_pAAS->authenticate("user1", "pass1"));
+	_pAAS->unlockOutUser("user1");
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool authenticated = _pAAS->authenticate("user1", "pass1");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertTrue (authenticated);
+	assertEqual (1, _notificationCounter);
+}
+
+
+void AuthAdminServiceTest::testFailedLoginCommitRemembersNoCheck()
+{
+	// A short busy timeout, so that the commit fails soon while another session reads.
+	_pProperties->setString("auth.sql.init.SQLite", "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 100");
+	AuthAdminServiceImpl::Ptr pAAS = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(),
+		backendAuthParams(_dbPath), AuthAdminServiceImpl::LDAPParams());
+	pAAS->addUser("user1", "pass1");
+	// The login removes the expired lock-out, so its transaction writes.
+	pAAS->lockOutUser("user1", Poco::DateTime() - Poco::Timespan(LOCK_OUT_SECONDS, 0));
+
+	Poco::Data::Session reader("SQLite", _dbPath);
+	reader.begin();
+	int users = 0;
+	reader << "SELECT COUNT(*) FROM auth_user", into(users), now;
+	try
+	{
+		static_cast<void>(pAAS->authenticate("user1", "pass1"));
+		fail("the login must fail when its transaction cannot be committed");
+	}
+	catch (Poco::Data::DataException&)
+	{
+	}
+	reader.rollback();
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool authenticated = pAAS->authenticate("user1", "pass1");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertEqual (1, users);
+	assertTrue (authenticated);
+	// Checked against the stored credentials: the failed login has remembered nothing.
+	assertEqual (1, _notificationCounter);
+}
+
+
 void AuthAdminServiceTest::testChangePasswordOfUnknownUserThrows()
 {
 	try
@@ -4153,6 +4307,13 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthenticateNotification);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLoginNotificationIsNotLoggedAsInformation);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRememberedLoginPostsNoNotification);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testZeroCredentialsCacheTimeoutRemembersNoCheck);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testNegativeCredentialsCacheTimeoutIsRejected);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPasswordChangeForgetsRememberedCheck);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testUserRemovalForgetsRememberedCheck);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLockOutForgetsRememberedCheck);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLockOutAttributeForgetsRememberedCheck);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testFailedLoginCommitRemembersNoCheck);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLoginOfUserRemovedBeforeNotificationSucceeds);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPasswordChangedBehindCacheIsAccepted);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthorizeProceedsWhilePasswordIsChecked);
