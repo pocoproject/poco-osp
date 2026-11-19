@@ -31,6 +31,7 @@
 #include "Poco/Notification.h"
 #include "Poco/Thread.h"
 #include "Poco/Timespan.h"
+#include "Poco/UTF8String.h"
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
@@ -73,7 +74,7 @@ namespace
 
 
 	template <typename TEvent, typename TArgs>
-	void fireEvent(TEvent& event, const void* pSender, const TArgs& args, Poco::Logger& logger, const std::string& eventName, const std::string& consequence)
+	void fireEvent(TEvent& event, const void* pSender, TArgs& args, Poco::Logger& logger, const std::string& eventName, const std::string& consequence)
 		/// Fires the event. A delegate's exception is logged rather than
 		/// passed on, so that it neither ends the thread firing the event
 		/// nor skips what that thread does after the event. The delegates
@@ -99,8 +100,9 @@ namespace
 		{
 			reason = "unknown exception";
 		}
+		// The event name can carry a subject of a client, which the reason may quote as well.
 		logger.error(Poco::format("A delegate of the WebEvent service event %s failed: %s. The delegates after it were not called; %s.",
-			eventName, reason, consequence));
+			Poco::UTF8::escape(eventName), Poco::UTF8::escape(reason), consequence));
 	}
 }
 
@@ -1098,6 +1100,15 @@ void WebEventServiceImpl::subscribeImpl(Poco::SharedPtr<Poco::Net::WebSocket> pW
 				}
 				fireEvent(subscriptionRequestReceived, this, *itSub, logger(), "subscriptionRequestReceived(" + *itSub + ")",
 					"the subscription has been made");
+
+				InitialDataRequest request;
+				request.subject = *itSub;
+				fireEvent(initialDataRequested, this, request, logger(), "initialDataRequested(" + *itSub + ")",
+					"the subscription has been made");
+				if (request.hasData)
+				{
+					enqueueSend(it->second, *itSub, makeNotifyFrame(*itSub, request.data));
+				}
 			}
 		}
 	}

@@ -146,6 +146,11 @@ other changes that are not listed here. The release notes (`doc/99100-OSPRelease
 - JS: the OSP JS library and the JavaScript bundles (`com.appinf.osp.js`, `com.appinf.osp.js.*`) are not part of POCO
   OSP.
 
+### New features
+
+- WebEvent: the event `WebEventService::initialDataRequested` lets an application answer a new subscription with the
+  current value of the subject, sent to the subscribing socket only.
+
 ### New components
 
 - Auth/Remoting: a RemotingNG authenticator and authorizer that use the user authenticated by the OSP web server.

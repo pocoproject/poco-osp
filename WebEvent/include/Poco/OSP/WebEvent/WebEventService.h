@@ -138,6 +138,19 @@ public:
 	};
 	using SubscriberInfoVec = std::vector<SubscriberInfo>;
 
+	struct InitialDataRequest
+		/// Arguments of the initialDataRequested event.
+	{
+		std::string subject;
+			/// The subject the socket has subscribed to.
+
+		std::string data;
+			/// The data to send to the subscribing socket, set by a delegate.
+
+		bool hasData = false;
+			/// Set by a delegate, together with data, to have data sent.
+	};
+
 	Poco::BasicEvent<const Poco::Net::HTTPServerRequest*> requestReceived;
 		/// Fired when a HTTP WebSocket upgrade request has been received,
 		/// after its Origin header has been checked. This can be used for
@@ -155,6 +168,23 @@ public:
 		///
 		/// If a delegate throws, the exception is logged and the delegates
 		/// registered after it are not called for this event.
+
+	Poco::BasicEvent<InitialDataRequest> initialDataRequested;
+		/// Fired right after subscriptionRequestReceived, for the same
+		/// subject and socket. A delegate that sets hasData has data sent
+		/// as a NOTIFY for the subject to the subscribing socket only, e.g.
+		/// the current value of a subject that is otherwise only notified
+		/// on change. Other subscribers of the subject receive nothing.
+		/// The NOTIFY names the subscribed subject, whatever a delegate
+		/// writes to the subject member.
+		///
+		/// A notification made afterwards reaches the socket after this
+		/// data, and replaces it while it is still queued (see notify()).
+		/// Server-side events (notificationSent, subjectNotified) are not
+		/// fired.
+		///
+		/// If a delegate throws, the exception is logged, the delegates
+		/// registered after it are not called, and the subscription stands.
 
 	Poco::BasicEvent<const std::string> unsubscriptionRequestReceived;
 		/// Fired when an unsubscription request for a subject arrives.
@@ -236,6 +266,9 @@ public:
 
 	[[nodiscard]] virtual int subscriberCount(const std::string& subject) = 0;
 		/// Returns the number of subscribers to the subject.
+		///
+		/// When called from an unsubscriptionRequestReceived delegate, the
+		/// unsubscribing socket is no longer counted.
 
 	virtual SubscriberInfoVec listSubscribers() = 0;
 		/// Returns a snapshot of all currently connected WebSocket

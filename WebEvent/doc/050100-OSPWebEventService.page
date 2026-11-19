@@ -147,6 +147,21 @@ established without a resolver, belong to no user and are never notified by
 notifyUser(). Pass nullptr to setUserResolver() to remove the resolver, for
 example when the bundle that installed it stops.
 
+To answer a new subscription with the current value of a subject, register a
+delegate for the initialDataRequested event. It is fired for each subject a
+connection subscribes to; the data the delegate sets is sent as a NOTIFY for
+that subject to the subscribing connection only:
+
+    void onInitialDataRequested(Poco::OSP::WebEvent::WebEventService::InitialDataRequest& request)
+    {
+        if (request.subject == "sample.value")
+        {
+            request.data = currentValue();
+            request.hasData = true;
+        }
+    }
+----
+
 Poco::OSP::WebEvent::WebEventService::listSubscribers() returns the user, page
 and client address of every connection. The page is the value of the "page"
 query parameter of the upgrade request (for example

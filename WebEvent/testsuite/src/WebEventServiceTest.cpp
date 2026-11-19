@@ -9,6 +9,7 @@
 
 
 #include "WebEventServiceTest.h"
+#include "LogCapture.h"
 #include "Poco/OSP/WebEvent/WebEventRequestHandler.h"
 #include "Poco/OSP/BundleContext.h"
 #include "CppUnit/TestCaller.h"
@@ -42,6 +43,8 @@
 #include "Poco/Clock.h"
 #include "Poco/Thread.h"
 #include "Poco/Timestamp.h"
+#include "Poco/Message.h"
+#include "Poco/UTF8String.h"
 #if defined(OSP_WEBEVENT_ENABLE_TLS)
 #include "Poco/Net/Context.h"
 #include "Poco/Net/HTTPSClientSession.h"
@@ -537,6 +540,36 @@ struct SubscriptionWaiter
 	}
 
 	Poco::Event event;
+};
+
+
+struct InitialDataProvider
+	/// Answers every initial data request for subject with data. With
+	/// otherSubject, it also writes that to the subject of the request.
+{
+	void onInitialDataRequested(WebEventService::InitialDataRequest& request)
+	{
+		if (request.subject == subject)
+		{
+			if (!otherSubject.empty()) request.subject = otherSubject;
+			request.data = data;
+			request.hasData = true;
+		}
+	}
+
+	std::string subject;
+	std::string data;
+	std::string otherSubject;
+};
+
+
+struct ThrowingInitialDataProvider
+	/// Fails every initial data request, with an exception that quotes the subject.
+{
+	[[noreturn]] void onInitialDataRequested(WebEventService::InitialDataRequest& request)
+	{
+		throw Poco::IllegalStateException("delegate failed for " + request.subject);
+	}
 };
 
 
@@ -3536,6 +3569,169 @@ void WebEventServiceTest::testNotifyUserDeliversOnlyToUser()
 }
 
 
+void WebEventServiceTest::testInitialDataGoesToSubscriberOnly()
+	/// The data a delegate of initialDataRequested sets goes to the socket
+	/// that subscribes, and to no other subscriber of the subject. A subject
+	/// the delegate does not answer sends nothing.
+{
+	const std::string subject("com.example.parent.child.leaf");
+	const std::string sibling("com.example.parent.sibling");
+
+	// Declared ahead of the service so that it outlives the event thread
+	// firing into it, however this test leaves.
+	InitialDataProvider provider;
+	provider.subject = subject;
+	provider.data = "{\"initial\":true}";
+	LocalService local(1, 0);
+	local.pService->initialDataRequested += delegate(&provider, &InitialDataProvider::onInitialDataRequested);
+
+	Poco::Net::WebSocket first = connectWebSocket(local.port);
+	first.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(first, subject);
+	WebEventService::NotificationEvent notification = receiveNotification(first);
+	assertEquals(subject, notification.first);
+	assertEquals(provider.data, notification.second);
+
+	Poco::Net::WebSocket second = connectWebSocket(local.port);
+	second.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(second, subject);
+	notification = receiveNotification(second);
+	assertEquals(subject, notification.first);
+	assertEquals(provider.data, notification.second);
+
+	// The first frame each socket receives next is the one notified now:
+	// the first socket was not sent the initial data again.
+	local.pService->notify(subject, "marker");
+	assertEquals(std::string("marker"), receiveNotification(first).second);
+	assertEquals(std::string("marker"), receiveNotification(second).second);
+
+	sendSubscribe(second, sibling);
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(sibling) == 1; }, 5000));
+	local.pService->notify(sibling, "sibling marker");
+	notification = receiveNotification(second);
+	assertEquals(sibling, notification.first);
+	assertEquals(std::string("sibling marker"), notification.second);
+
+	local.pService->initialDataRequested -= delegate(&provider, &InitialDataProvider::onInitialDataRequested);
+	for (auto* pWS: {&first, &second})
+	{
+		try
+		{
+			pWS->shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+			pWS->close();
+		}
+		catch (...) {}
+	}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testInitialDataNamesTheSubscribedSubject()
+	/// The initial data is sent for the subject the socket subscribed to,
+	/// also when a delegate writes another subject to the request.
+{
+	const std::string subject("com.example.parent.child.leaf");
+
+	InitialDataProvider provider;
+	provider.subject = subject;
+	provider.data = "{\"initial\":true}";
+	provider.otherSubject = "com.example.other";
+	LocalService local(1, 0);
+	local.pService->initialDataRequested += delegate(&provider, &InitialDataProvider::onInitialDataRequested);
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	ws.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(ws, subject);
+	const WebEventService::NotificationEvent notification = receiveNotification(ws);
+	assertEquals(subject, notification.first);
+	assertEquals(provider.data, notification.second);
+
+	local.pService->initialDataRequested -= delegate(&provider, &InitialDataProvider::onInitialDataRequested);
+	try
+	{
+		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testThrowingInitialDataDelegateKeepsSubscription()
+	/// A delegate of initialDataRequested that throws keeps neither the
+	/// subscription nor the other subjects of the same message from being
+	/// made, and nothing is sent for it.
+{
+	const std::string firstSubject("com.example.first");
+	const std::string secondSubject("com.example.second");
+
+	ThrowingInitialDataProvider thrower;
+	LocalService local(1, 0);
+	local.pService->initialDataRequested += delegate(&thrower, &ThrowingInitialDataProvider::onInitialDataRequested);
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	ws.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(ws, firstSubject + "," + secondSubject);
+	assertTrue(waitUntil([&]
+		{
+			return local.pService->subscriberCount(firstSubject) == 1 && local.pService->subscriberCount(secondSubject) == 1;
+		}, 5000));
+
+	local.pService->notify(secondSubject, "marker");
+	const WebEventService::NotificationEvent notification = receiveNotification(ws);
+	assertEquals(secondSubject, notification.first);
+	assertEquals(std::string("marker"), notification.second);
+
+	local.pService->initialDataRequested -= delegate(&thrower, &ThrowingInitialDataProvider::onInitialDataRequested);
+	try
+	{
+		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testThrowingDelegateIsLoggedEscaped()
+	/// The subject comes from the client: a control character in it reaches
+	/// the log of a failing delegate escaped, in the event name and in the
+	/// exception that quotes it.
+{
+	const std::string subject("com.example.injected\r\nforged");
+
+	LogCapture capture("Poco.OSP.WebEvent");
+	ThrowingInitialDataProvider thrower;
+	LocalService local(1, 0);
+	local.pService->initialDataRequested += delegate(&thrower, &ThrowingInitialDataProvider::onInitialDataRequested);
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	ws.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(ws, subject);
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(subject) == 1; }, 5000));
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
+	const auto itMessage = std::ranges::find_if(messages, [](const Poco::Message& message)
+		{
+			return message.getText().find("initialDataRequested(") != std::string::npos;
+		});
+	assertTrue(itMessage != messages.end());
+	const std::string& text = itMessage->getText();
+	assertTrue(text.find("initialDataRequested(" + Poco::UTF8::escape(subject) + ")") != std::string::npos);
+	assertTrue(text.find("delegate failed for " + Poco::UTF8::escape(subject)) != std::string::npos);
+	assertTrue(text.find_first_of("\r\n") == std::string::npos);
+
+	local.pService->initialDataRequested -= delegate(&thrower, &ThrowingInitialDataProvider::onInitialDataRequested);
+	try
+	{
+		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
 void WebEventServiceTest::testConcurrentApiAccess()
 {
 	// Hammers the public API from non-service threads while the main thread
@@ -3667,6 +3863,10 @@ CppUnit::Test* WebEventServiceTest::suite()
 	CppUnit_addTest(pSuite, WebEventServiceTest, testFramesInOneTlsRecordAreAllRead);
 #endif
 	CppUnit_addTest(pSuite, WebEventServiceTest, testNotifyUserDeliversOnlyToUser);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testInitialDataGoesToSubscriberOnly);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testInitialDataNamesTheSubscribedSubject);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testThrowingInitialDataDelegateKeepsSubscription);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testThrowingDelegateIsLoggedEscaped);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testConcurrentApiAccess);
 
 	return pSuite;

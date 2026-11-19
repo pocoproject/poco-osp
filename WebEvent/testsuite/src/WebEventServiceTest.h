@@ -81,6 +81,10 @@ public:
 	void testFramesInOneTlsRecordAreAllRead();
 #endif
 	void testNotifyUserDeliversOnlyToUser();
+	void testInitialDataGoesToSubscriberOnly();
+	void testInitialDataNamesTheSubscribedSubject();
+	void testThrowingInitialDataDelegateKeepsSubscription();
+	void testThrowingDelegateIsLoggedEscaped();
 	void testConcurrentApiAccess();
 
 	void setUp() override;
