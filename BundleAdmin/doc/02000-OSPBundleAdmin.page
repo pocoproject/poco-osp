@@ -1,0 +1,112 @@
+OSP Bundle Administration Utility
+Open Service Platform
+
+!!! Introduction
+
+The <!BundleAdmin!> utility is a web-based application for managing, installing and upgrading bundles in an OSP application.
+The BundleAdmin utility is itself implemented in a bundle named <[com.appinf.osp.bundleadmin]> and requires the Web bundle
+to function.
+
+The following features are provided by the BundleAdmin utility:
+
+  - list all bundles installed in an OSP application
+  - get detailed information (version, dependencies) for installed bundles
+  - manage the lifecycle of bundles (install, resolve, start, stop, uninstall, upgrade)
+  
+
+!!! Accessing the BundleAdmin Utility
+
+The BundleAdmin utility can be accessed from anywhere on the network using a web browser.
+Since the BundleAdmin utility runs within the OSP web server,
+the TCP port number on which the OSP web server runs must be known. The default port for the
+OSP web server is 22080, and the default port for the secure (HTTPS) web server is 22443.
+Within the OSP web server, the BundleAdmin utility lives under the path <[/bundleAdmin]>.
+Assuming a default installation running on your local host, the BundleAdmin utility can be 
+accessed by directing your browser to <http://localhost:22080/bundleAdmin>. 
+
+Access requires a user with the permission <[bundleAdmin]>, which the auth service checks.
+With the SimpleAuth bundle, the administrator user (<[auth.simple.admin.name]>, "admin" by
+default) has every permission. Its password is set with <[auth.simple.admin.passwordHash]>,
+which has no default: no login succeeds until it is configured.
+See the [[OSPAuth.html AuthService documentation]] for other ways to manage users.
+
+The pages log in users with HTTP Basic authentication. To log in users in a web session instead
+(with a login form of another bundle), set the bundle property <[web.session]> to the name of
+that session, for example in an extension bundle.
+
+A request that changes the state of a bundle (any button on the pages) must be a POST request
+from a page of the same server: its Origin header (or, without one, its Referer header) must
+name the server, and in a web session it must carry the CSRF token of the session, which the
+forms of the pages contain. A script that sends such requests must send one of the two headers.
+Other requests are answered with 403 Forbidden. Requests to stop, uninstall or upgrade the
+BundleAdmin bundle, or a bundle it depends on, are answered with 409 Conflict.
+A request that uploads a bundle file must state its length (otherwise 411 Length Required), which
+must not exceed the bundle property <[upload.maxSize]> (256 MB by default; otherwise 413 Request
+Entity Too Large).
+The pages accept only GET, HEAD and POST requests; other methods are answered with
+405 Method Not Allowed.
+
+Upon successful login, the BundleAdmin utility shows a list of all bundles installed in the
+current application:
+
+<%
+<img src="images/OSPAdmin_index.png" width="442" height="517" alt="BundleAdmin Installed Bundles Page" border="0">
+%>
+
+!!! Getting Information About a Bundle
+
+Clicking the name of bundle brings up a page showing detailed information about the bundle,
+including name, version, vendor information, copyright, current state and a list of all bundles
+that this bundle requires to function.
+
+<%
+<img src="images/OSPAdmin_bundle.png" width="347" height="315" alt="BundleAdmin Bundle Information Page" border="0">
+%>
+
+
+!!! Managing The Bundle Lifecycle
+
+Depending on the current state of the bundle, different buttons are available as well. For a bundle in
+<*running*> state, only the <!Stop!> button is available. For a button in <*resolved*> state, more
+buttons are available.
+
+<%
+<img src="images/OSPAdmin_stopped.png" width="347" height="315" alt="BundleAdmin Bundle Information Page" border="0">
+%>
+
+!! Stopping And Uninstalling Bundles
+
+Stopping a bundle can be a dangerous operation, as other bundles may require the bundle to do their work. Therefore,
+the BundleAdmin utility checks the dependencies of a bundle to be stopped and displays a warning and confirmation page if there
+are other bundles depending on the bundle to be stopped.
+
+<%
+<img src="images/OSPAdmin_stop.png" width="308" height="248" alt="BundleAdmin Bundle Stop Confirmation Page" border="0">
+%>
+
+Also, a confirmation page will be shown if the <!Uninstall!> button is clicked.
+
+!! Upgrading a Bundle
+
+An installed bundle in <*installed*> or <*resolved*> state can be upgraded with the <!Upgrade Bundle!>
+button: the uploaded bundle file replaces the installed bundle (see
+Poco::OSP::BundleInstallerService::replaceBundle()).
+The steps required to upgrade a bundle are the same as for installing a bundle.
+
+!! Installing a Bundle
+
+A new bundle can be installed over the network by clicking the <!Install Bundle!> button at the bottom
+of the <*Installed Bundles*> page. Clicking the buttom will bring up a page that allows you to chose
+a bundle file in your local file system.
+
+<%
+<img src="images/OSPAdmin_install.png" width="360" height="294" alt="BundleAdmin Bundle Install Page" border="0">
+%>
+
+After selecting a bundle file, click the <!Upload and Install!> button to upload the bundle to the computer running
+the OSP application, and to install the bundle. After successfully installing a bundle, the following page
+will be shown.
+
+<%
+<img src="images/OSPAdmin_installed.png" width="360" height="294" alt="BundleAdmin Bundle Install Page" border="0">
+%>

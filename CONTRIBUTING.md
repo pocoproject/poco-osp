@@ -14,14 +14,17 @@ security AT pocoproject.org. The core team will respond to security issues withi
 ## Code Contributions
 
 Before writing any code, please read the
-[C++ Coding Style Guide](https://github.com/pocoproject/poco/blob/main/doc/CppCodingStyleGuide.doc).
+
+* [C++ Coding Style Guide](https://github.com/pocoproject/poco/blob/main/CODING_STYLE.md) of the POCO C++ Libraries,
+  which applies to this repository, and
+* [Instructions for AI coding agents](AGENTS.md), which also describe the build, test and review procedures.
 
 [Pull requests](https://docs.github.com/en/pull-requests) are the channel for code contributions:
 
 1. [Fork](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/fork-a-repo)
    the repository and keep the fork synchronized with it.
 2. Create a branch with a descriptive name off `main`.
-3. Write the code changes and make sure they compile. The build fetches the POCO C++ Libraries itself.
+3. Write the code changes and make sure they compile. The build pulls the POCO C++ Libraries itself.
 4. Write the tests (in most cases there are some to write) and make sure they pass.
 5. Test the changes, preferably on Linux, Windows and macOS.
 6. Send a pull request against `main`, or against a release branch for a fix to a release. Commit subjects have the

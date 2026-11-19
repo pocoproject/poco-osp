@@ -1,0 +1,7 @@
+include(CMakeFindDependencyMacro)
+find_dependency(PocoFoundation)
+find_dependency(PocoXML)
+find_dependency(PocoUtil)
+find_dependency(PocoNet)
+find_dependency(PocoOSP)
+include("${CMAKE_CURRENT_LIST_DIR}/PocoOSPShellTargets.cmake")

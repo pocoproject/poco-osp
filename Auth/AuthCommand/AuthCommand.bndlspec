@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<bundlespec>
+  <manifest>
+    <name>Auth Command for OSP Shell</name>
+    <symbolicName>com.appinf.osp.auth.command</symbolicName>
+    <version>1.1.0</version>
+    <vendor>Applied Informatics</vendor>
+    <copyright>(c) 2012-2026, Applied Informatics Software Engineering GmbH</copyright>
+    <lazyStart>false</lazyStart>
+    <runLevel>400</runLevel>
+    <dependency>
+      <symbolicName>com.appinf.osp.shell</symbolicName>
+      <version>[1.1.0,3.0.0)</version>
+    </dependency>
+    <dependency>
+      <symbolicName>com.appinf.osp.auth</symbolicName>
+      <version>[1.11.0,2.0.0)</version>
+    </dependency>
+  </manifest>
+  <code>
+    ${bin}/*.dll,
+    ${bin}/*.pdb,
+    bin/${osName}/${osArch}/*.so,
+    bin/${osName}/${osArch}/*.dylib
+  </code>
+  <files>
+    bundle/*
+  </files>
+</bundlespec>

@@ -1,0 +1,80 @@
+//
+// Command.h
+//
+// Library: OSP/Shell
+// Package: Shell
+// Module:  Command
+//
+// Definition of the Command class.
+//
+// Copyright (c) 2009, Applied Informatics Software Engineering GmbH.
+// All rights reserved.
+//
+// SPDX-License-Identifier:	BSL-1.0
+//
+
+
+#ifndef OSP_Shell_Command_INCLUDED
+#define OSP_Shell_Command_INCLUDED
+
+
+#include "Poco/OSP/Shell/Shell.h"
+#include <vector>
+#include <ostream>
+
+
+namespace Poco::OSP::Shell {
+
+
+class Session;
+
+
+class OSPShell_API Command
+	/// Command defines the interface every shell command must implement.
+	///
+	/// The interface is quite simple, consisting only of a single member
+	/// function that subclasses must override.
+{
+public:
+	enum CommandStatus
+	{
+		STATUS_OK     = 0, /// successful execution
+		STATUS_USAGE  = 1, /// command line usage error
+		STATUS_ERROR  = 2, /// command execution error
+		STATUS_DENIED = 3  /// bad credentials or insufficient permissions to execute the command
+	};
+	
+	Command();
+		/// Creates the Command.
+		
+	virtual ~Command();
+		/// Destroys the Command.
+
+	Command(const Command&) = delete;
+	Command& operator = (const Command&) = delete;
+		
+	[[nodiscard]] virtual int execute(Session& session, const std::vector<std::string>& args, std::ostream& ostr) = 0;
+		/// Execute the command, using the given arguments, within
+		/// the given session.
+		/// The first element of the args vector is the command name.
+		///
+		/// Before a login, a session executes only the login, help and quit
+		/// commands of the shell bundle. A command that is registered without
+		/// a permission (see the com.appinf.osp.shell.command extension point)
+		/// is executed in every session after the login.
+		///
+		/// Any output produced by executing the command can be
+		/// written to the given output stream.
+		///
+		/// An integer must be returned that denotes success or failure of the command.
+		/// Upon success, 0 shall be returned. The CommandStatus enumeration defines
+		/// a few commonly used error codes that should be used. Other statis codes in
+		/// the range 0 - 99 can be used as well. Negative status codes are reserved
+		/// for internal use.
+};
+
+
+} // namespace Poco::OSP::Shell
+
+
+#endif // OSP_Shell_Command_INCLUDED

@@ -1,0 +1,44 @@
+//
+// PostgreSQLBundleActivator.cpp
+//
+// Copyright (c) 2020, Applied Informatics Software Engineering GmbH.
+// All rights reserved.
+//
+// SPDX-License-Identifier:	BSL-1.0
+//
+
+
+#include "Poco/OSP/BundleActivator.h"
+#include "Poco/OSP/BundleContext.h"
+#include "Poco/OSP/Bundle.h"
+#include "Poco/Data/PostgreSQL/Connector.h"
+#include "Poco/ClassLibrary.h"
+
+
+using Poco::OSP::BundleActivator;
+using Poco::OSP::BundleContext;
+using Poco::OSP::Bundle;
+
+
+class PostgreSQLBundleActivator: public BundleActivator
+{
+public:
+	PostgreSQLBundleActivator() = default;
+
+	~PostgreSQLBundleActivator() override = default;
+
+	void start(BundleContext::Ptr /*pContext*/) override
+	{
+		Poco::Data::PostgreSQL::Connector::registerConnector();
+	}
+
+	void stop(BundleContext::Ptr /*pContext*/) override
+	{
+		Poco::Data::PostgreSQL::Connector::unregisterConnector();
+	}
+};
+
+
+POCO_BEGIN_MANIFEST(BundleActivator)
+	POCO_EXPORT_CLASS(PostgreSQLBundleActivator)
+POCO_END_MANIFEST

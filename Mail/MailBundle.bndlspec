@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<bundlespec>
+  <manifest>
+    <name>OSP Mail Service</name>
+    <symbolicName>com.appinf.osp.mail</symbolicName>
+    <version>1.0.3</version>
+    <vendor>Applied Informatics</vendor>
+    <copyright>(c) 2013-2026, Applied Informatics Software Engineering GmbH</copyright>
+    <activator>
+      <class>Poco::OSP::Mail::BundleActivator</class>
+      <library>com.appinf.osp.mail</library>
+    </activator>
+    <lazyStart>false</lazyStart>
+    <runLevel>000</runLevel>
+    <dependency>
+      <symbolicName>poco.net</symbolicName>
+      <version>[1.3.0, 2.0.0)</version>
+    </dependency>
+  </manifest>
+  <code>
+    ${bin}/*.dll,
+    ${bin}/*.pdb,
+    ../../${bin}/PocoOSPMail${64}.dll,
+    ../../${bin}/PocoOSPMail${64}d.dll,
+    ../../${bin}/PocoOSPMail${64}d.pdb,
+    bin/${osName}/${osArch}/*.so,
+    bin/${osName}/${osArch}/*.dylib,
+    ../../lib/${osName}/${osArch}/libPocoOSPMail.so.*,
+    ../../lib/${osName}/${osArch}/libPocoOSPMaild.so.*,
+    ../../lib/${osName}/${osArch}/libPocoOSPMail.*.dylib,
+    ../../lib/${osName}/${osArch}/libPocoOSPMaild.*.dylib
+  </code>
+  <files>
+    bundle/*
+  </files>
+</bundlespec>
