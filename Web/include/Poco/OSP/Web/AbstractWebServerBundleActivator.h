@@ -58,12 +58,16 @@ class OSPWeb_API AbstractWebServerBundleActivator: public BundleActivator
 	/// osp.web.server.host and osp.web.server.port (HTTP), or
 	/// osp.web.server.secureHost and osp.web.server.securePort (HTTPS), and
 	/// osp.web.server.maxQueued, osp.web.server.maxThreads, osp.web.server.keepAlive,
-	/// osp.web.server.keepAliveTime and osp.web.server.maxKeepAlive.
+	/// osp.web.server.keepAliveTime, osp.web.server.maxKeepAlive and
+	/// osp.web.server.autoDecodeHeaders.
 	/// The bundle properties host, port (HTTP) or securePort (HTTPS), maxQueued,
-	/// maxThreads, keepAlive, keepAliveTime and maxKeepAlive are the defaults;
-	/// without a preferences service, they are used alone.
+	/// maxThreads, keepAlive, keepAliveTime, maxKeepAlive and autoDecodeHeaders are
+	/// the defaults; without a preferences service, they are used alone.
 	/// A port of 0 disables the server; any other port outside 1 to 65535 is
 	/// logged as an error and the server is not started.
+	///
+	/// RFC 2047 encoded words in request headers are left undecoded unless
+	/// autoDecodeHeaders is true: HTTP defines no such encoding.
 {
 public:
 	AbstractWebServerBundleActivator() = delete;

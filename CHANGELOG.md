@@ -90,6 +90,8 @@ other changes that are not listed here. The release notes (`doc/99100-OSPRelease
 - Web: a request URI, Referer, Location or Content-Location in the access log, the full request log and the other log
   messages of the web server and BundleAdmin has the values of its query parameters, its user info and its fragment
   replaced with `***`; the names of the query parameters are kept.
+- WebServer: the web server and the secure web server leave RFC 2047 encoded words in request header fields undecoded;
+  `osp.web.server.autoDecodeHeaders`, or the bundle property `autoDecodeHeaders`, turns the decoding on.
 - WebEvent: `WebEventService` declares further pure virtual functions; the constructors of `WebEventServiceImpl` and
   `WebEventRequestHandler` and the protected functions of `WebEventServiceImpl` are changed.
 - WebEvent: a WebSocket upgrade whose `Origin` is neither the server's own nor listed in `osp.web.event.allowedOrigins`

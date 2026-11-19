@@ -35,6 +35,8 @@ public:
 	void testPortZeroDisablesServer();
 	void testPortOutOfRangeDisablesServer();
 	void testWithoutDispatcher();
+	void testHeadersNotDecodedByDefault();
+	void testAutoDecodeHeadersSetting();
 
 	static CppUnit::Test* suite();
 };

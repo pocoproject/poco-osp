@@ -513,6 +513,9 @@ The web server can be configured by setting the following properties in the glob
   - <[osp.web.server.keepAlive]>: Enable persistent connections (<[true]> or <[false]>). Defaults to <[true]>.
   - <[osp.web.server.keepAliveTime]>: Maximum time a persistent connection is kept open if no request arrives. Defaults to 10.
   - <[osp.web.server.maxKeepAlive]>: Maximum number of requests handled on a persistent connection. Defaults to 10.
+  - <[osp.web.server.autoDecodeHeaders]>: Decode RFC 2047 encoded words in the values of request header fields
+    (<[true]> or <[false]>). HTTP defines no such encoding, so request handlers get the header fields as they
+    were sent unless this is <[true]>. Defaults to <[false]>.
   - <[osp.web.authServiceName]>: The name of the OSP authentication/authorization service to use. Defaults to "osp.auth".
   - <[osp.web.authMethods]>: Specify a comma-separated list of enabled authentication methods (<[basic]>, <[session]>, <[bearer]>).
     If not specified, all methods will be enabled.

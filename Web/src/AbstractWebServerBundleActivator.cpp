@@ -65,6 +65,7 @@ namespace
 		bool keepAlive = false;
 		int keepAliveTime = 0;
 		int maxKeepAlive = 0;
+		bool autoDecodeHeaders = false;
 	};
 
 	[[nodiscard]] ServerSettings readSettings(BundleContext::Ptr pContext, bool secure)
@@ -82,6 +83,7 @@ namespace
 		settings.keepAlive     = props.getBool("keepAlive"s, true);
 		settings.keepAliveTime = props.getInt("keepAliveTime"s, DEFAULT_KEEP_ALIVE_TIME);
 		settings.maxKeepAlive  = props.getInt("maxKeepAlive"s, DEFAULT_MAX_KEEP_ALIVE);
+		settings.autoDecodeHeaders = props.getBool("autoDecodeHeaders"s, false);
 
 		ServiceRef::Ptr pPrefsRef = pContext->registry().findByName(PreferencesService::SERVICE_NAME);
 		if (pPrefsRef != nullptr)
@@ -94,6 +96,7 @@ namespace
 			settings.keepAlive     = pConfig->getBool("osp.web.server.keepAlive"s, settings.keepAlive);
 			settings.keepAliveTime = pConfig->getInt("osp.web.server.keepAliveTime"s, settings.keepAliveTime);
 			settings.maxKeepAlive  = pConfig->getInt("osp.web.server.maxKeepAlive"s, settings.maxKeepAlive);
+			settings.autoDecodeHeaders = pConfig->getBool("osp.web.server.autoDecodeHeaders"s, settings.autoDecodeHeaders);
 		}
 		else
 		{
@@ -222,6 +225,7 @@ void AbstractWebServerBundleActivator::start(BundleContext::Ptr pContext)
 	pParams->setMaxKeepAliveRequests(settings.maxKeepAlive);
 	pParams->setMaxQueued(settings.maxQueued);
 	pParams->setMaxThreads(settings.maxThreads);
+	pParams->setAutoDecodeHeaders(settings.autoDecodeHeaders);
 
 	pContext->logger().information("Starting %s server on port %d."s, serverKind, settings.port);
 

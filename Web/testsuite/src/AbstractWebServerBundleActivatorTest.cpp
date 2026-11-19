@@ -18,6 +18,7 @@
 #include "Poco/OSP/Web/WebServerDispatcher.h"
 #include "Poco/OSP/Web/WebServerService.h"
 #include "Poco/OSP/Properties.h"
+#include "Poco/OSP/PreferencesService.h"
 #include "Poco/OSP/ServiceRegistry.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/OSP/ServiceRef.h"
@@ -26,7 +27,10 @@
 #include "Poco/Net/HTTPResponse.h"
 #include "Poco/Net/ServerSocket.h"
 #include "Poco/Net/SocketAddress.h"
+#include "Poco/Net/HTTPServerParams.h"
+#include "Poco/Util/MapConfiguration.h"
 #include "Poco/AutoPtr.h"
+#include "Poco/Exception.h"
 #include <memory>
 
 
@@ -66,6 +70,15 @@ namespace
 		Poco::AutoPtr<WebServerDispatcher> pDispatcher(new WebServerDispatcher(config));
 		bundle.registry().registerService(WebServerDispatcher::SERVICE_NAME, pDispatcher, Poco::OSP::Properties());
 		return pDispatcher;
+	}
+
+	[[nodiscard]] Poco::Net::HTTPServerParams::Ptr serverParams(TemporaryBundle& bundle)
+		/// Returns the parameters of the HTTP server that the WebServerService
+		/// "osp.web.server" of the bundle's registry runs.
+	{
+		ServiceRef::Ptr pRef = bundle.registry().findByName("osp.web.server");
+		if (pRef == nullptr) throw Poco::NotFoundException("osp.web.server");
+		return pRef->castedInstance<WebServerService>()->params();
 	}
 }
 
@@ -207,6 +220,40 @@ void AbstractWebServerBundleActivatorTest::testWithoutDispatcher()
 }
 
 
+void AbstractWebServerBundleActivatorTest::testHeadersNotDecodedByDefault()
+{
+	auto pBundle = std::make_unique<TemporaryBundle>(SERVER_PROPERTIES);
+	Poco::AutoPtr<WebServerDispatcher> pDispatcher = registerDispatcher(*pBundle);
+	TestActivator activator(false);
+
+	activator.start(pBundle->context());
+
+	assertFalse (serverParams(*pBundle)->getAutoDecodeHeaders());
+	activator.stop(pBundle->context());
+}
+
+
+void AbstractWebServerBundleActivatorTest::testAutoDecodeHeadersSetting()
+{
+	auto pBundle = std::make_unique<TemporaryBundle>(SERVER_PROPERTIES + "autoDecodeHeaders = true\n");
+	Poco::AutoPtr<WebServerDispatcher> pDispatcher = registerDispatcher(*pBundle);
+	TestActivator activator(false);
+
+	activator.start(pBundle->context());
+	assertTrue (serverParams(*pBundle)->getAutoDecodeHeaders());
+	activator.stop(pBundle->context());
+
+	// The global application configuration overrides the bundle property.
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pGlobalConfig(new Poco::Util::MapConfiguration);
+	pGlobalConfig->setBool("osp.web.server.autoDecodeHeaders", false);
+	pBundle->registry().registerService(Poco::OSP::PreferencesService::SERVICE_NAME,
+		new Poco::OSP::PreferencesService(pBundle->context()->persistentDirectory(), pGlobalConfig), Poco::OSP::Properties());
+	activator.start(pBundle->context());
+	assertFalse (serverParams(*pBundle)->getAutoDecodeHeaders());
+	activator.stop(pBundle->context());
+}
+
+
 CppUnit::Test* AbstractWebServerBundleActivatorTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("AbstractWebServerBundleActivatorTest");
@@ -218,6 +265,8 @@ CppUnit::Test* AbstractWebServerBundleActivatorTest::suite()
 	CppUnit_addTest(pSuite, AbstractWebServerBundleActivatorTest, testPortZeroDisablesServer);
 	CppUnit_addTest(pSuite, AbstractWebServerBundleActivatorTest, testPortOutOfRangeDisablesServer);
 	CppUnit_addTest(pSuite, AbstractWebServerBundleActivatorTest, testWithoutDispatcher);
+	CppUnit_addTest(pSuite, AbstractWebServerBundleActivatorTest, testHeadersNotDecodedByDefault);
+	CppUnit_addTest(pSuite, AbstractWebServerBundleActivatorTest, testAutoDecodeHeadersSetting);
 
 	return pSuite;
 }
