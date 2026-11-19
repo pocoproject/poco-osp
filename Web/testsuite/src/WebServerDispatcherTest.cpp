@@ -2526,6 +2526,64 @@ void WebServerDispatcherTest::testIsSameOrigin()
 }
 
 
+void WebServerDispatcherTest::testWebSocketUpgradeFromOtherOriginIsForbiddenBeforeAuthentication()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	WebSessionManager::Ptr pSessionManager = new WebSessionManager(_pFixture->bundles.context());
+	_pFixture->bundles.registry().registerService(WebSessionManager::SERVICE_NAME, pSessionManager, Properties());
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig());
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/login"s, new LoginHandlerFactory(pSessionManager, _pFixture->bundles.context()), WebServerDispatcher::PathSecurity(), _pFixture->bundles.bundle()));
+	WebServerDispatcher::VirtualPath webSocket(handlerPath("/ws"s, "*"s, _pFixture->bundles.bundle(), WebServerDispatcher::AUTH_SESSION));
+	webSocket.security.session = "app";
+	webSocket.security.allowWebSocketOrigin = "https://app.example.com";
+	pDispatcher->addVirtualPath(webSocket);
+	pDispatcher->addVirtualPath(handlerPath("/public"s, ""s, _pFixture->bundles.bundle()));
+	TestServer server(*pDispatcher);
+	const Session session = loginSession(server, "/login"s);
+	// findById() does not extend the session, as a request that finds it does.
+	const WebSession::Ptr pSession = pSessionManager->findById(session.cookies.get("osp.web.session.app"s, ""s));
+	assertTrue (pSession != nullptr);
+	const auto send = [&server, &session](const std::string& uri, const std::string& origin, bool upgrade, HTTPResponse& response)
+	{
+		HTTPRequest request(HTTPRequest::HTTP_GET, uri);
+		request.setCookies(session.cookies);
+		// HTTPClientSession replaces the Connection header; the dispatcher checks the Upgrade header.
+		if (upgrade) request.set("Upgrade"s, "websocket"s);
+		if (!origin.empty()) request.set("Origin"s, origin);
+		server.send(request, response);
+	};
+	const std::string otherOrigin("http://other.example");
+
+	const Poco::Timestamp expiration = pSession->getExpiration();
+	HTTPResponse otherOriginUpgrade;
+	send("/ws"s, otherOrigin, true, otherOriginUpgrade);
+	assertTrue (otherOriginUpgrade.getStatus() == HTTPResponse::HTTP_FORBIDDEN);
+	assertFalse (otherOriginUpgrade.has("Set-Cookie"s));
+	assertTrue (pSession->getExpiration() == expiration);
+
+	HTTPResponse listedOriginUpgrade;
+	send("/ws"s, "HTTPS://APP.EXAMPLE.COM"s, true, listedOriginUpgrade);
+	assertTrue (listedOriginUpgrade.getStatus() == HTTPResponse::HTTP_OK);
+	assertTrue (listedOriginUpgrade.has("Set-Cookie"s));
+
+	HTTPResponse sameOriginUpgrade;
+	send("/ws"s, "http://127.0.0.1:"s + std::to_string(server.port()), true, sameOriginUpgrade);
+	assertTrue (sameOriginUpgrade.getStatus() == HTTPResponse::HTTP_OK);
+
+	HTTPResponse upgradeWithoutOrigin;
+	send("/ws"s, ""s, true, upgradeWithoutOrigin);
+	assertTrue (upgradeWithoutOrigin.getStatus() == HTTPResponse::HTTP_OK);
+
+	HTTPResponse otherOriginGet;
+	send("/ws"s, otherOrigin, false, otherOriginGet);
+	assertTrue (otherOriginGet.getStatus() == HTTPResponse::HTTP_OK);
+
+	HTTPResponse otherOriginUpgradeWithoutPermission;
+	send("/public"s, otherOrigin, true, otherOriginUpgradeWithoutPermission);
+	assertTrue (otherOriginUpgradeWithoutPermission.getStatus() == HTTPResponse::HTTP_OK);
+}
+
+
 void WebServerDispatcherTest::testInvalidIfModifiedSinceIsIgnored()
 {
 	WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
@@ -3051,6 +3109,7 @@ CppUnit::Test* WebServerDispatcherTest::suite()
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testCORSOrigins);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testOriginDependentResponsesVaryByOrigin);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testIsSameOrigin);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testWebSocketUpgradeFromOtherOriginIsForbiddenBeforeAuthentication);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testInvalidIfModifiedSinceIsIgnored);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testChangedResourceOfDirectoryBundleIsModified);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testCompressedResponses);

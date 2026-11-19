@@ -2,6 +2,7 @@
   <!-- The web server authenticates and authorizes the upgrade request before the handler sees it, with an
        Authorization header carrying HTTP Basic credentials or a bearer token, or, if websession.id names a web
        session, with the cookie of a session logged in to it; bundle.properties documents the permission. An empty
-       permission skips authentication. -->
-  <extension point="osp.web.server.requesthandler" path="${path}" permission="${permission}" session="${websession.id}" class="Poco::OSP::WebEvent::WebEventRequestHandlerFactory" allowSpecialization="none" hidden="true" description="${description}"/>
+       permission skips authentication. The web server refuses an upgrade from an origin that is neither the
+       server's own nor listed in osp.web.event.allowedOrigins before it authenticates the request. -->
+  <extension point="osp.web.server.requesthandler" path="${path}" permission="${permission}" session="${websession.id}" allowWebSocketOrigin="${osp.web.event.allowedOrigins:-}" class="Poco::OSP::WebEvent::WebEventRequestHandlerFactory" allowSpecialization="none" hidden="true" description="${description}"/>
 </extensions>

@@ -90,6 +90,9 @@ other changes that are not listed here. The release notes (`doc/99100-OSPRelease
   origin with credentials, and `allowOrigin` `*` is sent without `Access-Control-Allow-Credentials`.
 - Web: with CORS enabled, a request from an origin that is not allowed is answered with 403 instead of 405 for a
   preflight or a method other than GET and HEAD, and without CORS headers for GET and HEAD.
+- Web: on a path with a permission (also `*` or `**`), a WebSocket upgrade whose `Origin` is neither the server's own
+  nor listed in the extension attribute `allowWebSocketOrigin` is answered with 403 before its credentials are
+  checked; WebEvent sets the attribute from `osp.web.event.allowedOrigins`.
 - Web: a request URI, Referer, Location or Content-Location in the access log, the full request log and the other log
   messages of the web server and BundleAdmin has the values of its query parameters, its user info and its fragment
   replaced with `***`; the names of the query parameters are kept.

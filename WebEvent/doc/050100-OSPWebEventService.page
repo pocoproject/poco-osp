@@ -418,16 +418,20 @@ Subjects have ancestors: a subscription to "sample" receives what is notified fo
 A browser does not restrict a WebSocket connection to the origin of the page
 that opens it, and it sends the user's cookies with the upgrade request. Any
 page the user visits can therefore try to connect to the WebEventService, with
-the session of the user. After the web server has authenticated the upgrade
-request (see Authentication and Authorization above), the service checks the
-following before a connection is established:
+the session of the user. The following is checked before a connection is
+established:
 
   - The Origin header. An upgrade request whose Origin is neither the
     request's own nor one of the origins listed in
     osp.web.event.allowedOrigins is rejected with status 403. The request's
     own origin has the scheme of the connection (https for a secure one),
     and the host and port of the Host header. Requests without an Origin
-    header come from clients other than browsers and are accepted.
+    header come from clients other than browsers and are accepted. The web
+    server checks the Origin before it authenticates the request (the
+    allowWebSocketOrigin attribute of the extension), so that a refused
+    request neither uses nor extends the user's session; the service checks
+    it again, which also covers an empty permission.
+  - The credentials (see Authentication and Authorization above).
   - The number of connections, if osp.web.event.maxWebSockets is set.
 
 An application that must restrict access further registers a delegate for the
@@ -558,6 +562,10 @@ Defaults to an empty list.
 Note that behind a proxy that terminates TLS, the service sees plain HTTP
 connections, and the public origin of the pages (for example
 "https://app.example.com") must be listed here.
+
+With a permission set, the web server refuses an upgrade from an origin that
+is not allowed before the service sees it, and logs the refusal at debug level
+only.
 
 
 !! osp.web.event.clientNotify

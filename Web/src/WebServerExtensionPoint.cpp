@@ -49,6 +49,7 @@ const std::string WebServerExtensionPoint::ATTR_AUTHMETHODS("authMethods");
 const std::string WebServerExtensionPoint::ATTR_SESSION("session");
 const std::string WebServerExtensionPoint::ATTR_CSRFPROTECTION("csrfProtection");
 const std::string WebServerExtensionPoint::ATTR_CSRFTOKENHEADER("csrfTokenHeader");
+const std::string WebServerExtensionPoint::ATTR_ALLOWWEBSOCKETORIGIN("allowWebSocketOrigin");
 const std::string WebServerExtensionPoint::ATTR_RESOURCE("resource");
 const std::string WebServerExtensionPoint::ATTR_CLASS("class");
 const std::string WebServerExtensionPoint::ATTR_LIBRARY("library");
@@ -166,15 +167,16 @@ void WebServerExtensionPoint::handleCommon(Bundle::ConstPtr pBundle, Poco::XML::
 	// one login redirect for all directory/handler extensions instead of
 	// repeating it on every bundle. Bundle-local properties don't include the
 	// global app config; PreferencesService::configuration() does.
-	if (vPath.redirectOn401.empty())
+	const Configuration::Ptr pAppConfig = applicationConfiguration();
+	if (vPath.redirectOn401.empty() && pAppConfig != nullptr)
 	{
-		ServiceRef::Ptr pPrefsRef = _pContext->registry().findByName(PreferencesService::SERVICE_NAME);
-		if (pPrefsRef != nullptr)
-		{
-			PreferencesService::Ptr pPrefs = pPrefsRef->castedInstance<PreferencesService>();
-			vPath.redirectOn401 = pPrefs->configuration()->getString("osp.web.redirectOn401", "");
-		}
+		vPath.redirectOn401 = pAppConfig->getString("osp.web.redirectOn401", "");
 	}
+	// The application configuration first: the bundle properties do not contain it, and would
+	// replace a reference with a default, such as ${osp.web.event.allowedOrigins:-}, by the default.
+	std::string allowWebSocketOrigin = pExtensionElem->getAttribute(ATTR_ALLOWWEBSOCKETORIGIN);
+	if (pAppConfig != nullptr) allowWebSocketOrigin = pAppConfig->expand(allowWebSocketOrigin);
+	vPath.security.allowWebSocketOrigin = pBundle->properties().expand(allowWebSocketOrigin);
 
 	if (vPath.security.csrfProtection && vPath.security.csrfTokenHeader.empty())
 	{
@@ -198,6 +200,15 @@ void WebServerExtensionPoint::handleCommon(Bundle::ConstPtr pBundle, Poco::XML::
 		vPath.responseFormat = WebServerDispatcher::RESPONSE_FORMAT_JSON;
 	else
 		throw BundleException("Failed to parse extension point: Illegal attribute value " + responseFormat + " for attribute " + ATTR_RESPONSEFORMAT);
+}
+
+
+Configuration::Ptr WebServerExtensionPoint::applicationConfiguration() const
+{
+	ServiceRef::Ptr pPrefsRef = _pContext->registry().findByName(PreferencesService::SERVICE_NAME);
+	if (pPrefsRef == nullptr) return nullptr;
+
+	return pPrefsRef->castedInstance<PreferencesService>()->configuration();
 }
 
 

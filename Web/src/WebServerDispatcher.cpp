@@ -662,6 +662,16 @@ void WebServerDispatcher::handleRequest(Poco::Net::HTTPServerRequest& request, P
 			{
 				sendResponse(request, HTTPResponse::HTTP_FORBIDDEN, formatMessage("secure"s, vPath.path), vPath.responseFormat);
 			}
+			else if (!webSocketOriginAllowed(request, vPath))
+			{
+				// Before authorize(), which would extend the session and send its cookie again.
+				_pContext->logger().debug(
+					"Request for %s answered with 403 Forbidden: the WebSocket upgrade comes from origin %s, which is neither the server's own nor listed in allowWebSocketOrigin of the path."s,
+					loggedURI(request), loggedText(request.get("Origin"s)));
+				response.setStatusAndReason(HTTPResponse::HTTP_FORBIDDEN);
+				response.setContentLength(0);
+				response.send();
+			}
 			else if (handleCORS(request, response, vPath))
 			{
 				std::string scope;
@@ -1664,6 +1674,23 @@ bool WebServerDispatcher::handleCORS(const Poco::Net::HTTPServerRequest& request
 	}
 
 	return true;
+}
+
+
+bool WebServerDispatcher::webSocketOriginAllowed(const Poco::Net::HTTPServerRequest& request, const VirtualPath& vPath)
+{
+	if (vPath.security.permission.empty()) return true;
+	if (!request.has("Origin"s)) return true;
+	if (Poco::icompare(request.get("Upgrade"s, ""s), "websocket"s) != 0) return true;
+
+	const std::string& origin = request.get("Origin"s);
+	if (isSameOrigin(request, origin)) return true;
+
+	Poco::StringTokenizer allowedOrigins(vPath.security.allowWebSocketOrigin, ","s, Poco::StringTokenizer::TOK_TRIM | Poco::StringTokenizer::TOK_IGNORE_EMPTY);
+	return std::any_of(allowedOrigins.begin(), allowedOrigins.end(), [&origin](const std::string& allowed)
+	{
+		return Poco::icompare(allowed, origin) == 0;
+	});
 }
 
 

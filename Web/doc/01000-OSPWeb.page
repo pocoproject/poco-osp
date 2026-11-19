@@ -193,6 +193,16 @@ The following attributes are supported for request handlers. The attributes othe
   - <[csrfProtection]>: If set to <[true]>, enable protection against CSRF (Cross-Site Request Forgery) attacks.
   - <[csrfTokenHeader]>: If CSRF protection is enabled, specifies the name of the HTTP request header
     containing the CSRF token. Defaults to "X-XSRF-TOKEN".
+  - <[allowWebSocketOrigin]>: A comma-separated list of origins (for example "https://app.example.com"),
+    besides the origin of the request itself, from which a WebSocket upgrade request with an "Origin"
+    header is accepted on a path with a <[permission]> (also "*" or "**"). Origins are compared without
+    regard to case.
+    An upgrade request from another origin is answered with 403 Forbidden before its credentials or its
+    session cookie are checked, so that a page of another site cannot use or extend the user's session.
+    Requests without an "Origin" header (clients other than browsers) and requests that are not WebSocket
+    upgrades are not affected. Property references in the value are resolved in the application
+    configuration, then in the bundle properties; the WebEvent bundle sets
+    <[allowWebSocketOrigin="${osp.web.event.allowedOrigins:-}"]>.
   - <[cors]>: If "true", enable CORS (Cross-Origin Resource Sharing), and CORS preflight requests
     as well as CORS response headers will be handled by the framework.
   - <[allowOrigin]>: Specify the allowed origins for CORS requests: "*", "**" or a comma-separated
@@ -204,7 +214,8 @@ The following attributes are supported for request handlers. The attributes othe
     is "true". For a list, only a listed origin is sent back in the "Access-Control-Allow-Origin" header.
     If CORS is enabled for the path (<[cors]> and <[osp.web.cors.enable]>), and the request is not
     rejected before the CORS check with 400 or 403 (an invalid request path, a secure path requested
-    without HTTPS), for "**" and lists, the response carries a "Vary: Origin" header.
+    without HTTPS, a WebSocket upgrade refused by <[allowWebSocketOrigin]>), for "**" and lists, the
+    response carries a "Vary: Origin" header.
     With "**", the origin "null" (sent by sandboxed documents and local files) is allowed and
     sent back like any other origin.
     If empty or not specified, the globally configured allowed origin is used (see
@@ -215,7 +226,8 @@ The following attributes are supported for request handlers. The attributes othe
     the proxy must be listed in <[allowOrigin]>. A <[GET]> or <[HEAD]> request from an origin that
     is not allowed is answered without CORS headers. If CORS is enabled for the path (<[cors]> and
     <[osp.web.cors.enable]>), and the request is not rejected before the CORS check with 400 or 403
-    (an invalid request path, a secure path requested without HTTPS), a CORS preflight (OPTIONS)
+    (an invalid request path, a secure path requested without HTTPS, a WebSocket upgrade refused by
+    <[allowWebSocketOrigin]>), a CORS preflight (OPTIONS)
     request, or a request with any other method, from an origin that is not allowed is answered
     with 403 Forbidden and does not reach the request handler.
   - <[allowMethods]>: Allowed methods for CORS requests. Defaults to the value of the <[methods]> attribute,
@@ -234,7 +246,8 @@ The following attributes are supported for request handlers. The attributes othe
 NOTE: The check whether an "Origin" header names the origin of the request itself takes the scheme from the
 connection. Behind a reverse proxy that terminates TLS and forwards the requests over HTTP, the "https" origin
 that browsers send never matches, with these consequences: BundleAdmin refuses its bundle actions and
-uploads, the WebEvent service refuses a WebSocket upgrade from an origin that is not listed in
+uploads, the web server refuses a WebSocket upgrade to a path with a permission from an origin that
+is not listed in <[allowWebSocketOrigin]>, the WebEvent service refuses one from an origin that is not listed in
 <[osp.web.event.allowedOrigins]>, and on a path with CORS enabled, a CORS preflight request or a request with a
 method other than <[GET]> and <[HEAD]> is refused unless the public origin of the proxy is allowed (see
 <[allowOrigin]>).

@@ -20,9 +20,12 @@
 #include "Poco/OSP/OSPException.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/OSP/Bundle.h"
+#include "Poco/OSP/PreferencesService.h"
+#include "Poco/OSP/Properties.h"
 #include "Poco/Net/HTTPRequestHandler.h"
 #include "Poco/DOM/Document.h"
 #include "Poco/DOM/Element.h"
+#include "Poco/Util/MapConfiguration.h"
 #include "Poco/AutoPtr.h"
 #include <map>
 #include <string>
@@ -88,7 +91,7 @@ WebServerExtensionPointTest::~WebServerExtensionPointTest() = default;
 
 void WebServerExtensionPointTest::setUp()
 {
-	_pBundle = std::make_unique<TemporaryBundle>("web.path = /app\n");
+	_pBundle = std::make_unique<TemporaryBundle>("web.path = /app\nweb.origin = https://bundle.example\n");
 }
 
 
@@ -129,6 +132,29 @@ void WebServerExtensionPointTest::testCommonAttributeDefaults()
 	assertTrue (vPath.cache);
 	assertTrue (vPath.cors.allowCredentials);
 	assertTrue (vPath.redirectOn401.empty());
+	assertTrue (vPath.security.allowWebSocketOrigin.empty());
+}
+
+
+void WebServerExtensionPointTest::testAllowWebSocketOriginResolvesReferences()
+{
+	const auto allowWebSocketOrigin = [this](const std::string& value)
+	{
+		return parseCommon(*_pBundle, {{"path", "/app"}, {"allowWebSocketOrigin", value}}).security.allowWebSocketOrigin;
+	};
+	const std::string applicationReference("${osp.web.event.allowedOrigins:-}");
+
+	assertEqual (std::string("https://a.example, https://b.example"), allowWebSocketOrigin("https://a.example, https://b.example"));
+	assertEqual (std::string("https://bundle.example"), allowWebSocketOrigin("${web.origin}"));
+	assertEqual (std::string(), allowWebSocketOrigin(applicationReference));
+
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pApplicationConfig(new Poco::Util::MapConfiguration);
+	_pBundle->registry().registerService(Poco::OSP::PreferencesService::SERVICE_NAME,
+		new Poco::OSP::PreferencesService(_pBundle->context()->persistentDirectory(), pApplicationConfig), Poco::OSP::Properties());
+	assertEqual (std::string(), allowWebSocketOrigin(applicationReference));
+
+	pApplicationConfig->setString("osp.web.event.allowedOrigins", "https://app.example");
+	assertEqual (std::string("https://app.example,https://bundle.example"), allowWebSocketOrigin(applicationReference + ",${web.origin}"));
 }
 
 
@@ -208,6 +234,7 @@ CppUnit::Test* WebServerExtensionPointTest::suite()
 
 	CppUnit_addTest(pSuite, WebServerExtensionPointTest, testCommonAttributes);
 	CppUnit_addTest(pSuite, WebServerExtensionPointTest, testCommonAttributeDefaults);
+	CppUnit_addTest(pSuite, WebServerExtensionPointTest, testAllowWebSocketOriginResolvesReferences);
 	CppUnit_addTest(pSuite, WebServerExtensionPointTest, testInvalidAllowSpecialization);
 	CppUnit_addTest(pSuite, WebServerExtensionPointTest, testInvalidResponseFormat);
 #if defined(OSPWEB_TEST_LIBRARY)

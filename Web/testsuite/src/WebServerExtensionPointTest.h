@@ -34,6 +34,7 @@ public:
 
 	void testCommonAttributes();
 	void testCommonAttributeDefaults();
+	void testAllowWebSocketOriginResolvesReferences();
 	void testInvalidAllowSpecialization();
 	void testInvalidResponseFormat();
 #if defined(OSPWEB_TEST_LIBRARY)

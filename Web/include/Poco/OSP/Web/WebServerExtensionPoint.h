@@ -23,6 +23,7 @@
 #include "Poco/OSP/Web/WebRequestHandlerFactory.h"
 #include "Poco/OSP/ExtensionPoint.h"
 #include "Poco/OSP/BundleContext.h"
+#include "Poco/OSP/Configuration.h"
 #include "Poco/ClassLoader.h"
 #include "Poco/Mutex.h"
 #include <memory>
@@ -81,6 +82,14 @@ class OSPWeb_API WebServerExtensionPoint: public ExtensionPoint
 	///    * csrfTokenHeader:
 	///                   For CSRF/XSRF protection, specify the name of the header
 	///                   containing the CSRF/XSRF token. Defaults to "X-XSRF-TOKEN".
+	///    * allowWebSocketOrigin:
+	///                   A comma-separated list of origins, besides the server's own, from which
+	///                   a WebSocket upgrade request with an "Origin" header is accepted on a path
+	///                   with a permission (also "*" or "**"). Origins are compared without regard
+	///                   to case.
+	///                   An upgrade from another origin is answered with 403 Forbidden before the
+	///                   credentials are checked. Property references are resolved in the
+	///                   application configuration, then in the bundle properties.
 	///    * hidden:      If "true", path is not included by WebServerDispatcher::listVirtualPaths().
 	///    * redirectOn401:
 	///                   For "osp.web.server.directory" only: if a GET request would result in a
@@ -130,7 +139,8 @@ class OSPWeb_API WebServerExtensionPoint: public ExtensionPoint
 	///                   error response also if the format is "html". On a path with a request
 	///                   handler, the 401 and 403 responses to a failed authorization are always
 	///                   JSON; the 403 response to a request without HTTPS on a secure path follows
-	///                   this format, and the 403 response to a CORS refusal has no body.
+	///                   this format, and the 403 responses to a CORS refusal and to a refused
+	///                   WebSocket upgrade (see allowWebSocketOrigin) have no body.
 	///
 	/// The following attributes can be specified for "osp.web.server.directory":
 	///    * resource:    Specify a directory within the bundle where the HTML, image
@@ -186,6 +196,7 @@ protected:
 	static const std::string ATTR_SESSION;
 	static const std::string ATTR_CSRFPROTECTION;
 	static const std::string ATTR_CSRFTOKENHEADER;
+	static const std::string ATTR_ALLOWWEBSOCKETORIGIN;
 	static const std::string ATTR_RESOURCE;
 	static const std::string ATTR_CLASS;
 	static const std::string ATTR_LIBRARY;
@@ -205,6 +216,10 @@ protected:
 
 private:
 	using Loader = Poco::ClassLoader<WebRequestHandlerFactory>;
+
+	[[nodiscard]] Configuration::Ptr applicationConfiguration() const;
+		/// Returns the application configuration of the PreferencesService,
+		/// or null if no PreferencesService is registered.
 
 	BundleContext::Ptr   _pContext;
 	WebServerDispatcher* _pDispatcher;

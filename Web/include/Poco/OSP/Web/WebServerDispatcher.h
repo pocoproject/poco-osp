@@ -118,6 +118,7 @@ public:
 		bool               secure;           /// path requires secure connection
 		bool               csrfProtection;   /// enable/disable CSRF/XSRF protection
 		std::string        csrfTokenHeader;  /// name of header containing CSRF/XSRF token for CSRF/XSRF protection
+		std::string        allowWebSocketOrigin; /// origins besides the server's own from which a WebSocket upgrade is accepted, see webSocketOriginAllowed()
 	};
 
 	struct PathCORS
@@ -465,6 +466,14 @@ protected:
 		///
 		/// If the allowed origin (see enableCORS()) is neither empty nor "*", the
 		/// response has a "Vary: Origin" header, whatever the Origin of the request.
+
+	[[nodiscard]] static bool webSocketOriginAllowed(const Poco::Net::HTTPServerRequest& request, const VirtualPath& vPath);
+		/// Returns false for a WebSocket upgrade request (its "Upgrade" header is
+		/// "websocket") for a path with a permission (also "*" or "**"), if its "Origin" header
+		/// names neither the origin of the request itself (see isSameOrigin()) nor
+		/// one of the origins listed in the path's allowWebSocketOrigin, compared
+		/// without regard to case. Returns true otherwise, also without an "Origin"
+		/// header, which clients other than browsers do not send.
 
 	[[nodiscard]] bool enableCORS(const Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response,
 		const VirtualPath& vPath) const;

@@ -91,6 +91,7 @@ public:
 	void testCORSOrigins();
 	void testOriginDependentResponsesVaryByOrigin();
 	void testIsSameOrigin();
+	void testWebSocketUpgradeFromOtherOriginIsForbiddenBeforeAuthentication();
 	void testInvalidIfModifiedSinceIsIgnored();
 	void testChangedResourceOfDirectoryBundleIsModified();
 	void testCompressedResponses();
