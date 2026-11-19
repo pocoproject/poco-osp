@@ -109,6 +109,7 @@ protected:
 		const std::string& passwordHash) const;
 		/// Returns the hash of the credentials in the version 4 format, with
 		/// the salt and the iteration count of the given hash in that format.
+		/// Returns an empty string if the salt or the iteration count is malformed.
 
 	static inline const std::string V4_PREFIX{"v=4;"};
 
@@ -211,6 +212,8 @@ inline std::string SimpleAuthService::hashCredentialsV4(const std::string& userN
 	std::istringstream saltStream(fields["s"]);
 	Poco::Base64Decoder decoder(saltStream);
 	Poco::StreamCopier::copyToString(decoder, salt);
+	// The stream reports a malformed salt as bad; the bytes decoded before the error are not the salt.
+	if (decoder.bad()) return std::string();
 
 	Poco::SHA1Engine sha1;
 	sha1.update(userName + ":" + _salt + ":");

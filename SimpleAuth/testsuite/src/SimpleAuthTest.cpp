@@ -141,6 +141,18 @@ void SimpleAuthTest::testMD5HashIsVerified()
 }
 
 
+void SimpleAuthTest::testMalformedSaltFailsLogin()
+{
+	// The salt has padding inside a group, so the decoder fails before it yields a byte. The hash is that of
+	// "secret" with an empty salt (computed with Python's hashlib, as V4_HASH_OF_SECRET), so a login that
+	// used the bytes decoded before the error would succeed.
+	Poco::AutoPtr<SimpleAuthService> pService = createService(MD5_HASH_OF_SECRET,
+		"v=4;s=A=BC;h=tHUSryObpBtKi8/dazWTfpablgTMsqoKtDKL6p/lgWo=;i=50000"s);
+
+	assertFalse (pService->authenticate("user"s, "secret"s));
+}
+
+
 void SimpleAuthTest::testScopedAuthorizationIsDenied()
 {
 	Poco::AutoPtr<SimpleAuthService> pService = createService(MD5_HASH_OF_SECRET, V4_HASH_OF_SECRET);
@@ -217,6 +229,7 @@ CppUnit::Test* SimpleAuthTest::suite()
 
 	CppUnit_addTest(pSuite, SimpleAuthTest, testPBKDF2HashIsVerified);
 	CppUnit_addTest(pSuite, SimpleAuthTest, testMD5HashIsVerified);
+	CppUnit_addTest(pSuite, SimpleAuthTest, testMalformedSaltFailsLogin);
 	CppUnit_addTest(pSuite, SimpleAuthTest, testScopedAuthorizationIsDenied);
 	CppUnit_addTest(pSuite, SimpleAuthTest, testServiceIsNotTakenForClassOfSameName);
 	CppUnit_addTest(pSuite, SimpleAuthTest, testMissingPreferencesServiceIsHandled);

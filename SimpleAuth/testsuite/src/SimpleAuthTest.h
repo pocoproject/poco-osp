@@ -26,6 +26,7 @@ public:
 
 	void testPBKDF2HashIsVerified();
 	void testMD5HashIsVerified();
+	void testMalformedSaltFailsLogin();
 	void testScopedAuthorizationIsDenied();
 	void testServiceIsNotTakenForClassOfSameName();
 	void testMissingPreferencesServiceIsHandled();
