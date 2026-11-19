@@ -15,7 +15,7 @@ stack traces in exceptions.
 | Sanitizer | Configure option | Runtime environment |
 |---|---|---|
 | AddressSanitizer | `-DPOCO_SANITIZEFLAGS="-fsanitize=address"` | on macOS `ASAN_OPTIONS=detect_odr_violation=0:report_globals=0` (see [testing.md](testing.md#sanitizers-and-loaded-libraries)) |
-| UndefinedBehaviorSanitizer | `-DPOCO_SANITIZEFLAGS="-fsanitize=undefined;-fno-sanitize=vptr"` | |
+| UndefinedBehaviorSanitizer | `-DPOCO_SANITIZEFLAGS="-fsanitize=undefined;-fno-sanitize=vptr"` | `UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1` |
 | ThreadSanitizer | `-DPOCO_SANITIZEFLAGS="-fsanitize=thread"` | `TSAN_OPTIONS="suppressions=<repo-root>/tsan.suppress,second_deadlock_stack=1"` |
 
 CI runs the sanitizers on Linux only, with GCC and with clang: `linux-gcc-cmake-sanitizers` and
@@ -32,6 +32,8 @@ TSAN_OPTIONS="suppressions=<repo-root>/tsan.suppress,second_deadlock_stack=1" ct
 ```
 
 - The vptr check of UBSan is disabled, as in POCO.
+- UBSan reports and continues by default, and CTest shows the output of failing tests only: `halt_on_error=1` stops
+  the test at the first report, so that it fails. CI sets it in the `ubsan` entries.
 - Fix a race instead of adding a suppression. A new entry in `tsan.suppress` gets a comment that explains why the
   reported race is harmless.
 - Where sanitizers are not available, run the affected test class under valgrind memcheck:

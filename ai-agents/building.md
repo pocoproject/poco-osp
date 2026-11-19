@@ -8,8 +8,7 @@ directory.
 
 - CMake 3.26 or newer (`cmake_minimum_required(VERSION 3.26)` in `CMakeLists.txt`).
 - A C++20 compiler: the root `CMakeLists.txt` stops the configure when `cxx_std_20` is not in
-  `CMAKE_CXX_COMPILE_FEATURES` or the standard library has no `std::map::contains()`. The CI job `linux-gcc11-cmake`
-  builds with GCC 11 on Ubuntu 22.04.
+  `CMAKE_CXX_COMPILE_FEATURES` or the standard library has no `std::map::contains()`.
 - git, which the configure runs to pull POCO.
 - OpenSSL development files: the default build enables the parts that need POCO's Crypto and NetSSL libraries.
 

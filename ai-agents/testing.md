@@ -82,6 +82,6 @@ on Linux only, where the checks of globals stay on.
   attempt hides a flaky test: check the attempt count in the job log and report the flaky test.
 - `.github/path-filters.yml` decides which narrow jobs run for a pull request; the sanitizer jobs always run.
 - The test jobs are `linux-gcc-cmake-sanitizers`, `linux-clang-cmake-sanitizers`, `macos-clang-cmake` (no sanitizer),
-  `windows-2025-msvc-cmake`, the probes `linux-gcc-cmake-poco-release`, `linux-gcc11-cmake` and
+  `windows-2025-msvc-cmake`, the probes `linux-gcc-cmake-poco-release`, and
   `linux-gcc-cmake-superbuild`, and `linux-gcc-cmake-install-consumer`, which runs `OSPInstallConsumer` and
   `OSPBundleFunction`.

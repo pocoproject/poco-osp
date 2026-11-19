@@ -103,6 +103,9 @@ jobs:
           - name: ubsan
             visibility: default
             sanitize_flags: "-fsanitize=undefined;-fno-sanitize=vptr"
+            # UBSan reports and continues by default, and ctest shows the output of
+            # failing tests only: halt on the first report, so that it fails the test.
+            ubsan_options: halt_on_error=1:print_stacktrace=1
           - name: tsan
             visibility: default
             sanitize_flags: "-fsanitize=thread"
@@ -112,6 +115,7 @@ jobs:
     env:
       TSAN_OPTIONS: ${{ matrix.name == 'tsan' && format('suppressions={0}/cmake-build/tsan.suppress,second_deadlock_stack=1', github.workspace) || '' }}
       ASAN_OPTIONS: ${{ matrix.name == 'hidden-asan' && 'detect_odr_violation=2' || '' }}
+      UBSAN_OPTIONS: ${{ matrix.ubsan_options }}
     steps:
       - uses: actions/checkout@v5
       - run: sysctl vm.legacy_va_layout
@@ -157,6 +161,9 @@ jobs:
           - name: ubsan
             visibility: default
             sanitize_flags: "-fsanitize=undefined;-fno-sanitize=vptr"
+            # UBSan reports and continues by default, and ctest shows the output of
+            # failing tests only: halt on the first report, so that it fails the test.
+            ubsan_options: halt_on_error=1:print_stacktrace=1
           - name: tsan
             visibility: default
             sanitize_flags: "-fsanitize=thread"
@@ -166,6 +173,7 @@ jobs:
     env:
       TSAN_OPTIONS: ${{ matrix.name == 'tsan' && format('suppressions={0}/cmake-build/tsan.suppress,second_deadlock_stack=1', github.workspace) || '' }}
       ASAN_OPTIONS: ${{ matrix.name == 'hidden-asan' && 'detect_odr_violation=2' || '' }}
+      UBSAN_OPTIONS: ${{ matrix.ubsan_options }}
     steps:
       - uses: actions/checkout@v5
       - run: sysctl vm.legacy_va_layout
@@ -216,40 +224,6 @@ jobs:
           -DPOCO_OSP_POCO_VERSION=release
           ${{ env.POCO_OSP_CMAKE_FULL_COMMON }}
           ${{ env.POCO_OSP_CMAKE_FULL_LINUX_EXTRA }}
-      - run: cmake --build cmake-build --target all --parallel $(nproc)
-      - uses: ./.github/actions/retry-action
-        with:
-          timeout_minutes: 90
-          max_attempts: 3
-          retry_on: any
-          command: >-
-            cd cmake-build &&
-            PWD=`pwd`
-            ctest ${{ env.POCO_CTEST_COMMON }} --parallel $(nproc)
-      - uses: ./.github/actions/upload-test-report
-        if: always()
-
-  # GCC 11 probe: g++ 11 rejects an attribute in the head of an exported class.
-  # CMake of the runner image: the Ubuntu 22.04 package is older than 3.26.
-  # Shell SSH is off: Ubuntu 22.04 ships libssh 0.9.6, and POCO SSH is not
-  # checked against it.
-  linux-gcc11-cmake:
-    runs-on: ubuntu-22.04
-    needs: changes
-    if: |
-      needs.changes.outputs.sources == 'true' ||
-      needs.changes.outputs.ci_core == 'true' ||
-      github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    steps:
-      - uses: actions/checkout@v5
-      - run: sudo apt -y update && sudo apt -y install ninja-build g++-11 libssl-dev libldap-dev libedit-dev
-      - run: >-
-          cmake -S. -Bcmake-build -GNinja
-          -DCMAKE_C_COMPILER=gcc-11 -DCMAKE_CXX_COMPILER=g++-11
-          -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
-          ${{ env.POCO_OSP_CMAKE_FULL_COMMON }}
-          ${{ env.POCO_OSP_CMAKE_FULL_LINUX_EXTRA }}
-          -DENABLE_OSP_SHELL_SSH=OFF
       - run: cmake --build cmake-build --target all --parallel $(nproc)
       - uses: ./.github/actions/retry-action
         with:

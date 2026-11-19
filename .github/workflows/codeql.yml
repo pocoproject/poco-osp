@@ -7,12 +7,25 @@ on:
     - cron: '0 0 * * *'
   pull_request:
     branches: '*'
+    # Only pull requests skip documentation-only changes: every commit on main keeps an
+    # analysis, because pull request alerts are compared with the analysis of the base branch.
+    paths-ignore:
+      - '**/*.md'
+      - '**/doc/**'
+      - 'CONTRIBUTORS'
+      - 'LICENSE'
+
+# A newer push to a pull request cancels the running analysis of that pull request.
+# Pushes to main and scheduled runs get a group of their own and are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   analyze:
     name: Analyze
     # Ubuntu 24.04: codeql-buildscript.sh installs CMake and libssh from the distribution; the CMake of Ubuntu 22.04
-    # is older than 3.26, and POCO SSH is not checked against its libssh 0.9.6 (see linux-gcc11-cmake in ci.yml).
+    # is older than 3.26, and POCO SSH is not checked against its libssh 0.9.6.
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     permissions:
