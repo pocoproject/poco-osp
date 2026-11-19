@@ -11,8 +11,13 @@ set(POCO_OSP_POCO_MIN_VERSION 2.0.0)
 # fresh configure builds.
 set(POCO_OSP_POCO_SUPPORTED_MAJORS 2)
 
-# Also in a superbuild, whose POCO may be built with an older standard.
-set(CMAKE_CXX_STANDARD 20)
+# POCO OSP requires C++20, as POCO does. A later standard set by the user or a superproject is kept.
+if(NOT CMAKE_CXX_STANDARD)
+	set(CMAKE_CXX_STANDARD 20)
+elseif(CMAKE_CXX_STANDARD LESS 20 OR CMAKE_CXX_STANDARD EQUAL 98)
+	message(FATAL_ERROR "POCO OSP requires C++20 or later, but CMAKE_CXX_STANDARD is ${CMAKE_CXX_STANDARD}. "
+		"Set CMAKE_CXX_STANDARD to 20 or later, or do not set it.")
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(cxx_std_20 IN_LIST CMAKE_CXX_COMPILE_FEATURES)
 	# CMake lists C++20 also for compilers whose standard library lacks parts of it, such as contains().
@@ -61,6 +66,31 @@ else()
 	set(POCO_OSP_SUPERBUILD OFF)
 	include(PocoOSPFetchPoco)
 endif()
+
+# The VERSION file of POCO main can name a release that is older than the POCO APIs that OSP uses, so the check
+# looks for them in the POCO sources.
+get_target_property(_poco_osp_foundation_dir Poco::Foundation SOURCE_DIR)
+cmake_path(GET _poco_osp_foundation_dir PARENT_PATH _poco_osp_poco_dir)
+set(_poco_osp_headers Foundation.h StreamCopier.h)
+set(_poco_osp_symbols POCO_API_EXPORT copyStreamN64)
+foreach(_poco_osp_header _poco_osp_symbol IN ZIP_LISTS _poco_osp_headers _poco_osp_symbols)
+	file(READ "${_poco_osp_foundation_dir}/include/Poco/${_poco_osp_header}" _poco_osp_content)
+	string(FIND "${_poco_osp_content}" "${_poco_osp_symbol}" _poco_osp_found)
+	if(_poco_osp_found EQUAL -1)
+		message(FATAL_ERROR "The POCO in ${_poco_osp_poco_dir} has no ${_poco_osp_symbol} in "
+			"Poco/${_poco_osp_header}, which OSP uses. OSP needs POCO ${POCO_OSP_POCO_MIN_VERSION} or newer, or "
+			"POCO main from 2026-11-17 or newer: choose it with POCO_OSP_POCO_VERSION, POCO_OSP_POCO_REPOSITORY or "
+			"FETCHCONTENT_SOURCE_DIR_POCO, or in the superproject.")
+	endif()
+endforeach()
+unset(_poco_osp_foundation_dir)
+unset(_poco_osp_poco_dir)
+unset(_poco_osp_headers)
+unset(_poco_osp_symbols)
+unset(_poco_osp_header)
+unset(_poco_osp_symbol)
+unset(_poco_osp_content)
+unset(_poco_osp_found)
 
 # POCO applies these settings in its own directory scope, which does not reach the OSP targets. The sanitizer flags,
 # the MSVC runtime library and the Release stripping follow POCO's cmake/DefinePlatformSpecific.cmake.

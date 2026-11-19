@@ -83,4 +83,48 @@ file(WRITE "${WORK_DIR}/no-cxx20-library.cmake" "set(CMAKE_REQUIRED_INCLUDES \"$
 configure_without_cxx20("a compiler whose standard library lacks parts of C++20" no-cxx20-library
 	"${WORK_DIR}/no-cxx20-library.cmake")
 
+run_configure(cxx17 -DCMAKE_CXX_STANDARD=17)
+poco_osp_expect("C++17: the configure fails (${result}):\n${out}" NOT result EQUAL 0)
+poco_osp_expect("C++17: the configure names the requirement:\n${out}"
+	out MATCHES "POCO OSP requires C\\+\\+20 or later, but CMAKE_CXX_STANDARD is 17")
+
+configure("a later standard" cxx23 -DCMAKE_CXX_STANDARD=23 -DPOCO_OSP_MINIMAL_BUILD=ON)
+poco_osp_expect("a later standard is kept" output MATCHES "C\\+\\+ standard: C\\+\\+23\n")
+
+# Writes a stand-in POCO source tree with Poco::Foundation in Foundation/ and the given content of
+# Poco/Foundation.h and Poco/StreamCopier.h.
+function(write_poco_tree dir foundation stream_copier)
+	file(WRITE "${dir}/CMakeLists.txt"
+		"cmake_minimum_required(VERSION 3.26)\nproject(StandInPoco NONE)\nadd_subdirectory(Foundation)\n")
+	file(WRITE "${dir}/Foundation/CMakeLists.txt"
+		"add_library(Foundation INTERFACE)\nadd_library(Poco::Foundation ALIAS Foundation)\n")
+	file(WRITE "${dir}/Foundation/include/Poco/Foundation.h" "${foundation}\n")
+	file(WRITE "${dir}/Foundation/include/Poco/StreamCopier.h" "${stream_copier}\n")
+	file(WRITE "${dir}/RemotingNG/CMakeLists.txt" "\n")
+endfunction()
+
+write_poco_tree("${WORK_DIR}/poco-without-api-export" "" "copyStreamN64")
+run_configure(without-api-export -DFETCHCONTENT_SOURCE_DIR_POCO=${WORK_DIR}/poco-without-api-export)
+# CMake wraps the lines of an error message; join them before matching.
+string(REGEX REPLACE "[ \n]+" " " out "${out}")
+poco_osp_expect("a POCO without POCO_API_EXPORT: the configure fails (${result}):\n${out}" NOT result EQUAL 0)
+poco_osp_expect("a POCO without POCO_API_EXPORT: the configure names the POCO it needs:\n${out}"
+	out MATCHES "has no POCO_API_EXPORT in Poco/Foundation.h, which OSP uses.* or POCO main from 2026-11-17 ")
+
+# A superproject that adds a POCO without the counted copy of StreamCopier, and then poco-osp.
+write_poco_tree("${WORK_DIR}/superproject/poco" "POCO_API_EXPORT" "")
+file(WRITE "${WORK_DIR}/superproject/CMakeLists.txt"
+	"cmake_minimum_required(VERSION 3.26)\nproject(Superproject NONE)\nadd_subdirectory(poco)\n"
+	"add_subdirectory(\"${OSP_SOURCE_DIR}\" osp)\n")
+execute_process(COMMAND "${CMAKE_COMMAND}" -S "${WORK_DIR}/superproject" -B "${WORK_DIR}/superproject-build"
+		-G "${GENERATOR}" -DCMAKE_C_COMPILER=${C_COMPILER} -DCMAKE_CXX_COMPILER=${CXX_COMPILER}
+	RESULT_VARIABLE result
+	OUTPUT_VARIABLE out
+	ERROR_VARIABLE out)
+string(REGEX REPLACE "[ \n]+" " " out "${out}")
+poco_osp_expect("a superproject POCO without copyStreamN64: the configure fails (${result}):\n${out}"
+	NOT result EQUAL 0)
+poco_osp_expect("a superproject POCO without copyStreamN64: the configure names the POCO it needs:\n${out}"
+	out MATCHES "The POCO in ${WORK_DIR}/superproject/poco has no copyStreamN64 in Poco/StreamCopier.h")
+
 file(REMOVE_RECURSE "${WORK_DIR}")

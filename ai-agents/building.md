@@ -17,7 +17,8 @@ directory.
 
 The configure pulls POCO with CMake's FetchContent (`cmake/PocoOSPFetchPoco.cmake`) and builds the POCO libraries that
 the enabled OSP parts need, with `POCO_MINIMAL_BUILD=ON`; POCO's own test suites are not built. POCO OSP needs POCO
-2.0 or newer: a POCO without RemotingNG stops the configure.
+2.0 or newer, or POCO `main` from 2026-11-17 or newer: a POCO without RemotingNG, `POCO_API_EXPORT` in
+`Poco/Foundation.h` or `StreamCopier::copyStreamN64()` stops the configure.
 
 | Setting | Meaning |
 |---|---|

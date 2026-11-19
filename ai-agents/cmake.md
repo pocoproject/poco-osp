@@ -127,7 +127,8 @@ with this repository's names.
 6. **`CMAKE_<LANG>_FLAGS` belongs to the user** (command line, toolchain file, `CXXFLAGS`).
 7. **Compiler conditions.** Wrap compiler-specific options in a condition on `CMAKE_CXX_COMPILER_ID` or a generator
    expression.
-8. **Language standard.** The root `CMakeLists.txt` sets `CMAKE_CXX_STANDARD` (see
+8. **Language standard.** The root `CMakeLists.txt` sets `CMAKE_CXX_STANDARD` to 20 when it is not set, keeps a later
+   standard set by the user or a superproject and stops the configure below 20 (see
    [building.md](building.md#prerequisites)), and `Poco::OSP` passes `cxx_std_20` to its users as a `PUBLIC` compile
    feature. Components set no standard of their own and never add `-std=` flags.
 9. **Paths.** Use `CMAKE_CURRENT_SOURCE_DIR`, `CMAKE_CURRENT_BINARY_DIR` and `PROJECT_SOURCE_DIR`, never
