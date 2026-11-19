@@ -143,9 +143,10 @@ them over TLS.
 NOTE: On Windows, POCO's ntlm login with an empty username and password uses
 the credentials of the process (SSPI), for which the SMTP session needs the
 host name of the server. The service connects the session through a socket,
-to apply osp.mail.socketTimeout to the connect, and POCO's session created
-from a socket has no host name. That form of login is therefore not
-available; configure a username and password.
+to apply osp.mail.socketTimeout to the connect, and only the session of the
+secure mail bundle in the starttls mode is given the host name. That form of
+login is therefore available only in the starttls mode; elsewhere, configure
+a username and password.
 
 
 !! osp.mail.login.username
