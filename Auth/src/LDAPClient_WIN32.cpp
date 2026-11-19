@@ -19,11 +19,11 @@
 #include "Poco/String.h"
 #include "Poco/URI.h"
 #include "Poco/UnicodeConverter.h"
+#include "Poco/UnWindows.h"
 #include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
-#include <windows.h>
 #include <winldap.h>
 #include <winber.h>
 

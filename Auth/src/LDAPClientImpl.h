@@ -22,7 +22,7 @@
 #include "Poco/Logger.h"
 #include "Poco/Timespan.h"
 #if defined(POCO_OS_FAMILY_WINDOWS)
-#include <windows.h>
+#include "Poco/UnWindows.h"
 #include <winldap.h>
 #else
 #include <ldap.h>

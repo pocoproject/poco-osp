@@ -41,7 +41,7 @@
 #include <optional>
 #include <cerrno>
 #if defined(POCO_OS_FAMILY_WINDOWS)
-#include <windows.h>
+#include "Poco/UnWindows.h"
 #elif defined(POCO_OS_FAMILY_UNIX)
 #include <termios.h>
 #endif
