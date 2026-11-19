@@ -17,6 +17,9 @@
 #include "Poco/AutoPtr.h"
 #include "Poco/Environment.h"
 #include "Poco/Path.h"
+#if defined(OSP_SAMPLES_TEST_NETSSL)
+#include "Poco/Net/X509Certificate.h"
+#endif
 #include <string>
 
 
@@ -79,6 +82,20 @@ void SampleConfigurationTest::testBundleServerVerifiesServerCertificates()
 }
 
 
+#if defined(OSP_SAMPLES_TEST_NETSSL)
+void SampleConfigurationTest::testBundleServerCertificateNamesLocalhost()
+{
+	// The host check of a POCO client, which takes the names from the subject alternative names only.
+	Poco::Path path(sampleConfiguration("BundleServer"s));
+	path.setFileName("any.pem"s);
+	const Poco::Net::X509Certificate certificate(path.toString());
+	assertTrue (Poco::Net::X509Certificate::verify(certificate, "localhost"s));
+	assertTrue (Poco::Net::X509Certificate::verify(certificate, "127.0.0.1"s));
+	assertTrue (Poco::Net::X509Certificate::verify(certificate, "::1"s));
+}
+#endif
+
+
 CppUnit::Test* SampleConfigurationTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("SampleConfigurationTest");
@@ -86,6 +103,9 @@ CppUnit::Test* SampleConfigurationTest::suite()
 	CppUnit_addTest(pSuite, SampleConfigurationTest, testBundleServerListensOnLoopbackAddress);
 	CppUnit_addTest(pSuite, SampleConfigurationTest, testBundleContainerListensOnLoopbackAddress);
 	CppUnit_addTest(pSuite, SampleConfigurationTest, testBundleServerVerifiesServerCertificates);
+#if defined(OSP_SAMPLES_TEST_NETSSL)
+	CppUnit_addTest(pSuite, SampleConfigurationTest, testBundleServerCertificateNamesLocalhost);
+#endif
 
 	return pSuite;
 }

@@ -56,6 +56,13 @@ if(ENABLE_OSP_SIMPLEAUTH)
 	target_compile_definitions(OSPSamples-testrunner PRIVATE OSP_SAMPLES_TEST_SIMPLE_AUTH=1)
 endif()
 
+# A test checks the certificate of the BundleServer sample with the host name check of POCO NetSSL.
+if(ENABLE_OSP_NETSSL)
+	target_link_libraries(OSPSamples-testrunner PRIVATE Poco::NetSSL Poco::Crypto)
+	target_compile_definitions(OSPSamples-testrunner PRIVATE OSP_SAMPLES_TEST_NETSSL=1)
+	poco_osp_link_applink(OSPSamples-testrunner)
+endif()
+
 add_test(
 	NAME OSPSamplesInstall
 	COMMAND ${CMAKE_COMMAND}

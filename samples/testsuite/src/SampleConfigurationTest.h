@@ -27,6 +27,9 @@ public:
 	void testBundleServerListensOnLoopbackAddress();
 	void testBundleContainerListensOnLoopbackAddress();
 	void testBundleServerVerifiesServerCertificates();
+#if defined(OSP_SAMPLES_TEST_NETSSL)
+	void testBundleServerCertificateNamesLocalhost();
+#endif
 
 	static CppUnit::Test* suite();
 
