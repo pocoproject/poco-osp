@@ -10,9 +10,10 @@ other changes that are not listed here. The release notes (`doc/99100-OSPRelease
 ### Breaking changes
 
 - Build: CMake is the only build system; there are no GNU make files.
-- Build: POCO OSP requires a C++20 compiler; the configure stops without one.
+- Build: POCO OSP requires a C++20 compiler; the configure stops without one and with a `CMAKE_CXX_STANDARD` below 20.
 - Build: POCO is not part of the source tree. The configure pulls the newest POCO 2.x release (`main` while none exists)
   or the ref that `POCO_OSP_POCO_VERSION` names, or uses the POCO of a superproject; an installed POCO is refused.
+- Build: POCO OSP needs POCO 2.0, or POCO `main` from 2026-11-17 or newer; the configure stops with an older POCO.
 - Build: a superproject adds POCO OSP with `add_subdirectory()`; `PocoProOspSetup.cmake` is removed, and its option
   `ENABLE_REMOTING` is `ENABLE_OSP_REMOTING`.
 - Build: the `ENABLE_OSP_*` options select the OSP parts, also the bundles of POCO libraries, and the configure switches
@@ -30,6 +31,8 @@ other changes that are not listed here. The release notes (`doc/99100-OSPRelease
   where `PocoOspBundle.cmake` is also installed; `BundleCreatorTargets.cmake` is removed.
 - Build: the OSP libraries pass on only the libraries that their public headers use, for example no longer Zip, JSON,
   SSH or the LDAP library, and `Poco::OSPWebEvent` no longer `Poco::OSPWeb`; a target that uses them links them itself.
+- Build: the export macros of the OSP libraries (`OSP_API`, `OSPWeb_API` and the others) are POCO's `POCO_API_EXPORT`
+  and `POCO_API_IMPORT`; they cannot be defined in advance.
 - Build: `poco_osp_bundle()` stops the configure for an unknown argument and for a `$<TARGET_FILE:...>` in `CODE` whose
   target is defined after the call.
 - Build: `poco_remote_gen()` takes `GEN_DIR_NAME` relative to `CMAKE_CURRENT_BINARY_DIR`.
@@ -121,6 +124,12 @@ other changes that are not listed here. The release notes (`doc/99100-OSPRelease
   are verified; TLS 1.2 or newer is required; only `osp.mail.tls.*` applies, not `openSSL.client`.
 - SecureMail: a server that refuses STARTTLS fails the delivery; the login and the message are not sent unencrypted.
 - JWT: a token without a subject (`sub`) is rejected.
+- Net, SecureMail: POCO checks the host name of a server against the subject alternative names of its certificate
+  only, not against the common name; the `any.pem` of the BundleServer sample names `localhost`, `127.0.0.1` and `::1`.
+- SecureMail: on Windows, the `ntlm` login with an empty user name and password uses the credentials of the process
+  (SSPI) in the `starttls` mode, as POCO's session from a connected socket knows the host name.
+- Samples: with `--config-file`, BundleServer and BundleContainer resolve `${application.configDir}` (the bundle
+  repository, the data directory and `any.pem`) against the directory of that file.
 - Prometheus: the request metrics are named `osp_web_requests_total`, `osp_web_requests_by_status_total` and
   `osp_web_request_duration_seconds`.
 - Prometheus: the web server metrics have the label `server` instead of `host`, `port` and `protocol`.

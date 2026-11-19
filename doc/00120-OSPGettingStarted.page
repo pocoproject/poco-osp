@@ -80,8 +80,10 @@ a reconfigure builds the same POCO. To resolve them again:
 A POCO source tree can also be given with <[FETCHCONTENT_SOURCE_DIR_POCO]>, as
 an absolute path; it is used as it is.
 
-POCO OSP needs POCO 2.0 or newer. A POCO without the RemotingNG library, which
-POCO has from version 2.0 on, stops the configure.
+POCO OSP needs POCO 2.0 or newer, or POCO main from 2026-11-17 or newer. A
+POCO without the RemotingNG library, without <[POCO_API_EXPORT]> in
+<[Poco/Foundation.h]> or without <[StreamCopier::copyStreamN64()]> stops the
+configure.
 
 A project that adds the POCO sources itself (with <[add_subdirectory()]> or
 <[FetchContent]>) and then adds POCO OSP with <[add_subdirectory()]> builds

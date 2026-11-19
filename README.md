@@ -98,7 +98,8 @@ $ cmake -S . -B cmake-build
 $ cmake --build cmake-build --config Release
 ```
 
-The configure pulls POCO and builds it in the same build. POCO OSP needs POCO 2.0 or newer.
+The configure pulls POCO and builds it in the same build. POCO OSP needs POCO 2.0 or newer, or POCO `main` from
+2026-11-17 or newer; an older POCO stops the configure.
 
 - `-DPOCO_OSP_POCO_VERSION=<version>` chooses the POCO: `release` (default) is the newest POCO 2.x release, or POCO
   `main` while there is none; `latest` is POCO `main`; anything else is a POCO tag, branch or commit. `release` and
