@@ -1909,7 +1909,7 @@ int WebEventServiceImpl::defaultWorkerCount()
 std::string WebEventServiceImpl::describe(const Subscriber& subscriber)
 {
 	if (subscriber.username.empty()) return subscriber.clientAddress;
-	return Poco::format("%s (user %s)", subscriber.clientAddress, subscriber.username);
+	return Poco::format("%s (user %s)", subscriber.clientAddress, Poco::UTF8::escape(subscriber.username));
 }
 
 

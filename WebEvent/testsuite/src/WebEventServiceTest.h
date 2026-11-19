@@ -90,6 +90,7 @@ public:
 	void testClientNotificationNeedsEveryAncestorAllowed();
 	void testThrowingSubjectAuthorizerRefuses();
 	void testRefusedSubjectIsLoggedEscaped();
+	void testSubscriberUserIsLoggedEscaped();
 	void testSubjectRefusalsAreThrottled();
 	void testRemovedSubjectAuthorizerAsksNothing();
 	void testRefusedSubjectGetsNoInitialData();

@@ -3971,6 +3971,49 @@ void WebEventServiceTest::testRefusedSubjectIsLoggedEscaped()
 }
 
 
+void WebEventServiceTest::testSubscriberUserIsLoggedEscaped()
+	/// The user resolver may return a name with control characters: the log
+	/// lines that name the subscriber show the name escaped.
+{
+	const std::string publicSubject("com.example.public");
+	const std::string refusedSubject("com.example.refused");
+	const std::string username("alice\r\nWebSocket subscriber mallory");
+
+	LogCapture capture("Poco.OSP.WebEvent");
+	LocalService local(1, 0);
+	local.pService->setUserResolver([&](const Poco::Net::HTTPServerRequest&)
+		{
+			return username;
+		});
+	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction)
+		{
+			return subject != refusedSubject;
+		});
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	sendSubscribe(ws, publicSubject + "," + refusedSubject);
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(publicSubject) == 1; }, 5000));
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
+	assertTrue(std::ranges::any_of(messages, [&](const Poco::Message& message)
+		{
+			return message.getText().find("(user " + Poco::UTF8::escape(username) + ")") != std::string::npos;
+		}));
+	for (const auto& message: messages)
+	{
+		assertTrue(message.getText().find_first_of("\r\n") == std::string::npos);
+	}
+
+	try
+	{
+		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
 void WebEventServiceTest::testSubjectRefusalsAreThrottled()
 	/// A client cannot fill the log with refused subjects: the first refusal
 	/// is logged at notice level, the next ones at debug level. The failures
@@ -4254,6 +4297,7 @@ CppUnit::Test* WebEventServiceTest::suite()
 	CppUnit_addTest(pSuite, WebEventServiceTest, testClientNotificationNeedsEveryAncestorAllowed);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testThrowingSubjectAuthorizerRefuses);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testRefusedSubjectIsLoggedEscaped);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testSubscriberUserIsLoggedEscaped);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testSubjectRefusalsAreThrottled);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testRemovedSubjectAuthorizerAsksNothing);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testRefusedSubjectGetsNoInitialData);
