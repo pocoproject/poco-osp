@@ -68,6 +68,7 @@ public:
 	void testAttributesForUser();
 	void testAttributeWithAuthPrefixWithoutUnderscoreIsUserAttribute();
 	void testLockOut();
+	void testLockOutWithinSecond();
 	void testLockOutAfterLoginFailures();
 	void testCachedLoginResetsFailureCount();
 	void testNeverLockOutUsersAreNotLockedOut();

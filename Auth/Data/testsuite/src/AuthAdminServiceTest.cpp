@@ -44,6 +44,7 @@
 #include "Poco/Channel.h"
 #include "Poco/Message.h"
 #include "Poco/Mutex.h"
+#include "Poco/Timestamp.h"
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -2027,6 +2028,35 @@ void AuthAdminServiceTest::testLockOut()
 
 	assert (!_pAAS->isUserLockedOut("user1"));
 	assert (_pAAS->authenticate("user1", "user"));
+}
+
+
+void AuthAdminServiceTest::testLockOutWithinSecond()
+{
+	constexpr Poco::Timestamp::TimeDiff EARLY_IN_SECOND = 200000;
+	constexpr Poco::Timestamp::TimeDiff LOCK_OUT_MICROSECONDS = 700000;
+	constexpr std::chrono::milliseconds POLL_INTERVAL{5};
+
+	_pAAS->addUser("user1", "user");
+
+	// Start early in a second, so that a lockout ending later in the same
+	// second is still to come, while its end cut to whole seconds is past.
+	Poco::Timestamp start;
+	while (start.epochMicroseconds() % Poco::Timestamp::resolution() > EARLY_IN_SECOND)
+	{
+		std::this_thread::sleep_for(POLL_INTERVAL);
+		start.update();
+	}
+	_pAAS->lockOutUser("user1", Poco::DateTime(start) + Poco::Timespan(0, LOCK_OUT_MICROSECONDS));
+
+	assert (_pAAS->isUserLockedOut("user1"));
+
+	// An end stored in whole seconds is still read.
+	const std::string end = Poco::DateTimeFormatter::format(Poco::DateTime() + Poco::Timespan(LOCK_OUT_SECONDS, 0),
+		Poco::DateTimeFormat::ISO8601_FORMAT);
+	_pAAS->setAuthAttribute("user1", AuthAdminServiceImpl::USER_ATTR_LOCKOUT, end);
+
+	assert (_pAAS->isUserLockedOut("user1"));
 }
 
 
@@ -4130,6 +4160,7 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAttributesForUser);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAttributeWithAuthPrefixWithoutUnderscoreIsUserAttribute);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLockOut);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLockOutWithinSecond);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLockOutAfterLoginFailures);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testCachedLoginResetsFailureCount);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testNeverLockOutUsersAreNotLockedOut);
@@ -4235,6 +4266,7 @@ CppUnit::Test* InlineAttributesAuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest,
 		testAttributeWithAuthPrefixWithoutUnderscoreIsUserAttribute);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testLockOut);
+	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testLockOutWithinSecond);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testLockOutAfterLoginFailures);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testCachedLoginResetsFailureCount);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testNeverLockOutUsersAreNotLockedOut);

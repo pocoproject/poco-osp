@@ -2391,7 +2391,9 @@ void AuthAdminServiceImpl::resetFailureCountImpl(Poco::Data::Session& sess, cons
 
 void AuthAdminServiceImpl::lockOutUserImpl(Poco::Data::Session& sess, const std::string& username, const Poco::DateTime& lockOutUntil) const
 {
-	replaceUserAttributeImpl(sess, username, USER_ATTR_LOCKOUT, Poco::DateTimeFormatter::format(lockOutUntil, Poco::DateTimeFormat::ISO8601_FORMAT));
+	// With the fraction of the second: cut to whole seconds, the end of a
+	// lockout comes up to a second early.
+	replaceUserAttributeImpl(sess, username, USER_ATTR_LOCKOUT, Poco::DateTimeFormatter::format(lockOutUntil, Poco::DateTimeFormat::ISO8601_FRAC_FORMAT));
 }
 
 
@@ -2435,8 +2437,10 @@ bool AuthAdminServiceImpl::isInLockOutPeriod(const std::string& username, const 
 	{
 		try
 		{
+			// The fraction of the second is optional, so an end stored in whole
+			// seconds reads as before.
 			int tzd = 0;
-			const Poco::DateTime lockoutDate = Poco::DateTimeParser::parse(Poco::DateTimeFormat::ISO8601_FORMAT, lockout, tzd);
+			const Poco::DateTime lockoutDate = Poco::DateTimeParser::parse(Poco::DateTimeFormat::ISO8601_FRAC_FORMAT, lockout, tzd);
 			const Poco::DateTime now;
 			if (lockoutDate >= now)
 			{
