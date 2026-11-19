@@ -351,6 +351,14 @@ public:
 		/// Poco::URI::addQueryParameter, which percent-encodes '+' so
 		/// HTMLForm decoders do not corrupt it.
 
+	[[nodiscard]] static std::string redactRequestURI(const std::string& uri);
+		/// Returns the request URI as the logs write it, without the values of the
+		/// query parameters: the path and the names of the query parameters are kept,
+		/// each value is replaced with "***" (name=***), and a query item that has no
+		/// name=value form is replaced with "***". The user info of an absolute URI
+		/// is replaced with "***" (http://***@host/), and a non-empty fragment with
+		/// "***". A URI without user info, query and fragment is returned unchanged.
+
 	[[nodiscard]] static bool isSameOrigin(const Poco::Net::HTTPServerRequest& request, const std::string& origin);
 		/// Returns true if origin, the value of an Origin header field, names the
 		/// origin of the request itself: the scheme of the connection the request was

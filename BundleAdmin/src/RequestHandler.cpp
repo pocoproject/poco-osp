@@ -368,7 +368,7 @@ Poco::OSP::Web::WebSession::Ptr RequestHandler::session()
 
 void RequestHandler::logIncompleteResponse(const std::string& reason)
 {
-	context()->logger().error("The bundle %s sent the page %s incomplete: %s", bundle()->symbolicName(), request().getURI(), reason);
+	context()->logger().error("The bundle %s sent the page %s incomplete: %s", bundle()->symbolicName(), Poco::OSP::Web::WebServerDispatcher::redactRequestURI(request().getURI()), reason);
 }
 
 

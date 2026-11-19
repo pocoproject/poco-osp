@@ -582,13 +582,19 @@ The web server can be configured by setting the following properties in the glob
   - <[osp.web.logFullRequest]>: If set to true, log all HTTP requests and responses with all HTTP headers.
     The values of the <[Authorization]>, <[Proxy-Authorization]>, <[Cookie]> and <[Set-Cookie]> headers,
     of the CSRF token headers of the mapped paths, and of every header field whose name is not an HTTP token are
-    logged as <[<redacted>]>; control characters are logged percent-encoded.
+    logged as <[<redacted>]>. The request URI and the values of the <[Referer]>, <[Location]> and
+    <[Content-Location]> headers are logged with the values of their query parameters, their user info and their
+    fragment replaced with <[***]>; the names of the query parameters are kept. Control characters are logged
+    percent-encoded.
 
 
 !!! Request Logging
 
 The web server supports logging of HTTP requests. For that purpose, the logger "osp.web.access" is used.
 The log message text is the HTTP request, including method, path and version.
+In the request URI, the values of the query parameters, the user info and the fragment are replaced with
+<[***]>; the names of the query parameters are kept. The other log messages of the web server write request
+URIs in the same way.
 Control characters in the request line and in the header values are percent-encoded.
 Additionally, the following log message properties are available for use in formatting:
 
@@ -604,7 +610,8 @@ Additionally, the following log message properties are available for use in form
     an IP address, otherwise the client IP address. The header is supplied by the client or by a
     proxy, so the value is only as trustworthy as these.
   - <[size]>: The size of the response, from the response <*Content-Length*> header. If not set, "-".
-  - <[referer]>: The content of the <*Referer*> HTTP request header, or an empty string if not set.
+  - <[referer]>: The content of the <*Referer*> HTTP request header, with the values of the query parameters,
+    the user info and the fragment replaced with <[***]>, or an empty string if not set.
   - <[useragent]>: The content of the <*User-Agent*> HTTP request header, or an empty string if not set.
   - <[host]>: The content of the <*Host*> HTTP request header, or an empty string if not set.
   - <[duration]>: The time taken to handle the request, in seconds.

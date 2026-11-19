@@ -481,7 +481,8 @@ void BundleAdminTest::testErrorAfterPartOfPageIsLogged()
 	bool logged = false;
 	for (const auto& msg: capture.channel().waitForMessages(1))
 	{
-		if (msg.getPriority() == Poco::Message::PRIO_ERROR && contains(msg.getText(), SHOW_TARGET)) logged = true;
+		if (msg.getPriority() == Poco::Message::PRIO_ERROR && contains(msg.getText(), "/bundleAdmin/showBundle?symbolicName=***"s)) logged = true;
+		assertTrue (!contains(msg.getText(), SHOW_TARGET));
 	}
 	assertTrue (logged);
 }

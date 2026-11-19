@@ -77,9 +77,14 @@ public:
 	void testFullResponseLogEscapesFieldValue();
 	void testFullResponseLogEscapesReasonAndFieldOfHandler();
 	void testBadRequestDebugMessageHasNoControlCharacters();
+	void testBadRequestDebugMessageHasNoQueryValues();
+	void testRedirectLogsMaskQueryValues();
 	void testFullRequestLogHasNoCredentials();
 	void testFullRequestLogRedactsFieldsWithCredentialOrNonTokenNames();
 	void testFullRequestLogKeepsRequestLineWithFieldNameAsMethod();
+	void testRedactRequestURI();
+	void testRefusedAuthorizationWarningMasksQueryValues();
+	void testRequestLogsMaskQueryValues();
 	void testForwardedClientAddressIsAnIPAddressOnly();
 	void testJSONErrorResponseEscapesRequestData();
 	void testCORSOrigins();

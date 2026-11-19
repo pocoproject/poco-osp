@@ -1888,7 +1888,7 @@ void WebServerDispatcherTest::testLoggedRequestDataHasNoControlCharacters()
 	// Not sent over a connection, as HTTPRequest::write() and read() can reject control characters.
 	ServerRequestStub request("127.0.0.1:50000"s, false);
 	request.setMethod("G\x1b[2JT"s);
-	request.setURI("/protected?\x1b[2J\x1b[31m"s);
+	request.setURI("/protected?\x1b[2J=\x1b[31m"s);
 	request.setVersion("H\x1b[2J"s);
 	request.setCredentials("Bearer"s, "rejected-token-value"s);
 	request.set("Host"s, "\x1b[2Jhost"s);
@@ -1922,7 +1922,7 @@ void WebServerDispatcherTest::testLoggedRequestDataHasNoControlCharacters()
 	if (parsesURI)
 	{
 		const std::string& tokenWarning = messages.at(1).getText();
-		assertTrue (tokenWarning.find("/protected?%1B[2J%1B[31m"s) != std::string::npos);
+		assertTrue (tokenWarning.find("/protected?%1B[2J=***"s) != std::string::npos);
 	}
 	for (const auto& message: messages)
 	{
@@ -2040,7 +2040,7 @@ void WebServerDispatcherTest::testBadRequestDebugMessageHasNoControlCharacters()
 	LogCapture capture(_pFixture->bundles.context()->logger().name());
 	_pFixture->bundles.context()->logger().setLevel(Poco::Message::PRIO_DEBUG);
 
-	// Poco::URI rejects the incomplete percent encoding with an exception text that holds the path.
+	// Poco::URI rejects the incomplete percent encoding.
 	ServerRequestStub request("127.0.0.1:50000"s, false);
 	request.setURI("/dir/\x1b[2J%"s);
 	pDispatcher->handleRequest(request, request.response(), false);
@@ -2051,8 +2051,66 @@ void WebServerDispatcherTest::testBadRequestDebugMessageHasNoControlCharacters()
 		{ return message.getText().find("answered with 400 Bad Request: "s) != std::string::npos; });
 	assertTrue (badRequest != messages.end());
 	const std::string& text = badRequest->getText();
-	assertTrue (text.find("/dir/%1B[2J%"s, text.find("400 Bad Request"s)) != std::string::npos);
+	assertTrue (text.find("/dir/%1B[2J%"s) != std::string::npos);
 	assertFalse (hasControlCharacter(text));
+}
+
+
+void WebServerDispatcherTest::testBadRequestDebugMessageHasNoQueryValues()
+{
+	WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
+	LogCapture capture(_pFixture->bundles.context()->logger().name());
+	_pFixture->bundles.context()->logger().setLevel(Poco::Message::PRIO_DEBUG);
+
+	// Poco::URI rejects the control character with an exception text that holds the query.
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	request.setURI("/dir/?token=query-secret\x01"s);
+	pDispatcher->handleRequest(request, request.response(), false);
+	assertTrue (request.response().getStatus() == HTTPResponse::HTTP_BAD_REQUEST);
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
+	assertFalse (messages.empty());
+	assertTrue (messages[0].getText().find("/dir/?token=***"s) != std::string::npos);
+	for (const auto& message: messages)
+	{
+		assertTrue (message.getText().find("query-secret"s) == std::string::npos);
+	}
+}
+
+
+void WebServerDispatcherTest::testRedirectLogsMaskQueryValues()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher(WebServerDispatcher::CONF_OPT_LOG_FULL_REQUEST);
+	WebServerDispatcher::VirtualPath protectedPath("/protected"s, "www"s,
+		WebServerDispatcher::PathSecurity(WebServerDispatcher::SM_OWNER, ""s, "read"s), _pFixture->bundles.bundle());
+	protectedPath.redirectOn401 = "/login"s;
+	pDispatcher->addVirtualPath(protectedPath);
+	LogCapture capture(_pFixture->bundles.context()->logger().name());
+
+	ServerRequestStub directory("127.0.0.1:50000"s, false);
+	directory.setURI("/dir?token=directory-secret"s);
+	pDispatcher->handleRequest(directory, directory.response(), false);
+	assertTrue (directory.response().getStatus() == HTTPResponse::HTTP_FOUND);
+	assertEqual ("/dir/?token=directory-secret"s, directory.response().get("Location"s));
+
+	ServerRequestStub login("127.0.0.1:50000"s, false);
+	login.setURI("/protected/hello.txt?token=login-secret"s);
+	pDispatcher->handleRequest(login, login.response(), false);
+	assertTrue (login.response().get("Location"s).find("login-secret"s) != std::string::npos);
+
+	// The full request log adds the request and the response of each.
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(4);
+	std::string logged;
+	for (const auto& message: messages)
+	{
+		logged += message.getText();
+		logged += '\n';
+	}
+	assertTrue (logged.find("Location: /dir/?token=***"s) != std::string::npos);
+	assertTrue (logged.find("Location: /login?redirect=***"s) != std::string::npos);
+	assertTrue (logged.find("directory-secret"s) == std::string::npos);
+	assertTrue (logged.find("login-secret"s) == std::string::npos);
 }
 
 
@@ -2157,9 +2215,93 @@ void WebServerDispatcherTest::testFullRequestLogKeepsRequestLineWithFieldNameAsM
 	assertEqual (2, messages.size());
 	const std::string& requestText = messages.at(0).getText();
 	assertTrue (requestText.rfind("Request from "s, 0) == 0);
-	assertTrue (requestText.find("\n\tCookie: /open?visible HTTP/1.0\n\t"s) != std::string::npos);
+	assertTrue (requestText.find("\n\tCookie: /open?*** HTTP/1.0\n\t"s) != std::string::npos);
 	assertTrue (requestText.find("\n\tCookie: <redacted>"s) != std::string::npos);
 	assertTrue (requestText.find("request-session-id"s) == std::string::npos);
+}
+
+
+void WebServerDispatcherTest::testRedactRequestURI()
+{
+	assertEqual ("/"s, WebServerDispatcher::redactRequestURI("/"s));
+	assertEqual ("/a/b.html"s, WebServerDispatcher::redactRequestURI("/a/b.html"s));
+	assertEqual ("/a?"s, WebServerDispatcher::redactRequestURI("/a?"s));
+	assertEqual ("/a?token=***"s, WebServerDispatcher::redactRequestURI("/a?token=secret"s));
+	assertEqual ("/a?x=***&y=***"s, WebServerDispatcher::redactRequestURI("/a?x=1&y=2"s));
+	assertEqual ("/a?x=***&y=***"s, WebServerDispatcher::redactRequestURI("/a?x=1&&y=&"s));
+	assertEqual ("/a?x=***"s, WebServerDispatcher::redactRequestURI("/a?x=1=2?3"s));
+	assertEqual ("/a?value=***&***"s, WebServerDispatcher::redactRequestURI("/a?value=%7B%22k%22%3A1%7D&secret"s));
+	assertEqual ("/a?%C3%A9=***"s, WebServerDispatcher::redactRequestURI("/a?%C3%A9=v"s));
+	assertEqual ("http://***@host/p?x=***"s, WebServerDispatcher::redactRequestURI("http://user:pass@host/p?x=1"s));
+	assertEqual ("http://***@host/p"s, WebServerDispatcher::redactRequestURI("http://user@host/p"s));
+	assertEqual ("http://***@host"s, WebServerDispatcher::redactRequestURI("http://user:pass@host"s));
+	assertEqual ("http://host/p?x=***"s, WebServerDispatcher::redactRequestURI("http://host/p?x=1"s));
+	assertEqual ("https://host:8443/p"s, WebServerDispatcher::redactRequestURI("https://host:8443/p"s));
+	assertEqual ("/p?r=***"s, WebServerDispatcher::redactRequestURI("/p?r=http://user:pass@host/"s));
+	assertEqual ("http://***@host/p"s, WebServerDispatcher::redactRequestURI("http://us@er:pass@host/p"s));
+	assertEqual ("http://***@"s, WebServerDispatcher::redactRequestURI("http://user:pass@"s));
+	assertEqual ("/a?=***"s, WebServerDispatcher::redactRequestURI("/a?=v"s));
+	assertEqual ("/a?x=***#***"s, WebServerDispatcher::redactRequestURI("/a?x=1#token=secret"s));
+	assertEqual ("/a#***"s, WebServerDispatcher::redactRequestURI("/a#x?y=1"s));
+	assertEqual ("/a#"s, WebServerDispatcher::redactRequestURI("/a#"s));
+}
+
+
+void WebServerDispatcherTest::testRefusedAuthorizationWarningMasksQueryValues()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	_pFixture->bundles.registry().registerService(TOKEN_VALIDATOR_NAME, new TestTokenValidator, Properties());
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(_pFixture->dispatcherConfig());
+	pDispatcher->addVirtualPath(handlerPath("/protected"s, "read"s, _pFixture->bundles.bundle()));
+	LogCapture capture(_pFixture->bundles.context()->logger().name());
+
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	request.setURI("/protected?token=query-secret"s);
+	request.setCredentials("Bearer"s, "rejected-token-value"s);
+	pDispatcher->handleRequest(request, request.response(), false);
+
+	assertTrue (request.response().getStatus() == HTTPResponse::HTTP_UNAUTHORIZED);
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
+	assertEqual (1, messages.size());
+	assertTrue (messages[0].getPriority() == Poco::Message::PRIO_WARNING);
+	assertTrue (messages[0].getText().find("/protected?token=***"s) != std::string::npos);
+	assertTrue (messages[0].getText().find("query-secret"s) == std::string::npos);
+}
+
+
+void WebServerDispatcherTest::testRequestLogsMaskQueryValues()
+{
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(
+		_pFixture->dispatcherConfig(WebServerDispatcher::CONF_OPT_LOG_FULL_REQUEST));
+	std::string handlerUser;
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/failing"s,
+		new ThrowingIdentityHandlerFactory(handlerUser), WebServerDispatcher::PathSecurity(), _pFixture->bundles.bundle()));
+	LogCapture bundleLog(_pFixture->bundles.context()->logger().name());
+	LogCapture accessLog("osp.web.access"s);
+
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	request.setURI("/failing?token=query-secret&value=other-secret"s);
+	request.set("Referer"s, "http://user:referer-password@client.example/page?token=referer-secret"s);
+	pDispatcher->handleRequest(request, request.response(), false);
+
+	assertTrue (request.response().getStatus() == HTTPResponse::HTTP_INTERNAL_SERVER_ERROR);
+	// The full request log adds the request before and the response after the error.
+	const std::vector<Poco::Message> messages = bundleLog.channel().waitForMessages(3);
+	assertEqual (3, messages.size());
+	assertTrue (messages[0].getText().find("GET /failing?token=***&value=*** HTTP/1.0"s) != std::string::npos);
+	assertTrue (messages[0].getText().find("Referer: http://***@client.example/page?token=***"s) != std::string::npos);
+	assertTrue (messages[1].getText().find("request for \"/failing?token=***&value=***\""s) != std::string::npos);
+	const std::vector<Poco::Message> accessMessages = accessLog.channel().waitForMessages(1);
+	assertEqual (1, accessMessages.size());
+	assertEqual ("GET /failing?token=***&value=*** HTTP/1.0"s, accessMessages[0].getText());
+	assertEqual ("http://***@client.example/page?token=***"s, accessMessages[0].get("referer"s));
+	for (const auto& message: {messages[0], messages[1], messages[2], accessMessages[0]})
+	{
+		for (const auto& secret: {"query-secret"s, "other-secret"s, "referer-password"s, "referer-secret"s})
+		{
+			assertTrue (message.getText().find(secret) == std::string::npos);
+		}
+	}
 }
 
 
@@ -2862,9 +3004,14 @@ CppUnit::Test* WebServerDispatcherTest::suite()
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullResponseLogEscapesFieldValue);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullResponseLogEscapesReasonAndFieldOfHandler);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testBadRequestDebugMessageHasNoControlCharacters);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testBadRequestDebugMessageHasNoQueryValues);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRedirectLogsMaskQueryValues);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullRequestLogHasNoCredentials);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullRequestLogRedactsFieldsWithCredentialOrNonTokenNames);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullRequestLogKeepsRequestLineWithFieldNameAsMethod);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRedactRequestURI);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRefusedAuthorizationWarningMasksQueryValues);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRequestLogsMaskQueryValues);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testForwardedClientAddressIsAnIPAddressOnly);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testJSONErrorResponseEscapesRequestData);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testCORSOrigins);

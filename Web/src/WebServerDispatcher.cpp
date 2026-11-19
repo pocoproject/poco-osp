@@ -278,12 +278,20 @@ static bool isPersistentResource(const Poco::OSP::Bundle::ConstPtr& pBundle, con
 }
 
 
+[[nodiscard]] static std::string loggedURI(const Poco::Net::HTTPServerRequest& request)
+	// Returns the URI of the request without the values of its query, its user info and its
+	// fragment, escaped.
+{
+	return loggedText(WebServerDispatcher::redactRequestURI(request.getURI()));
+}
+
+
 [[nodiscard]] static std::string loggedRequestLine(const Poco::Net::HTTPServerRequest& request)
 	// Returns the method, URI and version, separated by spaces and escaped.
 {
 	std::string result(loggedText(request.getMethod()));
 	result += ' ';
-	result += loggedText(request.getURI());
+	result += loggedURI(request);
 	result += ' ';
 	result += loggedText(request.getVersion());
 	return result;
@@ -294,10 +302,13 @@ static bool isPersistentResource(const Poco::OSP::Bundle::ConstPtr& pBundle, con
 	const Poco::Net::NameValueCollection& fields, const std::set<std::string, Poco::CILess>& csrfTokenHeaders)
 	// Returns the start line, escaped by the caller, and the escaped header fields on indented
 	// lines, with the values of the header fields that carry credentials, session IDs or CSRF
-	// tokens, or whose name is not an HTTP token, replaced.
+	// tokens, or whose name is not an HTTP token, replaced, and the fields that carry a URI as
+	// WebServerDispatcher::redactRequestURI() returns them.
 {
 	static const std::set<std::string, Poco::CILess> CREDENTIAL_FIELDS{
 		"Authorization"s, "Proxy-Authorization"s, "Cookie"s, "Set-Cookie"s};
+	static const std::set<std::string, Poco::CILess> URI_FIELDS{
+		"Referer"s, "Location"s, "Content-Location"s};
 	std::string result(startLine);
 	for (const auto& [name, value]: fields)
 	{
@@ -307,6 +318,8 @@ static bool isPersistentResource(const Poco::OSP::Bundle::ConstPtr& pBundle, con
 		// A recipient can parse a name that is not a token as another field, such as Set-Cookie.
 		if (!isToken(name) || CREDENTIAL_FIELDS.contains(name) || csrfTokenHeaders.contains(name))
 			result += "<redacted>"s;
+		else if (URI_FIELDS.contains(name))
+			result += loggedText(WebServerDispatcher::redactRequestURI(value));
 		else
 			result += loggedText(value);
 	}
@@ -627,10 +640,10 @@ void WebServerDispatcher::handleRequest(Poco::Net::HTTPServerRequest& request, P
 			path = URI(request.getURI()).getPath();
 			validPath = cleanPath(path);
 		}
-		catch (Poco::SyntaxException& exc)
+		catch (Poco::SyntaxException&)
 		{
-			_pContext->logger().debug("Request for %s answered with 400 Bad Request: %s"s, loggedText(request.getURI()),
-				loggedText(exc.displayText()));
+			// Not the text of the exception, which can quote the query, the user info or the fragment.
+			_pContext->logger().debug("Request for %s answered with 400 Bad Request: the URI is not valid."s, loggedURI(request));
 		}
 		if (validPath)
 		{
@@ -658,7 +671,7 @@ void WebServerDispatcher::handleRequest(Poco::Net::HTTPServerRequest& request, P
 				{
 					_pContext->logger().debug(
 						"Request for %s answered with 503 Service Unavailable: no auth service is available."s,
-						loggedText(request.getURI()));
+						loggedURI(request));
 					sendResponse(request, HTTPResponse::HTTP_SERVICE_UNAVAILABLE, formatMessage("unavailable"s, vPath.path), vPath.responseFormat);
 				}
 				else if (authorize(request, vPath, username, scope, authenticated))
@@ -803,7 +816,7 @@ void WebServerDispatcher::handleRequest(Poco::Net::HTTPServerRequest& request, P
 			std::string msg("Error processing ");
 			msg += request.getMethod();
 			msg += " request for \"";
-			msg += request.getURI();
+			msg += redactRequestURI(request.getURI());
 			msg += "\" from ";
 			msg += request.clientAddress().toString();
 			msg += ": ";
@@ -898,7 +911,7 @@ void WebServerDispatcher::logRequest(const Poco::Net::HTTPServerRequest& request
 		message["size"s] = "-";
 
 	message["host"s] = loggedText(request.get("Host"s, ""s));
-	message["referer"s] = loggedText(request.get("Referer"s, ""s));
+	message["referer"s] = loggedText(redactRequestURI(request.get("Referer"s, ""s)));
 	message["useragent"s] = loggedText(request.get("User-Agent"s, ""s));
 	message["duration"s] = Poco::NumberFormatter::format(static_cast<double>(duration)/Poco::Clock::resolution(), 6);
 
@@ -1767,7 +1780,7 @@ bool WebServerDispatcher::authorizeSession(Poco::Net::HTTPServerRequest& request
 					if (!pAuthService->userEnabled(username))
 					{
 						_pContext->logger().debug("Request for %s is not authenticated: the user %s of the session "
-							"is disabled or locked out."s, loggedText(request.getURI()), Poco::UTF8::escape(username));
+							"is disabled or locked out."s, loggedURI(request), Poco::UTF8::escape(username));
 						return false;
 					}
 					// The session belongs to a real, logged-in user; the request is
@@ -1787,7 +1800,7 @@ bool WebServerDispatcher::authorizeSession(Poco::Net::HTTPServerRequest& request
 								{
 									_pContext->logger().warning("User %s failed CSRF check with %s request to %s."s,
 										Poco::UTF8::escape(username), loggedText(request.getMethod()),
-										loggedText(request.getURI()));
+										loggedURI(request));
 									// The request may have been sent by another site in the user's browser.
 									authenticated = false;
 									return false;
@@ -1806,7 +1819,7 @@ bool WebServerDispatcher::authorizeSession(Poco::Net::HTTPServerRequest& request
 					else
 					{
 						_pContext->logger().warning("User %s does not have the permission (%s) to access %s."s,
-							Poco::UTF8::escape(username), vPath.security.permission, loggedText(request.getURI()));
+							Poco::UTF8::escape(username), vPath.security.permission, loggedURI(request));
 					}
 				}
 				else
@@ -1822,7 +1835,7 @@ bool WebServerDispatcher::authorizeSession(Poco::Net::HTTPServerRequest& request
 			{
 				_pContext->logger().warning(
 					"Failed to authorize user for path %s because session is not authenticated."s,
-					loggedText(request.getURI()));
+					loggedURI(request));
 			}
 		}
 		else if (vPath.security.permission == "**")
@@ -1832,7 +1845,7 @@ bool WebServerDispatcher::authorizeSession(Poco::Net::HTTPServerRequest& request
 		else
 		{
 			_pContext->logger().warning("Failed to authorize user for path %s because no session is available."s,
-				loggedText(request.getURI()));
+				loggedURI(request));
 		}
 	}
 	else if (vPath.security.permission == "**")
@@ -1843,7 +1856,7 @@ bool WebServerDispatcher::authorizeSession(Poco::Net::HTTPServerRequest& request
 	{
 		_pContext->logger().warning(
 			"Failed to authorize user for path %s via session because no WebSessionManager is available."s,
-			loggedText(request.getURI()));
+			loggedURI(request));
 	}
 	return false;
 }
@@ -1868,7 +1881,7 @@ bool WebServerDispatcher::authorizeBasic(Poco::Net::HTTPServerRequest& request, 
 			else
 			{
 				_pContext->logger().warning("User %s does not have the permission (%s) to access %s."s,
-					Poco::UTF8::escape(username), vPath.security.permission, loggedText(request.getURI()));
+					Poco::UTF8::escape(username), vPath.security.permission, loggedURI(request));
 			}
 		}
 		else
@@ -1889,7 +1902,7 @@ bool WebServerDispatcher::authorizeBearer(Poco::Net::HTTPServerRequest& request,
 		if (!_tokenValidatorName.empty())
 			_pContext->logger().warning(
 				"Bearer token for %s cannot be validated: the token validator service (%s) is not available."s,
-				loggedText(request.getURI()), _tokenValidatorName);
+				loggedURI(request), _tokenValidatorName);
 	}
 	else if (pAuthService != nullptr)
 	{
@@ -1901,7 +1914,7 @@ bool WebServerDispatcher::authorizeBearer(Poco::Net::HTTPServerRequest& request,
 				if (!pAuthService->userEnabled(username))
 				{
 					_pContext->logger().debug("Request for %s is not authenticated: the user %s of the bearer token "
-						"is disabled or locked out."s, loggedText(request.getURI()), Poco::UTF8::escape(username));
+						"is disabled or locked out."s, loggedURI(request), Poco::UTF8::escape(username));
 					return false;
 				}
 				authenticated = true;
@@ -1912,7 +1925,7 @@ bool WebServerDispatcher::authorizeBearer(Poco::Net::HTTPServerRequest& request,
 				else
 				{
 					_pContext->logger().warning("User %s does not have the permission (%s) to access %s."s,
-						Poco::UTF8::escape(username), vPath.security.permission, loggedText(request.getURI()));
+						Poco::UTF8::escape(username), vPath.security.permission, loggedURI(request));
 				}
 			}
 			else
@@ -1922,7 +1935,7 @@ bool WebServerDispatcher::authorizeBearer(Poco::Net::HTTPServerRequest& request,
 		}
 		else
 		{
-			_pContext->logger().warning("Bearer token for %s failed validation."s, loggedText(request.getURI()));
+			_pContext->logger().warning("Bearer token for %s failed validation."s, loggedURI(request));
 		}
 	}
 	return false;
@@ -2329,6 +2342,52 @@ std::string WebServerDispatcher::redirectLocationOn401(const std::string& loginT
 		redirectUri.addQueryParameter("redirect", target.getPathAndQuery());
 	}
 	return redirectUri.toString();
+}
+
+
+std::string WebServerDispatcher::redactRequestURI(const std::string& uri)
+{
+	std::string result;
+	std::string::size_type pos = 0;
+	// Only a "://" before the first '/', '?' and '#' starts an authority, not one in the path or query.
+	const std::string::size_type schemeEnd = uri.find("://"s);
+	if (schemeEnd != std::string::npos && uri.find_first_of("/?#"s) == schemeEnd + 1)
+	{
+		const std::string::size_type authorityStart = schemeEnd + 3;
+		const std::string::size_type authorityEnd = std::min(uri.find_first_of("/?#"s, authorityStart), uri.size());
+		const std::string_view authority = std::string_view(uri).substr(authorityStart, authorityEnd - authorityStart);
+		const std::string_view::size_type atPos = authority.rfind('@');
+		if (atPos != std::string_view::npos)
+		{
+			result.assign(uri, 0, authorityStart);
+			result += "***"s;
+			pos = authorityStart + atPos;
+		}
+	}
+
+	const std::string::size_type fragmentPos = uri.find('#', pos);
+	const std::string::size_type queryEnd = fragmentPos == std::string::npos ? uri.size() : fragmentPos;
+	const std::string::size_type queryPos = uri.find('?', pos);
+	if (queryPos < queryEnd)
+	{
+		result.append(uri, pos, queryPos + 1 - pos);
+		const std::string::size_type itemsStart = result.size();
+		const Poco::StringTokenizer items(uri.substr(queryPos + 1, queryEnd - queryPos - 1), "&"s, Poco::StringTokenizer::TOK_IGNORE_EMPTY);
+		for (const auto& item: items)
+		{
+			if (result.size() > itemsStart) result += '&';
+			const std::string::size_type equalsPos = item.find('=');
+			if (equalsPos != std::string::npos) result.append(item, 0, equalsPos + 1);
+			result += "***"s;
+		}
+	}
+	else result.append(uri, pos, queryEnd - pos);
+	if (fragmentPos != std::string::npos)
+	{
+		result += '#';
+		if (fragmentPos + 1 < uri.size()) result += "***"s;
+	}
+	return result;
 }
 
 
