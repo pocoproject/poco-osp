@@ -554,6 +554,14 @@ private:
 		Poco::trimInPlace(symbolicName);
 		std::string vendor = getString(PREFIX + "vendor");
 		std::string copyright = getString(PREFIX + "copyright", ""s);
+		// The manifest has one line per header: the text of the element, which may
+		// be written over several lines, with its whitespace collapsed.
+		std::string description;
+		for (const auto& word: Poco::StringTokenizer(getString(PREFIX + "description", ""s), " \t\r\n", Poco::StringTokenizer::TOK_IGNORE_EMPTY))
+		{
+			if (!description.empty()) description += ' ';
+			description += word;
+		}
 		std::string activatorClass = getString(PREFIX + "activator.class", ""s);
 		std::string activatorLibrary = getString(PREFIX + "activator.library", ""s);
 		bool lazyStart = getBool(PREFIX + "lazyStart", false);
@@ -648,7 +656,7 @@ private:
 		}
 		while (!symName.empty());
 
-		return ManifestInfo(name, symbolicName, version, vendor, copyright, activatorClass, activatorLibrary, requiredBundles, requiredModules, providedModules, lazyStart, sealed, preventUninstall, runLevel, extendsBundle);
+		return ManifestInfo(name, symbolicName, version, vendor, copyright, description, activatorClass, activatorLibrary, requiredBundles, requiredModules, providedModules, lazyStart, sealed, preventUninstall, runLevel, extendsBundle);
 	}
 
 	void saveManifest(const ManifestInfo& info, std::ostream& out)
@@ -668,6 +676,8 @@ private:
 		out << BundleManifest::BUNDLE_VENDOR << ": " << info.vendor() << std::endl;
 		if (!info.copyright().empty())
 			out << BundleManifest::BUNDLE_COPYRIGHT << ": " << info.copyright() << std::endl;
+		if (!info.description().empty())
+			out << BundleManifest::BUNDLE_DESCRIPTION << ": " << info.description() << std::endl;
 		if (!info.activatorClass().empty() && !info.activatorLibrary().empty())
 			out << BundleManifest::BUNDLE_ACTIVATOR << ": " << info.activatorClass() << ";library=" << info.activatorLibrary() << std::endl;
 		if (!info.runLevel().empty())

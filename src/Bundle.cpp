@@ -102,6 +102,7 @@ Bundle::Bundle(int id, BundleLoader& loader, BundleStorage::Ptr pStorage, const 
 	_name      = _pProperties->expand(_pManifest->name());
 	_vendor    = _pProperties->expand(_pManifest->vendor());
 	_copyright = _pProperties->expand(_pManifest->copyright());
+	_description = _pProperties->expand(_pManifest->description());
 }
 
 

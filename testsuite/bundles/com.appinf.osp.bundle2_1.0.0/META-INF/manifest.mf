@@ -4,3 +4,4 @@ Bundle-SymbolicName: com.appinf.osp.bundle2
 Bundle-Version: 1.0.0
 Bundle-Vendor: ${vendor}
 Bundle-Copyright: ${copyright}
+Bundle-Description: ${greeting} A bundle with properties in several languages.

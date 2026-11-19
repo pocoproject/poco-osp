@@ -61,6 +61,7 @@ const std::string BundleManifest::MANIFEST_VERSION("Manifest-Version");
 const std::string BundleManifest::BUNDLE_NAME("Bundle-Name");
 const std::string BundleManifest::BUNDLE_VENDOR("Bundle-Vendor");
 const std::string BundleManifest::BUNDLE_COPYRIGHT("Bundle-Copyright");
+const std::string BundleManifest::BUNDLE_DESCRIPTION("Bundle-Description");
 const std::string BundleManifest::BUNDLE_SYMBOLICNAME("Bundle-SymbolicName");
 const std::string BundleManifest::BUNDLE_VERSION("Bundle-Version");
 const std::string BundleManifest::BUNDLE_ACTIVATOR("Bundle-Activator");
@@ -105,6 +106,7 @@ void BundleManifest::parseManifest()
 	_version          = parseVersion(BUNDLE_VERSION, _pManifest->getString(BUNDLE_VERSION));
 	_vendor           = _pManifest->getString(BUNDLE_VENDOR, "");
 	_copyright        = _pManifest->getString(BUNDLE_COPYRIGHT, "");
+	_description      = _pManifest->getString(BUNDLE_DESCRIPTION, "");
 	_lazyStart        = _pManifest->getBool(BUNDLE_LAZYSTART, false);
 	_sealed           = _pManifest->getBool(BUNDLE_SEALED, false);
 	_preventUninstall = _pManifest->getBool(BUNDLE_PREVENTUNINSTALL, false);

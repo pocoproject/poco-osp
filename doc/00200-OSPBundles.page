@@ -138,7 +138,7 @@ Following is an example for a manifest file.
   Bundle-Activator: OSP::Sample::BundleActivator
 ----
 
-The values of the properties Bundle-Name, Bundle-Vendor and Bundle-Copyright can contain
+The values of the properties Bundle-Name, Bundle-Vendor, Bundle-Copyright and Bundle-Description can contain
 references to the bundle's properties (stored in <[bundle.properties]> and its localized variants),
 such as <[${name}]>. A list of currently defined manifest
 properties is given in the next sections. If a property is not recognized by OSP, it is ignored.
@@ -170,6 +170,13 @@ It is only used for display purposes and can be an arbitrary UTF-8 encoded strin
 
 This property contains copyright information for the bundle. It is only used for display
 purposes and can be an arbitrary UTF-8 encoded string.
+
+
+! Bundle-Description
+
+This property says what the bundle is and does, in a sentence or two, for a user who
+chooses or manages bundles. It is optional and only used for display purposes; it can be
+an arbitrary UTF-8 encoded string on one line.
 
 
 ! Bundle-SymbolicName

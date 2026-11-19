@@ -375,6 +375,7 @@ void BundleTest::testLoadOne()
 	assert (pBundle->version() == Version("1.0.0"));
 	assert (pBundle->vendor() == "Applied Informatics");
 	assert (pBundle->copyright() == "(c) 2007, Applied Informatics Software Engineering GmbH");
+	assertEqual ("A bundle that is installed, and only that.", pBundle->description());
 
 	assert (pBundle->state() == Bundle::BUNDLE_INSTALLED);
 	assert (!pBundle->isResolved());
@@ -510,6 +511,7 @@ void BundleTest::testManifestPlaceholdersAreReplacedByProperties()
 	assert (pBundle->version() == Version("1.0.0"));
 	assert (pBundle->vendor() == "Applied Informatics");
 	assert (pBundle->copyright() == "(c) 2007, Applied Informatics Software Engineering GmbH");
+	assertEqual ("Hello, world! A bundle with properties in several languages.", pBundle->description());
 
 	assert (pBundle->properties().getString("greeting") == "Hello, world!");
 
@@ -534,6 +536,7 @@ void BundleTest::testLocalizedPropertiesExactLanguage()
 	assert (pBundle->version() == Version("1.0.0"));
 	assert (pBundle->vendor() == "Applied Informatics");
 	assert (pBundle->copyright() == "(c) 2007, Applied Informatics Software Engineering GmbH");
+	assertEqual ("Servus! A bundle with properties in several languages.", pBundle->description());
 
 	assert (pBundle->properties().getString("greeting") == "Servus!");
 
@@ -558,6 +561,7 @@ void BundleTest::testLocalizedPropertiesFallBackToLanguage()
 	assert (pBundle->version() == Version("1.0.0"));
 	assert (pBundle->vendor() == "Applied Informatics");
 	assert (pBundle->copyright() == "(c) 2007, Applied Informatics Software Engineering GmbH");
+	assertEqual ("Guten Tag! A bundle with properties in several languages.", pBundle->description());
 
 	assert (pBundle->properties().getString("greeting") == "Guten Tag!");
 

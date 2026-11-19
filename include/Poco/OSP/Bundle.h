@@ -154,6 +154,14 @@ public:
 		/// If the copyright string contains a reference to a property,
 		/// (${<property>}) the reference is expanded first.
 
+	[[nodiscard]] const std::string& description() const;
+		/// Returns what the bundle is and does, as its manifest
+		/// says (Bundle-Description), or an empty string if it
+		/// has no description.
+		///
+		/// If the description contains a reference to a property,
+		/// (${<property>}) the reference is expanded first.
+
 	[[nodiscard]] const std::string& activatorClass() const;
 		/// Returns the class name of the bundle's activator,
 		/// or an empty string if the manifest does not
@@ -432,6 +440,7 @@ private:
 	std::string             _name;
 	std::string             _vendor;
 	std::string             _copyright;
+	std::string             _description;
 	BundleProperties::Ptr   _pProperties;
 	std::atomic<BundleActivator*> _pActivator;
 	std::set<Bundle::Ptr>   _extensionBundles;
@@ -524,6 +533,12 @@ inline const std::string& Bundle::vendor() const
 inline const std::string& Bundle::copyright() const
 {
 	return _copyright;
+}
+
+
+inline const std::string& Bundle::description() const
+{
+	return _description;
 }
 
 

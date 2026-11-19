@@ -112,6 +112,15 @@ This property must be defined in the bundle's <[bundle.properties]>
 file.
 
 
+! The description Element
+
+The <[description]> element says what the bundle is and does, in a sentence or two.
+It is optional, and becomes the <[Bundle-Description]> header of the manifest; the text
+may span several lines in the specification file, and is written as one line, with its
+whitespace collapsed. Like the <[copyright]> element, it can contain a reference to a
+bundle property instead of a fixed string.
+
+
 ! The activator Element
 
 The <[activator]> element specifies the name of the class implementing

@@ -84,6 +84,10 @@ public:
 		/// or an empty string if no copyright information
 		/// has been specified in the pManifest->
 
+	[[nodiscard]] const std::string& description() const;
+		/// Returns what the bundle is and does (Bundle-Description),
+		/// or an empty string if the manifest has no description.
+
 	[[nodiscard]] const std::string& activatorClass() const;
 		/// Returns the class name of the bundle's activator,
 		/// or an empty string if the manifest does not
@@ -157,6 +161,7 @@ public:
 	static const std::string BUNDLE_NAME;
 	static const std::string BUNDLE_VENDOR;
 	static const std::string BUNDLE_COPYRIGHT;
+	static const std::string BUNDLE_DESCRIPTION;
 	static const std::string BUNDLE_SYMBOLICNAME;
 	static const std::string BUNDLE_VERSION;
 	static const std::string BUNDLE_ACTIVATOR;
@@ -200,6 +205,7 @@ private:
 	Version      _version;
 	std::string  _vendor;
 	std::string  _copyright;
+	std::string  _description;
 	std::string  _activatorClass;
 	std::string  _activatorLibrary;
 	Dependencies _requiredBundles;
@@ -245,6 +251,12 @@ inline const std::string& BundleManifest::vendor() const
 inline const std::string& BundleManifest::copyright() const
 {
 	return _copyright;
+}
+
+
+inline const std::string& BundleManifest::description() const
+{
+	return _description;
 }
 
 

@@ -43,6 +43,7 @@ public:
 		const Poco::OSP::Version& version,
 		const std::string& vendor,
 		const std::string& copyright,
+		const std::string& description,
 		const std::string& activatorClass,
 		const std::string& activatorLibrary,
 		const Dependencies& requiredBundles,
@@ -61,6 +62,7 @@ public:
 	[[nodiscard]] Poco::OSP::Version version() const;
 	[[nodiscard]] const std::string& vendor() const;
 	[[nodiscard]] const std::string& copyright() const;
+	[[nodiscard]] const std::string& description() const;
 	[[nodiscard]] const std::string& activatorClass() const;
 	[[nodiscard]] const std::string& activatorLibrary() const;
 	[[nodiscard]] const Dependencies& requiredBundles() const;
@@ -78,6 +80,7 @@ private:
 	Poco::OSP::Version _version;
 	std::string  _vendor;
 	std::string  _copyright;
+	std::string  _description;
 	std::string  _activatorClass;
 	std::string  _activatorLibrary;
 	Dependencies _requiredBundles;
@@ -121,6 +124,12 @@ inline const std::string& ManifestInfo::vendor() const
 inline const std::string& ManifestInfo::copyright() const
 {
 	return _copyright;
+}
+
+
+inline const std::string& ManifestInfo::description() const
+{
+	return _description;
 }
 
 
