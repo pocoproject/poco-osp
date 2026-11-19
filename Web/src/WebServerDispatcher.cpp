@@ -48,7 +48,6 @@
 #include "Poco/DateTimeFormat.h"
 #include "Poco/DeflatingStream.h"
 #include "Poco/MemoryStream.h"
-#include "Poco/Buffer.h"
 #include "Poco/StringTokenizer.h"
 #include "Poco/String.h"
 #include "Poco/UTF8String.h"
@@ -951,14 +950,8 @@ void WebServerDispatcher::sendFileRange(Poco::Net::HTTPServerResponse& response,
 			resourceStream.clear();
 			resourceStream.ignore(static_cast<std::streamsize>(rangeStart));
 		}
-		Poco::Buffer<char> buffer(BUFFER_SIZE);
-		Poco::File::FileSize copied = 0;
-		while (copied < rangeLength && resourceStream.good() && ostr.good())
-		{
-			resourceStream.read(buffer.begin(), static_cast<std::streamsize>(std::min<Poco::File::FileSize>(BUFFER_SIZE, rangeLength - copied)));
-			ostr.write(buffer.begin(), resourceStream.gcount());
-			copied += static_cast<Poco::File::FileSize>(resourceStream.gcount());
-		}
+		const Poco::UInt64 copied = Poco::StreamCopier::copyStreamN64(resourceStream, ostr,
+			static_cast<std::streamsize>(rangeLength), BUFFER_SIZE);
 		// The client waits for the announced length, which a shorter resource cannot provide.
 		if (copied < rangeLength) response.setKeepAlive(false);
 }
@@ -1556,8 +1549,8 @@ std::istream* WebServerDispatcher::getCachedResource(Bundle::ConstPtr pBundle, c
 
 bool WebServerDispatcher::cleanPath(std::string& path)
 {
-	// The file system would see a decoded NUL as the end of the path, and the media type
-	// would still come from the extension after it.
+	// A decoded control character fails the request with 400 here; for a NUL, Poco::Path would otherwise throw in
+	// the resource lookup.
 	if (std::any_of(path.begin(), path.end(), isControlCharacter)) return false;
 
 	std::string::iterator it(path.begin());
