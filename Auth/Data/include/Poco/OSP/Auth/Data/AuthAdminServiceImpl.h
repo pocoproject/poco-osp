@@ -411,7 +411,7 @@ private:
 	using SQLCache = std::unordered_map<std::string, std::string>;
 
 	[[nodiscard]] bool authenticateImpl(std::string& username, const std::string& credentials, bool validate,
-		bool& isLDAPUser) const;
+		bool& isLDAPUser, bool& remembered) const;
 		/// Verifies the credentials and, if validate is true, fires validateUser
 		/// for an authenticated user. Holds the lock of the service except
 		/// during the conversation with the LDAP server, while it waits for another login of
@@ -419,7 +419,8 @@ private:
 		///
 		/// On return, username holds the name the user is stored under,
 		/// which is the account name with its ASCII letters in lower case for
-		/// an LDAP user.
+		/// an LDAP user, and remembered is true if the remembered check of the
+		/// credentials has accepted them.
 	void postLoginNotification(const std::string& username, bool isLDAPUser) const;
 		/// Posts the AuthNotification of a successful login of the user
 		/// stored under username, if the notification center has observers.

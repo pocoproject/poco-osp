@@ -28,7 +28,8 @@ namespace Poco::OSP::Auth {
 
 
 class OSPAuth_API AuthNotification: public Poco::Notification
-	/// Notification posted on successful login.
+	/// Notification posted for a successful login checked against the stored
+	/// credentials or by the LDAP server, not for one accepted by a remembered check.
 {
 public:
 	using Ptr = Poco::AutoPtr<AuthNotification>;

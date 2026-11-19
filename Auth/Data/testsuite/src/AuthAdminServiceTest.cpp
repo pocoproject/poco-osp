@@ -1207,6 +1207,23 @@ void AuthAdminServiceTest::testLoginNotificationIsNotLoggedAsInformation()
 }
 
 
+void AuthAdminServiceTest::testRememberedLoginPostsNoNotification()
+{
+	_pAAS->addUser("user1", "pass1");
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool checked = _pAAS->authenticate("user1", "pass1");
+	const bool remembered = _pAAS->authenticate("user1", "pass1");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertTrue (checked);
+	assertTrue (remembered);
+	assertEqual (1, _notificationCounter);
+}
+
+
 void AuthAdminServiceTest::testChangePasswordOfUnknownUserThrows()
 {
 	try
@@ -4135,6 +4152,7 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthenticate);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthenticateNotification);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLoginNotificationIsNotLoggedAsInformation);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRememberedLoginPostsNoNotification);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLoginOfUserRemovedBeforeNotificationSucceeds);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPasswordChangedBehindCacheIsAccepted);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthorizeProceedsWhilePasswordIsChecked);

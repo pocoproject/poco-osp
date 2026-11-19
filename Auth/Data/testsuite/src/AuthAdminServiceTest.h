@@ -43,6 +43,7 @@ public:
 	void testAuthenticate();
 	void testAuthenticateNotification();
 	void testLoginNotificationIsNotLoggedAsInformation();
+	void testRememberedLoginPostsNoNotification();
 	void testLoginOfUserRemovedBeforeNotificationSucceeds();
 	void testChangePasswordOfUnknownUserThrows();
 	void testEmptyPasswordIsRejected();

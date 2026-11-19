@@ -212,7 +212,8 @@ bool AuthAdminServiceImpl::verifyCredentials(const std::string& username, const 
 {
 	std::string storedUsername(username);
 	bool isLDAPUser = false;
-	if (!authenticateImpl(storedUsername, credentials, false, isLDAPUser)) return false;
+	bool remembered = false;
+	if (!authenticateImpl(storedUsername, credentials, false, isLDAPUser, remembered)) return false;
 
 	if (Poco::icompare(storedUsername, username) != 0)
 	{
@@ -933,7 +934,8 @@ bool AuthAdminServiceImpl::authenticate(const std::string& usernameInput, const 
 {
 	auto username { usernameInput };
 	bool isLDAPUser = false;
-	if (!authenticateImpl(username, credentials, true, isLDAPUser)) return false;
+	bool remembered = false;
+	if (!authenticateImpl(username, credentials, true, isLDAPUser, remembered)) return false;
 
 	if (Poco::icompare(username, usernameInput) != 0)
 	{
@@ -941,7 +943,10 @@ bool AuthAdminServiceImpl::authenticate(const std::string& usernameInput, const 
 			"accept; the caller must use authenticateAccount()."s, usernameInput, username);
 		return false;
 	}
-	postLoginNotification(username, isLDAPUser);
+	if (!remembered)
+	{
+		postLoginNotification(username, isLDAPUser);
+	}
 	return true;
 }
 
@@ -951,9 +956,13 @@ bool AuthAdminServiceImpl::authenticateAccount(const std::string& username, cons
 {
 	auto storedName { username };
 	bool isLDAPUser = false;
-	if (!authenticateImpl(storedName, credentials, true, isLDAPUser)) return false;
+	bool remembered = false;
+	if (!authenticateImpl(storedName, credentials, true, isLDAPUser, remembered)) return false;
 
-	postLoginNotification(storedName, isLDAPUser);
+	if (!remembered)
+	{
+		postLoginNotification(storedName, isLDAPUser);
+	}
 	accountName = std::move(storedName);
 	return true;
 }
@@ -994,7 +1003,7 @@ void AuthAdminServiceImpl::postLoginNotification(const std::string& username, bo
 
 
 bool AuthAdminServiceImpl::authenticateImpl(std::string& username, const std::string& credentials, bool validate,
-	bool& isLDAPUser) const
+	bool& isLDAPUser, bool& remembered) const
 {
 	const std::string requestedName(username);
 	AccountState account;
@@ -1015,6 +1024,7 @@ bool AuthAdminServiceImpl::authenticateImpl(std::string& username, const std::st
 				std::string ldapAttr;
 				isLDAPUser = ldapUserNameImpl(sess, username, ldapAttr);
 				std::optional<bool> result = authenticateCachedImpl(sess, username, credentials);
+				remembered = result.value_or(false);
 				if (!result.has_value() && !isLDAPUser)
 				{
 					storedHash = storedHashImpl(sess, username);
