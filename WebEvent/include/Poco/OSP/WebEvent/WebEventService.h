@@ -112,6 +112,18 @@ class OSPWebEvent_API WebEventService: public Poco::OSP::Service
 	/// silent past twice the ping interval are considered dead and removed.
 	/// This reclaims connections whose peer disappeared without closing
 	/// the socket (network drop, suspend, power loss).
+	///
+	/// The web server authenticates and authorizes the WebSocket upgrade
+	/// request before the connection is established, as the bundle's web
+	/// server extension declares it (bundle properties permission and
+	/// websession.id): by an Authorization header carrying HTTP Basic
+	/// credentials or a bearer token, and, if websession.id names the web
+	/// session of the application's login, a browser by the cookie of that
+	/// session once it has logged in. A request without valid
+	/// credentials is answered with 401 Unauthorized, one of a user without
+	/// the permission with 403 Forbidden. A connection that has been
+	/// admitted may subscribe to every subject; there is no permission per
+	/// subject.
 {
 public:
 	using Ptr = Poco::AutoPtr<WebEventService>;
@@ -153,9 +165,9 @@ public:
 
 	Poco::BasicEvent<const Poco::Net::HTTPServerRequest*> requestReceived;
 		/// Fired when a HTTP WebSocket upgrade request has been received,
-		/// after its Origin header has been checked. This can be used for
-		/// authentication and authorization, or to reject the client's web
-		/// socket connection for other reasons.
+		/// after its Origin header has been checked. This can be used to
+		/// restrict access further, or to reject the client's web socket
+		/// connection for other reasons.
 		/// If the delegate function sets the status code of the HTTP response
 		/// (request.response()) to anything other than 200 (OK), the
 		/// WebSocket connection will not be established.

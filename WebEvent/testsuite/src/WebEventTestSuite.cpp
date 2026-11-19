@@ -11,6 +11,7 @@
 #include "WebEventTestSuite.h"
 #include "WebEventServiceTest.h"
 #include "WebEventBundleActivatorTest.h"
+#include "WebEventRequestHandlerTest.h"
 
 
 CppUnit::Test* WebEventTestSuite::suite()
@@ -19,6 +20,7 @@ CppUnit::Test* WebEventTestSuite::suite()
 
 	pSuite->addTest(WebEventServiceTest::suite());
 	pSuite->addTest(WebEventBundleActivatorTest::suite());
+	pSuite->addTest(WebEventRequestHandlerTest::suite());
 
 	return pSuite;
 }

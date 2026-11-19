@@ -1,3 +1,7 @@
 <extensions>
-  <extension point="osp.web.server.requesthandler" path="${path}" class="Poco::OSP::WebEvent::WebEventRequestHandlerFactory" allowSpecialization="none" hidden="true" description="${description}"/>
+  <!-- The web server authenticates and authorizes the upgrade request before the handler sees it, with an
+       Authorization header carrying HTTP Basic credentials or a bearer token, or, if websession.id names a web
+       session, with the cookie of a session logged in to it; bundle.properties documents the permission. An empty
+       permission skips authentication. -->
+  <extension point="osp.web.server.requesthandler" path="${path}" permission="${permission}" session="${websession.id}" class="Poco::OSP::WebEvent::WebEventRequestHandlerFactory" allowSpecialization="none" hidden="true" description="${description}"/>
 </extensions>

@@ -288,7 +288,10 @@ event notifications.
     };
 ----
 
-To subscribe to an event, embed the following JavaScript in a web page:
+To subscribe to an event, embed the following JavaScript in a web page. The server
+admits the WebSocket of a browser only if the bundle property websession.id names
+the web session of the application's login and the browser has logged in to it
+(see Authentication and Authorization below):
 
     <script type="text/javascript" src="webevent.js"></script>
     <script>
@@ -312,12 +315,63 @@ To subscribe to an event, embed the following JavaScript in a web page:
 ----
 
 
+!!! Authentication and Authorization
+
+The <*com.appinf.osp.webevent*> bundle maps the "/webevent" path with a permission
+and, if the bundle property <[websession.id]> names one, a web session, so the OSP
+web server authenticates and authorizes the WebSocket upgrade request before the
+connection is established, as it does for every request handler that declares a
+permission:
+
+  - A client sends an Authorization header with the upgrade request: HTTP
+    Basic credentials of an account, or a bearer token, which the web server
+    checks with its token validator (osp.web.tokenValidatorName). Without
+    <[websession.id]>, the server answers an upgrade request without valid
+    credentials with 401 and an HTTP Basic challenge (a Bearer challenge if
+    osp.web.authMethods admits bearer tokens but not Basic credentials); with
+    <[websession.id]>, it answers with 401 and no challenge.
+  - A browser is authenticated by the cookie of its web session if
+    <[websession.id]> is set to the name of the web session in which the
+    application's login page logs users in (for the web interface of
+    macchina.io, "macchina.io"). The default is empty: no session login. A
+    page served by the same server then sends the cookie with the upgrade
+    request. A browser that has not logged in, or whose session has ended (by
+    logout, by expiry, or by a restart of the server when no session store
+    keeps the sessions), is refused, even on a page that itself requires no
+    login. If a request carries both a cookie and an Authorization header, the
+    Authorization header decides.
+
+The global osp.web.authMethods setting limits which of these methods apply.
+An upgrade request without credentials, or with credentials the server does not
+accept, is answered with 401 Unauthorized; a request of a user who does not have
+the permission is answered with 403 Forbidden. In both cases no WebSocket
+connection is established.
+
+A browser does not tell a page why its WebSocket could not be opened: a refused
+upgrade request fires the error and close events (close code 1006), as a network
+failure does. A page that reconnects its WebSocket should therefore check, with a
+request whose HTTP status it can read, whether its session is still logged in, and
+send the user to the login page once the server answers that the session has ended;
+a check that fails because the server cannot be reached says nothing about the
+session. Otherwise the page keeps retrying, and keeps showing the last events it
+received as if they were current.
+
+The permission is the bundle property <[permission]>. Its default, "*", admits
+every authenticated user of an existing account. A permission name, or a
+comma-separated list of names (any one of which suffices), admits only the users
+granted it. The permission must not be empty, which would admit unauthenticated
+connections. Beyond that, a delegate of the requestReceived event can reject a
+connection for reasons of its own.
+
+
 !!! Security Considerations
 
 A browser does not restrict a WebSocket connection to the origin of the page
 that opens it, and it sends the user's cookies with the upgrade request. Any
-page the user visits can therefore try to connect to the WebEventService.
-The service checks the following before a connection is established:
+page the user visits can therefore try to connect to the WebEventService, with
+the session of the user. After the web server has authenticated the upgrade
+request (see Authentication and Authorization above), the service checks the
+following before a connection is established:
 
   - The Origin header. An upgrade request whose Origin is neither the
     request's own nor one of the origins listed in
@@ -327,12 +381,15 @@ The service checks the following before a connection is established:
     header come from clients other than browsers and are accepted.
   - The number of connections, if osp.web.event.maxWebSockets is set.
 
-The service does not authenticate or authorize clients itself. An application
-that must restrict access registers a delegate for the requestReceived event,
-which is fired for every upgrade request that passed the checks above. The
-delegate can inspect the request, for example its session cookie, and reject
-the connection by setting the status of the response to anything other than
-200 (OK).
+An application that must restrict access further registers a delegate for the
+requestReceived event, which is fired for every upgrade request that passed the
+checks above. The delegate can inspect the request and reject the connection by
+setting the status of the response to anything other than 200 (OK).
+
+There is no permission per subject: a connection that has been admitted may
+subscribe to every subject. Credentials are checked once, on the upgrade
+request: a connection stays open after the session it was opened with has
+ended, or after the user has lost the permission.
 
 The resolver installed with setUserResolver() determines the user a
 connection belongs to, and notifyUser() delivers only to the connections of
@@ -351,10 +408,8 @@ subjectNotified cannot tell such a notification from one made by notify().
 Event messages reach every client that has subscribed to their subject. The
 following guidelines should be observed:
 
-  - Do not include "sensitive" data in an event message sent with notify().
-    The definition of "sensitive" is up to the specific implementation, but
-    it's best to treat any application data as sensitive. Use notifyUser()
-    for data meant for one user only.
+  - Do not notify a subject with data that not every user who may connect is
+    allowed to see. Use notifyUser() for data meant for one user only.
   - Use cryptographic hashes or tokens to refer to actual data. For example, when notifying
     a client that a specific data object on the server has been modified, and the client
     needs to update its representation of it, send a cryptographic hash identifying the object

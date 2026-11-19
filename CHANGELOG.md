@@ -99,6 +99,11 @@ other changes that are not listed here. The release notes (`doc/99100-OSPRelease
   `WebEventRequestHandler` and the protected functions of `WebEventServiceImpl` are changed.
 - WebEvent: a WebSocket upgrade whose `Origin` is neither the server's own nor listed in `osp.web.event.allowedOrigins`
   is answered with 403.
+- WebEvent: the WebSocket upgrade of `/webevent` requires HTTP Basic credentials or a bearer token, or the cookie of a
+  logged-in web session if the bundle property `websession.id` names that session (default empty: no session login),
+  and is answered with 401 otherwise. Users of the macchina.io web interface set `websession.id = macchina.io` to keep
+  the cookie login. The bundle property `permission` names the permission a user needs (default `*`: every user of an
+  existing account, a comma-separated list: any one of them); a user without it is answered with 403.
 - WebEvent: a `NOTIFY` message from a client is passed on only with `osp.web.event.clientNotify` (default false).
 - WebEvent: a subscriber is removed when it subscribes to more than `osp.web.event.maxSubjects` subjects (default 64) or
   sends nothing, not even a PONG, for twice `osp.web.event.pingInterval` (default 60 s).

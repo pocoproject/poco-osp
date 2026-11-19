@@ -34,6 +34,15 @@ class OSPWebEvent_API WebEventRequestHandler: public Poco::Net::HTTPRequestHandl
 	/// WebSocket connection has been established, it is transferred to the
 	/// WebEventServiceImpl instance, which handles all messages, including
 	/// the first SUBSCRIBE.
+	///
+	/// The handler does not authenticate the request itself: the bundle's
+	/// web server extension declares a permission and, if the bundle
+	/// property websession.id names one, a web session, so the
+	/// WebServerDispatcher authenticates and authorizes the upgrade request
+	/// before it creates the handler, and answers a refused request with
+	/// 401 Unauthorized or 403 Forbidden. The handler then checks the Origin
+	/// header before anything else, so that the cookie of a web session does
+	/// not admit an upgrade that a page of another site asks for.
 {
 public:
 	using OriginSet = std::set<std::string>;

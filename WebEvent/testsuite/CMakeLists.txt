@@ -21,7 +21,7 @@ set_tests_properties(OSPWebEvent PROPERTIES ENVIRONMENT POCO_BASE=${PROJECT_SOUR
 
 target_link_libraries(OSPWebEvent-testrunner
 	PRIVATE
-	OSPTestSupport Poco::OSPWebEvent Poco::OSPWeb Poco::OSP Poco::Net Poco::Zip Poco::Util Poco::Foundation
+	OSPTestSupport Poco::OSPWebEvent Poco::OSPWeb Poco::OSP Poco::Net Poco::Zip Poco::Util Poco::XML Poco::Foundation
 	Poco::CppUnit
 )
 
