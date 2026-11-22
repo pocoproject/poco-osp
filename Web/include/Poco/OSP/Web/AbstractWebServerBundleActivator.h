@@ -67,7 +67,10 @@ class OSPWeb_API AbstractWebServerBundleActivator: public BundleActivator
 	/// logged as an error and the server is not started.
 	///
 	/// RFC 2047 encoded words in request headers are left undecoded unless
-	/// autoDecodeHeaders is true: HTTP defines no such encoding.
+	/// autoDecodeHeaders is true: HTTP defines no such encoding. With true,
+	/// Poco::Net::MessageHeader decodes RFC 2047 encoded words in request header
+	/// fields (see Poco::Net::MessageHeader::setAutoDecode() for the fields it
+	/// decodes).
 {
 public:
 	AbstractWebServerBundleActivator() = delete;

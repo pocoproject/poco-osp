@@ -150,7 +150,9 @@ The release also contains bug fixes and other changes that are not listed here.
     whose <[Origin]> is neither the server's own nor listed in the extension
     attribute <[allowWebSocketOrigin]> is answered with 403 before its
     credentials are checked; WebEvent sets the attribute from
-    <[osp.web.event.allowedOrigins]>.
+    <[osp.web.event.allowedOrigins]>. The CORS settings do not admit such an
+    upgrade; the attribute can take its value from the application
+    configuration.
   - Web: a request URI, Referer, Location or Content-Location in the access log,
     the full request log and the other log messages of the web server and
     BundleAdmin has the values of its query parameters, its user info and its
@@ -158,7 +160,9 @@ The release also contains bug fixes and other changes that are not listed here.
   - WebServer: the web server and the secure web server leave RFC 2047 encoded
     words in request header fields undecoded;
     <[osp.web.server.autoDecodeHeaders]>, or the bundle property
-    <[autoDecodeHeaders]>, turns the decoding on.
+    <[autoDecodeHeaders]>, turns on the RFC 2047 decoding of request header
+    fields by <[Poco::Net::MessageHeader]> (see
+    <[MessageHeader::setAutoDecode()]> for the fields it decodes).
   - WebEvent: <[WebEventService]> declares further pure virtual functions; the
     constructors of <[WebEventServiceImpl]> and <[WebEventRequestHandler]> and
     the protected functions of <[WebEventServiceImpl]> are changed.

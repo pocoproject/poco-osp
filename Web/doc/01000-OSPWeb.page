@@ -112,8 +112,9 @@ The values of the attributes <[path]>, <[pattern]>, <[methods]>, <[description]>
 <[redirectOn401]> can contain property references, in the form ${property} or ${property:-default}. A reference to a
 property whose name starts with <[osp.]> is resolved in the application configuration; if the application
 configuration does not have the property, it is resolved in the bundle properties. Other references are resolved in
-the bundle properties only. A bundle can so leave a setting of its extension to the application configuration, with a
-default for an application that does not set it:
+the bundle properties only. A value taken from the application configuration is expanded once more with the bundle
+properties, so that a reference to a bundle property in that value is resolved as well. A bundle can so leave a setting
+of its extension to the application configuration, with a default for an application that does not set it:
 
     <extension point="osp.web.server.requesthandler"
                path="/sample/events"
@@ -214,6 +215,10 @@ The following attributes are supported for request handlers. The attributes othe
     session cookie are checked, so that a page of another site cannot use or extend the user's session.
     Requests without an "Origin" header (clients other than browsers) and requests that are not WebSocket
     upgrades are not affected.
+    The CORS settings (<[allowOrigin]> and <[osp.web.cors.allowedOrigin]>) do not admit a WebSocket upgrade.
+    The attribute can take its value from the application configuration, for example
+    <[allowWebSocketOrigin="${osp.sample.webSocketOrigins:-}"]>, so that an operator sets the public origin
+    (for example that of a reverse proxy that terminates TLS) without changing the bundle.
   - <[cors]>: If "true", enable CORS (Cross-Origin Resource Sharing), and CORS preflight requests
     as well as CORS response headers will be handled by the framework.
   - <[allowOrigin]>: Specify the allowed origins for CORS requests: "*", "**" or a comma-separated
@@ -537,9 +542,10 @@ The web server can be configured by setting the following properties in the glob
   - <[osp.web.server.keepAlive]>: Enable persistent connections (<[true]> or <[false]>). Defaults to <[true]>.
   - <[osp.web.server.keepAliveTime]>: Maximum time a persistent connection is kept open if no request arrives. Defaults to 10.
   - <[osp.web.server.maxKeepAlive]>: Maximum number of requests handled on a persistent connection. Defaults to 10.
-  - <[osp.web.server.autoDecodeHeaders]>: Decode RFC 2047 encoded words in the values of request header fields
-    (<[true]> or <[false]>). HTTP defines no such encoding, so request handlers get the header fields as they
-    were sent unless this is <[true]>. Defaults to <[false]>.
+  - <[osp.web.server.autoDecodeHeaders]>: Turn on the RFC 2047 decoding of request header fields by
+    Poco::Net::MessageHeader (<[true]> or <[false]>; see Poco::Net::MessageHeader::setAutoDecode() for the fields it
+    decodes). HTTP defines no such encoding, so request handlers get the header fields as they were sent unless this
+    is <[true]>. Defaults to <[false]>.
   - <[osp.web.authServiceName]>: The name of the OSP authentication/authorization service to use. Defaults to "osp.auth".
   - <[osp.web.authMethods]>: Specify a comma-separated list of enabled authentication methods (<[basic]>, <[session]>, <[bearer]>).
     If not specified, all methods will be enabled.

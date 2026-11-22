@@ -357,8 +357,9 @@ public:
 		/// query parameters: the path and the names of the query parameters are kept,
 		/// each value is replaced with "***" (name=***), and a query item that has no
 		/// name=value form is replaced with "***". The user info of an absolute URI
-		/// is replaced with "***" (http://***@host/), and a non-empty fragment with
-		/// "***". A URI without user info, query and fragment is returned unchanged.
+		/// or of a network-path reference is replaced with "***" (http://***@host/,
+		/// //***@host/), and a non-empty fragment with "***". A URI without user info,
+		/// query and fragment is returned unchanged.
 
 	[[nodiscard]] static std::string loggedRequestURI(const std::string& uri);
 		/// Returns redactRequestURI(uri) with its control characters percent-encoded,

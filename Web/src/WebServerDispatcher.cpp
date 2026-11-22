@@ -2053,10 +2053,10 @@ void WebServerDispatcher::sendResponse(Poco::Net::HTTPServerRequest& request, Po
 	}
 	else
 	{
-		std::string msg("Cannot send response (\"");
-		msg += loggedText(message);
-		msg += "\") because a response has already been sent for this request.";
-		_pContext->logger().warning(msg);
+		// The message is not logged: it can quote the request URI with its query values.
+		_pContext->logger().warning("Cannot send the %d response for %s "
+			"because a response has already been sent for this request."s,
+			static_cast<int>(status), loggedURI(request));
 	}
 }
 
@@ -2376,11 +2376,16 @@ std::string WebServerDispatcher::redactRequestURI(const std::string& uri)
 {
 	std::string result;
 	std::string::size_type pos = 0;
-	// Only a "://" before the first '/', '?' and '#' starts an authority, not one in the path or query.
+	// Only a "://" before the first '/', '?' and '#', or a leading "//" (a network-path reference),
+	// starts an authority, not one in the path or query.
+	std::string::size_type authorityStart = std::string::npos;
 	const std::string::size_type schemeEnd = uri.find("://"s);
-	if (schemeEnd != std::string::npos && uri.find_first_of("/?#"s) == schemeEnd + 1)
+	if (uri.starts_with("//"))
+		authorityStart = 2;
+	else if (schemeEnd != std::string::npos && uri.find_first_of("/?#"s) == schemeEnd + 1)
+		authorityStart = schemeEnd + 3;
+	if (authorityStart != std::string::npos)
 	{
-		const std::string::size_type authorityStart = schemeEnd + 3;
 		const std::string::size_type authorityEnd = std::min(uri.find_first_of("/?#"s, authorityStart), uri.size());
 		const std::string_view authority = std::string_view(uri).substr(authorityStart, authorityEnd - authorityStart);
 		const std::string_view::size_type atPos = authority.rfind('@');

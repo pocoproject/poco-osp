@@ -85,6 +85,7 @@ public:
 	void testFullRequestLogKeepsRequestLineWithFieldNameAsMethod();
 	void testRedactRequestURI();
 	void testRefusedAuthorizationWarningMasksQueryValues();
+	void testResponseAfterSentResponseWarningMasksQueryValues();
 	void testRequestLogsMaskQueryValues();
 	void testForwardedClientAddressIsAnIPAddressOnly();
 	void testJSONErrorResponseEscapesRequestData();

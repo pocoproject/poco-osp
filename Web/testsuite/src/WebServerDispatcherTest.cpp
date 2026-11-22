@@ -448,6 +448,43 @@ namespace
 		std::string _name;
 	};
 
+	class SendThenNotFoundFilter: public WebFilter
+		/// Sends the response, then throws a Poco::NotFoundException, as a template
+		/// filter that reads a missing property after it has started the response.
+	{
+	public:
+		SendThenNotFoundFilter() = default;
+		SendThenNotFoundFilter(const SendThenNotFoundFilter&) = delete;
+		SendThenNotFoundFilter(SendThenNotFoundFilter&&) = delete;
+		SendThenNotFoundFilter& operator = (const SendThenNotFoundFilter&) = delete;
+		SendThenNotFoundFilter& operator = (SendThenNotFoundFilter&&) = delete;
+		~SendThenNotFoundFilter() override = default;
+
+		void process(Poco::Net::HTTPServerRequest&, Poco::Net::HTTPServerResponse& response, const std::string&,
+			std::istream&, Bundle::ConstPtr) override
+		{
+			response.send() << "partial";
+			throw Poco::NotFoundException("property"s);
+		}
+	};
+
+	class SendThenNotFoundFilterFactory: public WebFilterFactory
+		/// Creates SendThenNotFoundFilter objects.
+	{
+	public:
+		SendThenNotFoundFilterFactory() = default;
+		SendThenNotFoundFilterFactory(const SendThenNotFoundFilterFactory&) = delete;
+		SendThenNotFoundFilterFactory(SendThenNotFoundFilterFactory&&) = delete;
+		SendThenNotFoundFilterFactory& operator = (const SendThenNotFoundFilterFactory&) = delete;
+		SendThenNotFoundFilterFactory& operator = (SendThenNotFoundFilterFactory&&) = delete;
+		~SendThenNotFoundFilterFactory() override = default;
+
+		[[nodiscard]] WebFilter* createFilter(const WebFilter::Args&) override
+		{
+			return new SendThenNotFoundFilter;
+		}
+	};
+
 	[[nodiscard]] WebServerDispatcher::VirtualPath handlerPath(const std::string& path, const std::string& permission,
 		const Bundle::Ptr& pOwner, int authMethods = 0)
 		/// Returns a mapping of path to an AuthorizedUserHandler that requires the given permission.
@@ -2272,6 +2309,8 @@ void WebServerDispatcherTest::testRedactRequestURI()
 	assertEqual ("https://host:8443/p"s, WebServerDispatcher::redactRequestURI("https://host:8443/p"s));
 	assertEqual ("/p?r=***"s, WebServerDispatcher::redactRequestURI("/p?r=http://user:pass@host/"s));
 	assertEqual ("http://***@host/p"s, WebServerDispatcher::redactRequestURI("http://us@er:pass@host/p"s));
+	assertEqual ("//***@host/p?x=***"s, WebServerDispatcher::redactRequestURI("//user:pass@host/p?x=1"s));
+	assertEqual ("//host/p?x=***"s, WebServerDispatcher::redactRequestURI("//host/p?x=1"s));
 	assertEqual ("http://***@"s, WebServerDispatcher::redactRequestURI("http://user:pass@"s));
 	assertEqual ("/a?=***"s, WebServerDispatcher::redactRequestURI("/a?=v"s));
 	assertEqual ("/a?x=***#***"s, WebServerDispatcher::redactRequestURI("/a?x=1#token=secret"s));
@@ -2299,6 +2338,27 @@ void WebServerDispatcherTest::testRefusedAuthorizationWarningMasksQueryValues()
 	assertTrue (messages[0].getPriority() == Poco::Message::PRIO_WARNING);
 	assertTrue (messages[0].getText().find("/protected?token=***"s) != std::string::npos);
 	assertTrue (messages[0].getText().find("query-secret"s) == std::string::npos);
+}
+
+
+void WebServerDispatcherTest::testResponseAfterSentResponseWarningMasksQueryValues()
+{
+	WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
+	pDispatcher->addFilter("text/plain"s, new SendThenNotFoundFilterFactory, WebFilter::Args(),
+		_pFixture->bundles.bundle());
+	LogCapture capture(_pFixture->bundles.context()->logger().name());
+
+	ServerRequestStub request("127.0.0.1:50000"s, false);
+	request.setURI("/dir/hello.txt?token=query-secret"s);
+	pDispatcher->handleRequest(request, request.response(), false);
+
+	assertEqual ("partial"s, request.response().body());
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
+	assertEqual (1, messages.size());
+	assertTrue (messages[0].getPriority() == Poco::Message::PRIO_WARNING);
+	assertTrue (messages[0].getText().find("/dir/hello.txt?token=***"s) != std::string::npos);
+	assertTrue (messages[0].getText().find("query-secret"s) == std::string::npos);
+	assertTrue (messages[0].getText().find("404"s) != std::string::npos);
 }
 
 
@@ -3103,6 +3163,7 @@ CppUnit::Test* WebServerDispatcherTest::suite()
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testFullRequestLogKeepsRequestLineWithFieldNameAsMethod);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRedactRequestURI);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRefusedAuthorizationWarningMasksQueryValues);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testResponseAfterSentResponseWarningMasksQueryValues);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRequestLogsMaskQueryValues);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testForwardedClientAddressIsAnIPAddressOnly);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testJSONErrorResponseEscapesRequestData);

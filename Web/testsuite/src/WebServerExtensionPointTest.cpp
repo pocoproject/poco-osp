@@ -190,6 +190,18 @@ void WebServerExtensionPointTest::testOspReferencesResolveInApplicationConfigura
 	assertEqual (std::string("test.events.read"), vPath.security.permission);
 	assertEqual (std::string("bundle realm"), vPath.security.realm);
 	assertEqual (std::string("Test events"), vPath.description);
+
+	const auto realm = [this](const std::string& value)
+	{
+		return parseCommon(*_pBundle, {{"path", "/app"}, {"realm", value}}).security.realm;
+	};
+	assertEqual (std::string("bundle realm"), realm("${osp.test.realm:-default realm}"));
+
+	pApplicationConfig->setString("osp.test.realm", "application realm");
+	assertEqual (std::string("application realm"), realm("${osp.test.realm}"));
+
+	pApplicationConfig->setString("osp.test.realm", "realm of ${web.origin}");
+	assertEqual (std::string("realm of https://bundle.example"), realm("${osp.test.realm}"));
 }
 
 

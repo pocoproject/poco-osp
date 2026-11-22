@@ -95,12 +95,14 @@ entries.
   preflight or a method other than GET and HEAD, and without CORS headers for GET and HEAD.
 - Web: on a path with a permission (also `*` or `**`), a WebSocket upgrade whose `Origin` is neither the server's own
   nor listed in the extension attribute `allowWebSocketOrigin` is answered with 403 before its credentials are
-  checked; WebEvent sets the attribute from `osp.web.event.allowedOrigins`.
+  checked; WebEvent sets the attribute from `osp.web.event.allowedOrigins`. The CORS settings do not admit such an
+  upgrade; the attribute can take its value from the application configuration.
 - Web: a request URI, Referer, Location or Content-Location in the access log, the full request log and the other log
   messages of the web server and BundleAdmin has the values of its query parameters, its user info and its fragment
   replaced with `***`; the names of the query parameters are kept.
 - WebServer: the web server and the secure web server leave RFC 2047 encoded words in request header fields undecoded;
-  `osp.web.server.autoDecodeHeaders`, or the bundle property `autoDecodeHeaders`, turns the decoding on.
+  `osp.web.server.autoDecodeHeaders`, or the bundle property `autoDecodeHeaders`, turns on the RFC 2047 decoding of
+  request header fields by `Poco::Net::MessageHeader` (see `MessageHeader::setAutoDecode()` for the fields it decodes).
 - WebEvent: `WebEventService` declares further pure virtual functions; the constructors of `WebEventServiceImpl` and
   `WebEventRequestHandler` and the protected functions of `WebEventServiceImpl` are changed.
 - WebEvent: a WebSocket upgrade whose `Origin` is neither the server's own nor listed in `osp.web.event.allowedOrigins`
