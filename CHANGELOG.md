@@ -39,6 +39,9 @@ entries.
 - Build: `poco_remote_gen()` takes `GEN_DIR_NAME` relative to `CMAKE_CURRENT_BINARY_DIR`.
 - Build: `poco_remote_gen()` runs RemoteGenNG in a directory of the build, so a configuration names its headers with
   `${CMAKE_CURRENT_SOURCE_DIR}` or `${POCO_OSP_BASE}`, not `${POCOPLUS_BASE}`.
+- Build: `poco_osp_bundle()` does not read the variable `POCO_OSP_BUNDLE_GENERATED`; a call names the directories
+  that a build writes with `GENERATED`, and the configure stops when the variable is set to a non-empty value
+  and the call has no `GENERATED`.
 - OSP: `Bundle::moduleProviders()`, `Bundle::resolvedDependencies()` and `ServiceRegistry::services()` return a copy
   instead of a reference.
 - OSP: `ServiceImpl` does not add a `_1`, `_2` suffix to the default service name of further instances; instances
@@ -162,10 +165,15 @@ entries.
 ### New features
 
 - Build: `poco_osp_bundle()` takes `GENERATED <directories>...`: directories below `bundle/` that a build writes, which
-  are left out of the dependencies of the bundle.
+  are left out of the dependencies of the bundle. `DEPENDS` then names a file that the writer produces; the configure
+  warns when `DEPENDS` names a custom target that is defined before the call and no file, as a custom target does not
+  create the bundle again. The `GENERATED` values are compared as normal paths; an absolute path, a value that names
+  `bundle/` itself (`.`, `webapp/..`), a value that starts with `bundle/`, and `..` or a value that starts with `../`
+  stop the configure.
 - OSP: the manifest header `Bundle-Description` states what a bundle is and does; `Bundle::description()` returns it
   with bundle properties expanded. The bndlspec element `<description>` gives it, written as one line, whitespace
-  collapsed.
+  collapsed. A backslash in `<name>`, `<vendor>`, `<copyright>` and `<description>` is written to the manifest as two
+  backslashes, so that OSP reads the text unchanged.
 - Web: in the attributes of a web server extension that accept property references (see the Web manual), a reference
   to a property whose name starts with `osp.` is resolved in the application configuration, then in the bundle properties;
   other references are resolved in the bundle properties only.

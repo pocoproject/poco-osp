@@ -1,6 +1,8 @@
 # A project that creates the bundles com.example.a and com.example.a.b with poco_osp_bundle(), each
-# installed with its own component, with MISSPELT_KEYWORD a call with a misspelt keyword, and with
-# CODE_DEFINED_LATER a call whose CODE names a library that is defined after it.
+# installed with its own component, with MISSPELT_KEYWORD a call with a misspelt keyword, with
+# CODE_DEFINED_LATER a call whose CODE names a library that is defined after it, and with GENERATED_VARIABLE a call
+# after the variable POCO_OSP_BUNDLE_GENERATED was set to its value, which passes GENERATED with the values of
+# GENERATED_KEYWORD if that is defined.
 
 cmake_minimum_required(VERSION 3.26)
 project(BundleFunctionTest NONE)
@@ -35,4 +37,16 @@ if(CODE_DEFINED_LATER)
 	)
 	enable_language(CXX)
 	add_library(Late MODULE late.cpp)
+endif()
+if(DEFINED GENERATED_VARIABLE)
+	set(POCO_OSP_BUNDLE_GENERATED "${GENERATED_VARIABLE}")
+	set(generated "")
+	if(DEFINED GENERATED_KEYWORD)
+		set(generated GENERATED ${GENERATED_KEYWORD})
+	endif()
+	poco_osp_bundle(BundleVariable
+		SPEC ${CMAKE_CURRENT_SOURCE_DIR}/a/a.bndlspec
+		DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/variable
+		${generated}
+	)
 endif()

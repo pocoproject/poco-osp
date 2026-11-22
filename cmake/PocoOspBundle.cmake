@@ -103,8 +103,13 @@ endfunction()
 # WORKING_DIRECTORY: The directory of the paths in the spec and of its bundle/ directory, whose files
 #   the bundle depends on; the directory of the spec by default.
 # GENERATED: Directories below bundle/, relative to it, that a build writes, such as a web app built into
-#   the bundle; DEPENDS names what writes them. Their files are not dependencies of the bundle, so that a
-#   build that writes them under other names neither misses a file of an earlier build nor configures again.
+#   the bundle. Their files are not dependencies of the bundle, so that a build that writes them under other
+#   names neither misses a file of an earlier build nor configures again. DEPENDS must name a file that the
+#   writer produces (an OUTPUT or stamp of its add_custom_command()); a custom target in DEPENDS only orders
+#   the build and does not create the bundle again. A writer in another directory is named with both its
+#   custom target and that file. ./webapp names webapp; an absolute path, one that names bundle/ itself (.,
+#   webapp/..), one that starts with bundle/ (bundle/ included), and .. or one that starts with ../ stop the
+#   configure.
 # SYMLINKS: Symbolic links in the <files> of the spec are stored as links (BundleCreator --symlinks).
 # INSTALL_COMPONENT: Installs the bundle file, <symbolic name>_<version>.bndl from the spec, into
 #   ${POCO_INSTALL_BUNDLEDIR} (bundles if it is not set) with this install component.
@@ -118,6 +123,14 @@ function(poco_osp_bundle BUNDLE_TARGET)
 	# A misspelt keyword would otherwise drop the values that follow it.
 	if(DEFINED BUNDLE_UNPARSED_ARGUMENTS)
 		message(FATAL_ERROR "OSP bundle ${BUNDLE_TARGET}: unknown arguments: ${BUNDLE_UNPARSED_ARGUMENTS}")
+	endif()
+
+	# The variable POCO_OSP_BUNDLE_GENERATED is not read: when it is not empty and the call passes no GENERATED, the
+	# configure stops, because its directories would otherwise stay dependencies of the bundle without a message.
+	if(NOT "${POCO_OSP_BUNDLE_GENERATED}" STREQUAL "" AND NOT DEFINED BUNDLE_GENERATED
+		AND NOT "GENERATED" IN_LIST BUNDLE_KEYWORDS_MISSING_VALUES)
+		message(FATAL_ERROR "OSP bundle ${BUNDLE_TARGET}: the variable POCO_OSP_BUNDLE_GENERATED is not read; name the "
+			"directories with the GENERATED keyword of poco_osp_bundle().")
 	endif()
 
 	# A caller in a directory that does not see the include-time values gets local ones.
@@ -202,13 +215,52 @@ function(poco_osp_bundle BUNDLE_TARGET)
 		set(OPT_SYMLINKS "--symlinks")
 	endif()
 
+	# add_custom_command() takes a custom target in DEPENDS as an order-only dependency. A file next to it, such
+	# as the stamp of a writer in another directory, is taken as what creates the bundle again.
+	if(DEFINED BUNDLE_GENERATED)
+		set(_custom_targets "")
+		set(_depends_on_file FALSE)
+		foreach(_depend IN LISTS BUNDLE_DEPENDS)
+			if(NOT TARGET ${_depend})
+				set(_depends_on_file TRUE)
+				continue()
+			endif()
+			get_target_property(_depend_type ${_depend} TYPE)
+			if(_depend_type STREQUAL "UTILITY")
+				list(APPEND _custom_targets ${_depend})
+			endif()
+		endforeach()
+		if(_custom_targets AND NOT _depends_on_file)
+			list(JOIN _custom_targets ", " _custom_targets)
+			message(WARNING "OSP bundle ${BUNDLE_TARGET}: DEPENDS names the custom target ${_custom_targets} and no "
+				"file. A custom target only orders the build and does not create the bundle again, so the bundle keeps "
+				"the files that an earlier build wrote into the GENERATED directories. Name a file that the writer "
+				"produces in DEPENDS, an OUTPUT or stamp of its add_custom_command().")
+		endif()
+	endif()
+
 	# The bundle content (extensions.xml, bundle.properties, web resources, ...)
 	# lives in the spec's bundle/ directory; without these dependencies, edits
 	# there never re-trigger bundle creation and stale .bndl files get shipped.
 	# The build checks the globs again, so that files added, renamed or removed
 	# after configure are picked up. The directories in GENERATED are not
 	# globbed: a build that writes them would make CMake configure again.
-	list(TRANSFORM BUNDLE_GENERATED REPLACE "/+$" "")
+	# The names are compared with the relative paths of the glob, which are normal and have no trailing slash.
+	set(_generated_dirs "")
+	foreach(_generated IN LISTS BUNDLE_GENERATED)
+		cmake_path(NORMAL_PATH _generated OUTPUT_VARIABLE _generated_dir)
+		cmake_path(HAS_ROOT_PATH _generated_dir _rooted)
+		# Checked before the trailing slash is removed, which would turn / into an empty name and bundle/ into bundle.
+		# An empty name and . name bundle/ itself.
+		if(_rooted OR _generated_dir MATCHES "^(bundle/|\\.\\.(/|$)|\\.?/?$)")
+			message(FATAL_ERROR
+				"OSP bundle ${BUNDLE_TARGET}: GENERATED ${_generated} is not a directory below bundle/, "
+				"relative to it, such as webapp for bundle/webapp")
+		endif()
+		string(REGEX REPLACE "/+$" "" _generated_dir "${_generated_dir}")
+		list(APPEND _generated_dirs ${_generated_dir})
+	endforeach()
+	set(BUNDLE_GENERATED ${_generated_dirs})
 	set(_bundle_dir ${BUNDLE_WORKING_DIRECTORY}/bundle)
 	set(BUNDLE_CONTENT_FILES "")
 	set(_patterns ${_bundle_dir}/*)

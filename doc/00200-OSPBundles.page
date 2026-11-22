@@ -125,6 +125,8 @@ OSP to load a bundle into an application. Examples for information stored in the
 
 The bundle manifest is contained in a UTF-8 encoded text file that conforms to the file format
 specified by the Poco::Util::PropertyFileConfiguration class in the Util library .
+A backslash in a value is therefore written as two backslashes; the Bundle Creator tool
+does this for the name, vendor, copyright and description it writes.
 The name of the file is <[manifest.mf]> and the file is always located in the <[META-INF]> directory.
 Following is an example for a manifest file.
 

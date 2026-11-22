@@ -60,6 +60,7 @@ public:
 	void testItemWithoutNameIsRejected();
 	void testFlagsRunLevelAndExtendedBundle();
 	void testUnknownHeaderIsIgnoredAndLinesContinue();
+	void testDoubledBackslashesAreReadAsOne();
 
 	void setUp() override;
 	void tearDown() override;

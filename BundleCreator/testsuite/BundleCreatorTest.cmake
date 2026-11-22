@@ -173,6 +173,40 @@ string(CONCAT expectedManifest
 	"Provide-Module: com.example.module.b;module-version=1.0.0\n")
 poco_osp_expect("the manifest has every field of the bundle specification" manifest STREQUAL expectedManifest)
 
+# A backslash in the name, vendor, copyright and description is written doubled, as the manifest is read as a
+# property file, where a backslash starts an escape sequence and one at the end of a line joins the next line. The
+# core test BundleManifestTest::testDoubledBackslashesAreReadAsOne reads a copy of the expected manifest text back;
+# the two change together.
+file(WRITE "${WORK_DIR}/backslash.bndlspec" [=[<?xml version="1.0"?>
+<bundlespec>
+  <manifest>
+    <name>Files in C:\data</name>
+    <symbolicName>com.example.backslash</symbolicName>
+    <version>1.0.0</version>
+    <vendor>Vendor\Unit</vendor>
+    <copyright>(c) Test\</copyright>
+    <description>Serves C:\data and C:\temp from C:\web\</description>
+    <activator><class>BackslashActivator</class><library>Backslash</library></activator>
+  </manifest>
+</bundlespec>
+]=])
+poco_osp_expect_exit(${EXIT_OK} "build a bundle with backslashes in its manifest" "${BUNDLE}"
+	${OPT}output=out/backslash ${OPT}bundle-dir-only backslash.bndlspec)
+file(READ "${WORK_DIR}/out/backslash/com.example.backslash_1.0.0/META-INF/manifest.mf" manifest)
+set(expectedManifest [=[Manifest-Version: 1.0
+Bundle-Name: Files in C:\\data
+Bundle-SymbolicName: com.example.backslash
+Bundle-Version: 1.0.0
+Bundle-Vendor: Vendor\\Unit
+Bundle-Copyright: (c) Test\\
+Bundle-Description: Serves C:\\data and C:\\temp from C:\\web\\
+Bundle-Activator: BackslashActivator;library=Backslash
+Bundle-RunLevel: 999-user
+Bundle-LazyStart: false
+]=])
+poco_osp_expect("the manifest has each backslash of the specification doubled:\n${manifest}"
+	manifest STREQUAL expectedManifest)
+
 # A bundle specification whose manifest cannot be read back gives no bundle.
 file(WRITE "${WORK_DIR}/activator.bndlspec"
 	"<?xml version=\"1.0\"?>\n"

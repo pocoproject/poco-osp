@@ -670,14 +670,14 @@ private:
 		//Bundle-Activator: MyBundleActivator;library=TestBundle
 		//Bundle-RunLevel: 200
 		out << BundleManifest::MANIFEST_VERSION << ": " << BundleManifest::VERSION << std::endl;
-		out << BundleManifest::BUNDLE_NAME << ": " << info.name() << std::endl;
+		out << BundleManifest::BUNDLE_NAME << ": " << manifestValue(info.name()) << std::endl;
 		out << BundleManifest::BUNDLE_SYMBOLICNAME << ": " << info.symbolicName() << std::endl;
 		out << BundleManifest::BUNDLE_VERSION << ": " << info.version().toString() << std::endl;
-		out << BundleManifest::BUNDLE_VENDOR << ": " << info.vendor() << std::endl;
+		out << BundleManifest::BUNDLE_VENDOR << ": " << manifestValue(info.vendor()) << std::endl;
 		if (!info.copyright().empty())
-			out << BundleManifest::BUNDLE_COPYRIGHT << ": " << info.copyright() << std::endl;
+			out << BundleManifest::BUNDLE_COPYRIGHT << ": " << manifestValue(info.copyright()) << std::endl;
 		if (!info.description().empty())
-			out << BundleManifest::BUNDLE_DESCRIPTION << ": " << info.description() << std::endl;
+			out << BundleManifest::BUNDLE_DESCRIPTION << ": " << manifestValue(info.description()) << std::endl;
 		if (!info.activatorClass().empty() && !info.activatorLibrary().empty())
 			out << BundleManifest::BUNDLE_ACTIVATOR << ": " << info.activatorClass() << ";library=" << info.activatorLibrary() << std::endl;
 		if (!info.runLevel().empty())
@@ -930,6 +930,13 @@ private:
 		// which are removed and written.
 		if (!Poco::OSP::BundleManifest::isValidFileName(value))
 			throw Poco::DataFormatException(Poco::format("The bundle %s in %s cannot be used as a file name"s, what, specPath), value);
+	}
+
+	[[nodiscard]] static std::string manifestValue(const std::string& text)
+	{
+		// The manifest is read with Poco::Util::PropertyFileConfiguration, which takes a backslash as the start of
+		// an escape sequence, and one at the end of the line as a continuation that joins the next header.
+		return Poco::replace(text, "\\", "\\\\");
 	}
 
 	[[nodiscard]] static Path platformDirectory(const Path& binDir, const std::string& osName,

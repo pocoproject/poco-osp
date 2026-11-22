@@ -926,6 +926,32 @@ void BundleManifestTest::testUnknownHeaderIsIgnoredAndLinesContinue()
 }
 
 
+void BundleManifestTest::testDoubledBackslashesAreReadAsOne()
+{
+	// The manifest as the bundle creator writes it for backslashes in the specification.
+	std::istringstream istr(
+		"Manifest-Version: 1.0\n"
+		"Bundle-Name: Files in C:\\\\data\n"
+		"Bundle-SymbolicName: com.example.backslash\n"
+		"Bundle-Version: 1.0.0\n"
+		"Bundle-Vendor: Vendor\\\\Unit\n"
+		"Bundle-Copyright: (c) Test\\\\\n"
+		"Bundle-Description: Serves C:\\\\data and C:\\\\temp from C:\\\\web\\\\\n"
+		"Bundle-Activator: BackslashActivator;library=Backslash\n"
+		"Bundle-RunLevel: 999-user\n"
+		"Bundle-LazyStart: false\n"
+	);
+	BundleManifest::Ptr pManifest(new BundleManifest(istr));
+	assertEqual ("Files in C:\\data", pManifest->name());
+	assertEqual ("Vendor\\Unit", pManifest->vendor());
+	assertEqual ("(c) Test\\", pManifest->copyright());
+	assertEqual ("Serves C:\\data and C:\\temp from C:\\web\\", pManifest->description());
+	assertEqual ("BackslashActivator", pManifest->activatorClass());
+	assertEqual ("Backslash", pManifest->activatorLibrary());
+	assertEqual ("999-user", pManifest->runLevel());
+}
+
+
 void BundleManifestTest::setUp()
 {
 }
@@ -976,6 +1002,7 @@ CppUnit::Test* BundleManifestTest::suite()
 	CppUnit_addTest(pSuite, BundleManifestTest, testItemWithoutNameIsRejected);
 	CppUnit_addTest(pSuite, BundleManifestTest, testFlagsRunLevelAndExtendedBundle);
 	CppUnit_addTest(pSuite, BundleManifestTest, testUnknownHeaderIsIgnoredAndLinesContinue);
+	CppUnit_addTest(pSuite, BundleManifestTest, testDoubledBackslashesAreReadAsOne);
 
 	return pSuite;
 }

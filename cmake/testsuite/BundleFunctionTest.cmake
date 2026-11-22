@@ -70,4 +70,29 @@ configure_late("a library in CODE that is defined after the call stops the confi
 configure_late("a library in CODE that is defined after the call stops the configure for Windows too"
 	late-windows -DCMAKE_SYSTEM_NAME=Windows)
 
+# Configures the project with GENERATED_VARIABLE in its own build directory with the given further arguments and
+# stores the exit status and the output in result and output.
+function(configure_variable build)
+	execute_process(COMMAND "${CMAKE_COMMAND}" -S "${SOURCE}" -B "${WORK_DIR}/${build}" -G "${GENERATOR}"
+			-DMODULE_DIR=${CMAKE_CURRENT_LIST_DIR}/.. -DBUNDLE_CREATOR=${BUNDLE_CREATOR} ${ARGN}
+		RESULT_VARIABLE result
+		OUTPUT_VARIABLE output
+		ERROR_VARIABLE output)
+	set(result "${result}" PARENT_SCOPE)
+	set(output "${output}" PARENT_SCOPE)
+endfunction()
+
+configure_variable(variable -DGENERATED_VARIABLE=webapp)
+poco_osp_expect("the variable POCO_OSP_BUNDLE_GENERATED without GENERATED stops the configure:\n${output}"
+	NOT result EQUAL 0 AND output MATCHES "OSP bundle BundleVariable: the variable POCO_OSP_BUNDLE_GENERATED")
+configure_variable(variable-keyword -DGENERATED_VARIABLE=webapp -DGENERATED_KEYWORD=webapp)
+poco_osp_expect("the variable POCO_OSP_BUNDLE_GENERATED with GENERATED is silent:\n${output}"
+	result EQUAL 0 AND NOT output MATCHES "POCO_OSP_BUNDLE_GENERATED")
+configure_variable(variable-keyword-empty -DGENERATED_VARIABLE=webapp -DGENERATED_KEYWORD=)
+poco_osp_expect("the variable POCO_OSP_BUNDLE_GENERATED with GENERATED and no directories is silent:\n${output}"
+	result EQUAL 0 AND NOT output MATCHES "POCO_OSP_BUNDLE_GENERATED")
+configure_variable(variable-empty -DGENERATED_VARIABLE=)
+poco_osp_expect("the empty variable POCO_OSP_BUNDLE_GENERATED is silent:\n${output}"
+	result EQUAL 0 AND NOT output MATCHES "POCO_OSP_BUNDLE_GENERATED")
+
 file(REMOVE_RECURSE "${WORK_DIR}")

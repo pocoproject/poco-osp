@@ -334,8 +334,15 @@ specification file, unless another directory is given with <[WORKING_DIRECTORY]>
 and makes the bundle depend on the files in the <[bundle]> directory of that
 directory. <[GENERATED]> names directories below <[bundle]>, relative to it,
 that a build writes, such as a web app built into the bundle; their files are
-not dependencies of the bundle, and <[DEPENDS]> names what writes them instead.
-Nothing is left out by default.
+not dependencies of the bundle. An absolute path, one that names <[bundle]>
+itself (<[.]>, <[webapp/..]>), one that starts with <[bundle/]> (<[bundle/]>
+included), and <[..]> or one that starts with <[../]> stop the configure.
+Nothing is left out by default. With <[GENERATED]>, <[DEPENDS]> must name a
+file that the writer produces (an <[OUTPUT]> or stamp of its
+<[add_custom_command]>); a custom target in <[DEPENDS]> only orders the build
+and does not create the bundle again, and the configure warns when <[DEPENDS]>
+names a custom target that is defined before the call and no file. A writer in
+another directory is named with both its custom target and that file.
 With <[INSTALL_COMPONENT]>, the bundle file is installed into
 <[POCO_INSTALL_BUNDLEDIR]> (<[bundles]> if it is not set) with that install component.
 <[POCO_OSP_BUNDLE_DIR]> is the directory into which the build of poco-osp writes
