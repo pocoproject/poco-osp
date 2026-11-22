@@ -44,9 +44,16 @@ public:
 	void testAuthenticateNotification();
 	void testLoginNotificationIsNotLoggedAsInformation();
 	void testRememberedLoginPostsNoNotification();
+	void testLoginAfterVerifyCredentialsPostsNotification();
+	void testLoginAfterRefusedValidationPostsNotification();
 	void testZeroCredentialsCacheTimeoutRemembersNoCheck();
+	void testRememberedCheckEndsAfterTimeoutWhileUsed();
 	void testNegativeCredentialsCacheTimeoutIsRejected();
 	void testPasswordChangeForgetsRememberedCheck();
+	void testPasswordChangedByOtherProgramEndsRememberedCheck();
+	void testPasswordChangedByOtherProgramEndsRememberedCheckWithFailureCount();
+	void testRememberedLoginWithInlineFailureCountPostsNoNotification();
+	void testPasswordChangeUnderOtherSpellingEndsRememberedCheck();
 	void testUserRemovalForgetsRememberedCheck();
 	void testLockOutForgetsRememberedCheck();
 	void testLockOutAttributeForgetsRememberedCheck();
@@ -94,6 +101,11 @@ public:
 	void testExternalRole();
 	void testAdminOfShippedDatabaseIsLocalUserWithLDAP();
 	void testLDAPPasswordChangeUpdatesStoredHash();
+	void testRememberedLDAPLoginPostsNoNotification();
+	void testLDAPLoginAfterVerifyCredentialsPostsNotification();
+	void testLDAPLoginAfterLoginUnderOtherNamePostsNotification();
+	void testLDAPLoginUnderOtherCaseIsRemembered();
+	void testAccountLoginUnderOtherLDAPNameIsRemembered();
 	void testLocalUserWithCapitalLettersIsNotLDAPUser();
 	void testOtherCallsProceedDuringLDAPLogin();
 	void testConcurrentLDAPLoginsOfOneUser();

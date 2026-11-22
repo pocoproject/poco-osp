@@ -25,6 +25,7 @@
 #include "Poco/Util/AbstractConfiguration.h"
 #include "Poco/Data/Session.h"
 #include "Poco/Timestamp.h"
+#include "Poco/Types.h"
 #include "Poco/ExpireLRUCache.h"
 #include "Poco/ExpireCache.h"
 #include "Poco/RegularExpression.h"
@@ -81,10 +82,13 @@ class OSPAuthData_API AuthAdminServiceImpl: public AbstractLDAPAuthAdminService
 	///
 	/// A successful check of a user's credentials is remembered for
 	/// AuthParams::credentialsCacheTimeout seconds under a keyed hash of the credentials, so that
-	/// a login that repeats them is not hashed again; the lock-out check still runs first. Changing
-	/// the password, removing or uncaching the user and a lock-out forget the remembered check;
-	/// failed checks are not remembered. A login accepted by the remembered check posts no
-	/// AuthNotification.
+	/// a login that repeats them is not hashed again; the lock-out check still runs first. Any
+	/// change of the stored password hash, removing or uncaching the user and a lock-out end the
+	/// remembered check.
+	/// Only a login that authenticate() or authenticateAccount() accepts is remembered.
+	/// verifyCredentials() and a login that validateUser refuses use a remembered check, but their
+	/// own check is not remembered, nor is a failed one. A login accepted by the remembered check
+	/// posts no AuthNotification.
 	///
 	/// As of 2021, the recommended number of iterations for PBKDF2 with HMAC-SHA256
 	/// is 310.000 for HMAC-SHA256 (version 4) and 720.000 for HMAC-SHA1 (version 3).
@@ -244,7 +248,8 @@ public:
 		/// Returns true only if the account name that authenticateAccount()
 		/// returns for the login equals username ignoring case. A login with
 		/// another name of an LDAP user is accepted as by authenticateAccount(),
-		/// with a warning in the log, but returns false.
+		/// with a warning in the log, but returns false, and its check of the
+		/// credentials is not remembered.
 		///
 		/// Throws a Poco::Data::DataException if the auth database cannot be used.
 	[[nodiscard]] bool authenticateAccount(const std::string& username, const std::string& credentials,
@@ -422,11 +427,36 @@ private:
 	using PermissionsPtr = Poco::SharedPtr<Permissions>;
 	using PermissionsCache = Poco::ExpireLRUCache<std::string, Permissions>;
 	using PasswordCache = Poco::ExpireCache<std::string, std::string>;
+
+	struct RememberedCheck
+		/// A remembered check of a user's credentials.
+	{
+		std::string credentialsHash;
+			/// The keyed hash of the credentials (see hashCachedCredentials()).
+		std::string storedHash;
+			/// The stored password hash that the credentials were checked against.
+	};
+
+	using CredentialsCache = Poco::ExpireCache<std::string, RememberedCheck>;
 	using SQLCache = std::unordered_map<std::string, std::string>;
 
-	[[nodiscard]] bool authenticateImpl(std::string& username, const std::string& credentials, bool validate,
+	enum class CheckKind: Poco::UInt8
+		/// The public function that calls authenticateImpl().
+	{
+		VERIFY,
+			/// verifyCredentials(): validateUser is not fired, and the check is not remembered.
+		LOGIN,
+			/// authenticate(): validateUser is fired, and the check is remembered if the account
+			/// name equals the requested name without regard to case, as authenticate() then
+			/// accepts the login.
+		ACCOUNT_LOGIN
+			/// authenticateAccount(): validateUser is fired, and the check is remembered under any
+			/// account name of the user.
+	};
+
+	[[nodiscard]] bool authenticateImpl(std::string& username, const std::string& credentials, CheckKind kind,
 		bool& isLDAPUser, bool& remembered) const;
-		/// Verifies the credentials and, if validate is true, fires validateUser
+		/// Verifies the credentials and, unless kind is CheckKind::VERIFY, fires validateUser
 		/// for an authenticated user. Holds the lock of the service except
 		/// during the conversation with the LDAP server, while it waits for another login of
 		/// the same user (see waitForLDAPLoginImpl()) and while checkPassword() runs.
@@ -441,8 +471,9 @@ private:
 	[[nodiscard]] std::optional<bool> authenticateCachedImpl(Poco::Data::Session& sess,
 		const std::string& username, const std::string& credentials) const;
 		/// Returns the result of the authentication if it is decided without
-		/// the stored password hash or the LDAP server: for a locked-out user
-		/// or a cached password. Returns no value otherwise.
+		/// checking the credentials against the stored password hash or with the LDAP
+		/// server: for a locked-out user, or by the remembered check while the stored
+		/// password hash is the one it was made against. Returns no value otherwise.
 	[[nodiscard]] bool ldapUserNameImpl(Poco::Data::Session& sess, std::string& username, std::string& ldapAttr) const;
 		/// Returns true for an LDAP user, whose name then has its ASCII letters
 		/// changed to lower case, the name the user is stored under.
@@ -490,10 +521,14 @@ private:
 		/// Removes the cached permissions of a user whose credentials match the
 		/// stored password hash, and clears the lock-out and the failure count.
 	void rememberCheckImpl(const std::string& username, const std::string& credentials,
-		const PasswordCheck& check) const;
+		const PasswordCheck& check, bool loggedIn) const;
 		/// Called after the transaction of a login that accepted the credentials
-		/// is committed: caches the stored password hash of check, and remembers
-		/// the check of the credentials (see AuthParams::credentialsCacheTimeout).
+		/// is committed: caches the stored password hash of check, and, if loggedIn
+		/// is true, remembers the check of the credentials (see
+		/// AuthParams::credentialsCacheTimeout). loggedIn is true for a call of
+		/// authenticate() or authenticateAccount() that returns true: a login
+		/// accepted by the remembered check posts no AuthNotification, so a check
+		/// that has posted none is not remembered.
 	[[nodiscard]] bool validateUserImpl(Poco::Data::Session& sess, const std::string& username, bool valid) const;
 	PermissionsPtr loadPermissions(Poco::Data::Session& sess, const std::string& username) const;
 	[[nodiscard]] bool isInlineAttribute(const std::string& attribute) const;
@@ -509,7 +544,6 @@ private:
 	void storeUserAttribute(const std::string& username, const std::string& attribute, const std::string& value);
 	void deleteUserAttribute(const std::string& username, const std::string& attribute);
 	void lockOutUserIfTooManyFailures(Poco::Data::Session& sess, const std::string& username) const;
-	void resetFailureCountImpl(Poco::Data::Session& sess, const std::string& username) const;
 	void lockOutUserImpl(Poco::Data::Session& sess, const std::string& username, const Poco::DateTime& lockOutUntil) const;
 	void unlockOutUserImpl(Poco::Data::Session& sess, const std::string& username) const;
 	[[nodiscard]] bool isUserLockedOutImpl(Poco::Data::Session& sess, const std::string& username) const;
@@ -553,7 +587,7 @@ private:
 	std::set<std::string> _inlineAttributes;
 	mutable SQLCache _sqlCache;
 	mutable PermissionsCache _permissionsCache;
-	mutable PasswordCache _passwordCache;
+	mutable CredentialsCache _passwordCache;
 	mutable PasswordCache _passwordPersistentHashCache;
 	std::string _cacheSalt;
 	mutable Poco::FastMutex _mutex;

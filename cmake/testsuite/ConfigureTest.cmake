@@ -11,7 +11,8 @@
 #
 # Variables: OSP_SOURCE_DIR (the poco-osp source tree), POCO_SOURCE_DIR (the
 # POCO source tree of the build), GENERATOR (the CMake generator), C_COMPILER
-# and CXX_COMPILER (the compilers of the build), WORK_DIR (a directory for this
+# and CXX_COMPILER (the compilers of the build), AUTH_LDAP (ON if the build has
+# the LDAP library that OSP Auth LDAP needs), WORK_DIR (a directory for this
 # test only, removed afterwards).
 #
 
@@ -131,5 +132,38 @@ poco_osp_expect("a superproject POCO without copyStreamN64: the configure fails 
 	NOT result EQUAL 0)
 poco_osp_expect("a superproject POCO without copyStreamN64: the configure names the POCO it needs:\n${out}"
 	out MATCHES "The POCO in ${WORK_DIR}/superproject/poco has no copyStreamN64 in Poco/StreamCopier.h")
+
+# A superproject whose POCO has no Poco::Net, with OSP Auth LDAP: only the LDAP tests of OSP Auth link Poco::Net.
+function(configure_without_net build)
+	execute_process(COMMAND "${CMAKE_COMMAND}" -S "${WORK_DIR}/superproject-without-net"
+			-B "${WORK_DIR}/${build}" -G "${GENERATOR}" -DCMAKE_C_COMPILER=${C_COMPILER}
+			-DCMAKE_CXX_COMPILER=${CXX_COMPILER} -DPOCO_MINIMAL_BUILD=ON -DENABLE_XML=ON -DENABLE_JSON=ON
+			-DENABLE_UTIL=ON -DENABLE_ZIP=ON -DENABLE_CRYPTO=ON -DENABLE_DATA=ON -DENABLE_DATA_SQLITE=ON
+			-DENABLE_CPPUNIT=ON -DENABLE_NET=OFF -DPOCO_OSP_MINIMAL_BUILD=ON -DENABLE_OSP_BUNDLES=ON
+			-DENABLE_OSP_CRYPTO=ON -DENABLE_OSP_DATA=ON -DENABLE_OSP_DATA_SQLITE=ON -DENABLE_OSP_AUTH=ON
+			-DENABLE_OSP_AUTH_LDAP=ON ${ARGN}
+		RESULT_VARIABLE result
+		OUTPUT_VARIABLE out
+		ERROR_VARIABLE out)
+	string(REGEX REPLACE "[ \n]+" " " out "${out}")
+	set(result "${result}" PARENT_SCOPE)
+	set(out "${out}" PARENT_SCOPE)
+endfunction()
+
+if(AUTH_LDAP)
+	file(WRITE "${WORK_DIR}/superproject-without-net/CMakeLists.txt"
+		"cmake_minimum_required(VERSION 3.26)\nproject(Superproject C CXX)\n"
+		"add_subdirectory(\"${POCO_SOURCE_DIR}\" poco)\nadd_subdirectory(\"${OSP_SOURCE_DIR}\" osp)\n")
+	configure_without_net(without-net -DPOCO_OSP_ENABLE_TESTS=OFF)
+	poco_osp_expect("OSP Auth LDAP without the tests and a POCO without Poco::Net: the configure succeeds \
+(${result}):\n${out}" result EQUAL 0)
+	configure_without_net(without-net-tests -DPOCO_OSP_ENABLE_TESTS=ON)
+	poco_osp_expect("OSP Auth LDAP with the tests and a POCO without Poco::Net: the configure fails \
+(${result}):\n${out}" NOT result EQUAL 0)
+	poco_osp_expect("OSP Auth LDAP with the tests and a POCO without Poco::Net: the configure names the tests:\n${out}"
+		out MATCHES "POCO_OSP_ENABLE_TESTS needs Poco::Net: switch ENABLE_NET ON in the superproject")
+else()
+	message(STATUS "Skipped: the superproject with OSP Auth LDAP and a POCO without Poco::Net: the build has no LDAP")
+endif()
 
 file(REMOVE_RECURSE "${WORK_DIR}")

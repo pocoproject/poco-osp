@@ -384,11 +384,14 @@ authentication) would otherwise cost a password hash, or a request to the LDAP
 server, per request. A successful check is reused for this time: a login that
 repeats the credentials is accepted without hashing them again. The check is
 kept in memory under a keyed hash of the credentials. The lock-out check and
-the reset of the failure count still run for every login. Changing the
-password, removing the user and a lock-out forget the user's check; failed
-checks are not remembered. A login accepted by a remembered check posts no
-<[AuthNotification]>. A password that another program or node changes in the
-database is seen after at most <*auth.credentialsCacheTimeout*> seconds.
+the reset of the failure count still run for every login. Any change of the
+stored password hash, also by another program or under another spelling of the
+user name, removing the user and a lock-out end the user's check. Only a
+login that <[authenticate()]> or <[authenticateAccount()]> accepts is
+remembered. <[verifyCredentials()]> and a login that a <[validateUser]>
+delegate refuses use a remembered check, but their own check is not
+remembered, nor is a failed one. A login accepted by a remembered check posts no
+<[AuthNotification]>.
 
 
 ! auth.hashVersion

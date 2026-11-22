@@ -136,8 +136,7 @@ _poco_osp_part(ENABLE_OSP_SIMPLEAUTH NEEDS ENABLE_OSP_BUNDLES
 	POCO Poco::Foundation Poco::XML Poco::JSON Poco::Util)
 _poco_osp_part(ENABLE_OSP_AUTH NEEDS ENABLE_OSP_BUNDLES ENABLE_OSP_CRYPTO ENABLE_OSP_DATA ENABLE_OSP_DATA_SQLITE
 	POCO Poco::Foundation Poco::XML Poco::JSON Poco::Util Poco::Zip Poco::Crypto Poco::Data Poco::DataSQLite)
-_poco_osp_part(ENABLE_OSP_AUTH_LDAP NEEDS ENABLE_OSP_AUTH
-	POCO Poco::Net)
+_poco_osp_part(ENABLE_OSP_AUTH_LDAP NEEDS ENABLE_OSP_AUTH)
 _poco_osp_part(ENABLE_OSP_REMOTING NEEDS ENABLE_OSP_BUNDLES ENABLE_OSP_NET ENABLE_OSP_NETSSL
 	POCO Poco::Foundation Poco::XML Poco::JSON Poco::Util Poco::Net Poco::NetSSL
 		Poco::RemotingNG Poco::RemotingNGTCP Poco::RemotingNGREST)
@@ -147,6 +146,10 @@ _poco_osp_part(POCO_OSP_ENABLE_TESTS NEEDS ENABLE_OSP
 	POCO Poco::Foundation Poco::XML Poco::Util Poco::Zip Poco::CppUnit)
 _poco_osp_part(POCO_OSP_ENABLE_SAMPLES NEEDS ENABLE_OSP_BUNDLES ENABLE_OSP_SHELL ENABLE_OSP_WEB
 	POCO Poco::Foundation Poco::XML Poco::JSON Poco::Util Poco::Zip)
+# Only the LDAP tests of OSP Auth link Poco::Net: they run a local TCP server.
+if(ENABLE_OSP_AUTH_LDAP)
+	list(APPEND POCO_OSP_POCO_TARGETS_POCO_OSP_ENABLE_TESTS Poco::Net)
+endif()
 
 # The POCO option that builds each target, by target name without the Poco:: prefix.
 # Poco::Foundation is always built.

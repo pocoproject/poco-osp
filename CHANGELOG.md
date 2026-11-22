@@ -58,13 +58,18 @@ entries.
 - Auth/Data: the SQL user database needs the tables `auth_role_attributes` and `auth_role_mappings` of `createdb.sql`;
   the default `auth.sql.effectivePermissionsForUser` reads `auth_role_mappings` and takes the user name three times.
 - Auth/Data: the setting `auth.sql.verifyPassword` is not used; the service checks the password against the stored hash.
+- Auth/Data: when the `auth_user` table has the inline `auth_failures` column, a login accepted by a remembered check
+  reads the password hash and the failure count with the statement `auth.sql.passwordHashAndInlineUserAttribute`.
+  A configuration that overrides some `auth.sql.*` statements, such as `auth.sql.passwordHashForUser` or
+  `auth.sql.getInlineUserAttribute`, must define it too, for the same table and columns.
 - Auth/Data: when the LDAP server cannot be used, the stored password of an LDAP user is accepted only with
   `auth.ldap.inaccessible.fallbackToLocal` and within `auth.ldap.cache.lifetimeDays` of the last LDAP login.
 - Auth/Data: an LDAP user is stored under the `sAMAccountName` of its LDAP entry, in lower case, when the entry has one;
   `authenticate()` and `verifyCredentials()` return false for another name, such as the user principal name.
-- Auth/Data: a successful check of a user's credentials is remembered for `auth.credentialsCacheTimeout` seconds
-  (default 60; 0 disables it), not `auth.cacheTimeout`; a login accepted by a remembered check posts no
-  `AuthNotification`.
+- Auth/Data: a successful login with `authenticate()` or `authenticateAccount()` is remembered for
+  `auth.credentialsCacheTimeout` seconds (default 60; 0 disables it), not `auth.cacheTimeout`, while the stored password
+  hash is unchanged; `verifyCredentials()` and a login that a `validateUser` delegate refuses use a remembered check but
+  add none. A login accepted by a remembered check posts no `AuthNotification`.
 - Auth/TwoFactor: after `auth.twofactor.maxFailures` wrong codes (default 5; 0 disables the lock-out), the user is
   locked out for `auth.twofactor.lockOutPeriod` seconds (default 600), also a user of `auth.neverLockOutUsers`.
 - Auth/TwoFactor: the secrets are stored with AES-256-GCM. A secret in the old format is stored again in the new format

@@ -1224,6 +1224,47 @@ void AuthAdminServiceTest::testRememberedLoginPostsNoNotification()
 }
 
 
+void AuthAdminServiceTest::testLoginAfterVerifyCredentialsPostsNotification()
+{
+	_pAAS->addUser("user1", "pass1");
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool verified = _pAAS->verifyCredentials("user1", "pass1");
+	const bool authenticated = _pAAS->authenticate("user1", "pass1");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertTrue (verified);
+	assertTrue (authenticated);
+	assertEqual (1, _notificationCounter);
+}
+
+
+void AuthAdminServiceTest::testLoginAfterRefusedValidationPostsNotification()
+{
+	_pAAS->addUser("user1", "pass1");
+	void (*disableUser)(const void*, AuthAdminService::ValidateUserEvent&) =
+		[](const void*, AuthAdminService::ValidateUserEvent& ev)
+	{
+		ev.valid = false;
+	};
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	_pAAS->validateUser += Poco::delegate(disableUser);
+	const bool refused = _pAAS->authenticate("user1", "pass1");
+	_pAAS->validateUser -= Poco::delegate(disableUser);
+	const bool authenticated = _pAAS->authenticate("user1", "pass1");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertFalse (refused);
+	assertTrue (authenticated);
+	assertEqual (1, _notificationCounter);
+}
+
+
 void AuthAdminServiceTest::testZeroCredentialsCacheTimeoutRemembersNoCheck()
 {
 	auto authParams = backendAuthParams(_dbPath);
@@ -1243,6 +1284,47 @@ void AuthAdminServiceTest::testZeroCredentialsCacheTimeoutRemembersNoCheck()
 	assertTrue (first);
 	assertTrue (second);
 	assertEqual (2, _notificationCounter);
+}
+
+
+void AuthAdminServiceTest::testRememberedCheckEndsAfterTimeoutWhileUsed()
+{
+	constexpr std::chrono::seconds CREDENTIALS_CACHE_TIMEOUT{1};
+	auto authParams = backendAuthParams(_dbPath);
+	authParams.credentialsCacheTimeout = static_cast<int>(CREDENTIALS_CACHE_TIMEOUT.count());
+	AuthAdminServiceImpl::Ptr pAAS = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(), authParams,
+		AuthAdminServiceImpl::LDAPParams());
+	pAAS->addUser("user1", "pass1");
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool checked = pAAS->authenticate("user1", "pass1");
+	// The logins repeat the credentials without a pause, so the check would never end if a login
+	// accepted by it extended it. A full check posts a notification; one that follows logins accepted
+	// by the remembered check shows its end, one before any of them only starts the check again.
+	bool repeatedLoginsAccepted = true;
+	int rememberedLogins = 0;
+	bool checkEnded = false;
+	const auto deadline = std::chrono::steady_clock::now() + CREDENTIALS_CACHE_TIMEOUT + EVENT_WAIT;
+	while (!checkEnded && std::chrono::steady_clock::now() < deadline)
+	{
+		const int notifications = _notificationCounter;
+		repeatedLoginsAccepted = pAAS->authenticate("user1", "pass1") && repeatedLoginsAccepted;
+		if (_notificationCounter == notifications)
+		{
+			++rememberedLogins;
+		}
+		else
+		{
+			checkEnded = rememberedLogins > 0;
+		}
+	}
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertTrue (checked);
+	assertTrue (repeatedLoginsAccepted);
+	assertTrue (checkEnded);
 }
 
 
@@ -1279,6 +1361,83 @@ void AuthAdminServiceTest::testPasswordChangeForgetsRememberedCheck()
 	assertTrue (newPassword);
 	// The login with the new password is checked against the stored credentials.
 	assertEqual (1, _notificationCounter);
+}
+
+
+void AuthAdminServiceTest::testPasswordChangedByOtherProgramEndsRememberedCheck()
+{
+	_pAAS->addUser("user1", "pass1");
+	_pAAS->addUser("user2", "pass2");
+	assertTrue (_pAAS->authenticate("user1", "pass1"));
+
+	Poco::Data::Session session("SQLite", _dbPath);
+	session << "UPDATE auth_user SET password = (SELECT password FROM auth_user WHERE username = 'user2') "
+		"WHERE username = 'user1'", now;
+
+	assertFalse (_pAAS->authenticate("user1", "pass1"));
+}
+
+
+void AuthAdminServiceTest::testPasswordChangedByOtherProgramEndsRememberedCheckWithFailureCount()
+{
+	Poco::Data::Session session("SQLite", _dbPath);
+	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
+	AuthAdminServiceImpl::Ptr pAAS = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(),
+		backendAuthParams(_dbPath), AuthAdminServiceImpl::LDAPParams());
+	pAAS->addUser("user1", "pass1");
+	pAAS->addUser("user2", "pass2");
+	assertTrue (pAAS->authenticate("user1", "pass1"));
+
+	session << "UPDATE auth_user SET password = (SELECT password FROM auth_user WHERE username = 'user2') "
+		"WHERE username = 'user1'", now;
+
+	assertFalse (pAAS->authenticate("user1", "pass1"));
+}
+
+
+void AuthAdminServiceTest::testRememberedLoginWithInlineFailureCountPostsNoNotification()
+{
+	Poco::Data::Session session("SQLite", _dbPath);
+	session << "ALTER TABLE auth_user ADD auth_failures INTEGER NOT NULL DEFAULT 0", now;
+	auto authParams = backendAuthParams(_dbPath);
+	authParams.maxFailures = 3;
+	authParams.lockOutTime = LOCK_OUT_SECONDS;
+	AuthAdminServiceImpl::Ptr pAAS = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(), authParams,
+		AuthAdminServiceImpl::LDAPParams());
+	pAAS->addUser("user1", "pass1");
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool checked = pAAS->authenticate("user1", "pass1");
+	const bool failed = pAAS->authenticate("user1", "bad");
+	const bool remembered = pAAS->authenticate("user1", "pass1");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+	int failures = -1;
+	session << "SELECT auth_failures FROM auth_user WHERE username = 'user1'", into(failures), now;
+
+	assertTrue (checked);
+	assertFalse (failed);
+	assertTrue (remembered);
+	assertEqual (1, _notificationCounter);
+	assertEqual (0, failures);
+}
+
+
+void AuthAdminServiceTest::testPasswordChangeUnderOtherSpellingEndsRememberedCheck()
+{
+	Poco::Data::Session session("SQLite", _dbPath);
+	session << "DROP TABLE auth_user", now;
+	session << "CREATE TABLE auth_user (username VARCHAR(256) PRIMARY KEY COLLATE NOCASE, "
+		"password VARCHAR(256) NOT NULL)", now;
+	AuthAdminServiceImpl::Ptr pAAS = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(),
+		backendAuthParams(_dbPath), AuthAdminServiceImpl::LDAPParams());
+	pAAS->addUser("User1", "pass1");
+	assertTrue (pAAS->authenticate("User1", "pass1"));
+
+	pAAS->changePassword("user1", "pass2");
+
+	assertFalse (pAAS->authenticate("User1", "pass1"));
 }
 
 
@@ -2618,6 +2777,108 @@ void AuthAdminServiceTest::testLDAPPasswordChangeUpdatesStoredHash()
 	pAAS->invalidateCaches(AuthAdminService::INVALIDATE_CACHED_PASSWORDS);
 	assertTrue (pAAS->authenticate("alice", "B"));
 	assertFalse (pAAS->authenticate("alice", "A"));
+}
+
+
+void AuthAdminServiceTest::testRememberedLDAPLoginPostsNoNotification()
+{
+	Directory directory;
+	directory.passwords[userDN("alice")] = "A";
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool checked = pAAS->authenticate("alice", "A");
+	const bool remembered = pAAS->authenticate("alice", "A");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertTrue (checked);
+	assertTrue (remembered);
+	assertEqual (1, _notificationCounter);
+}
+
+
+void AuthAdminServiceTest::testLDAPLoginAfterVerifyCredentialsPostsNotification()
+{
+	Directory directory;
+	directory.passwords[userDN("alice")] = "A";
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool verified = pAAS->verifyCredentials("alice", "A");
+	const bool authenticated = pAAS->authenticate("alice", "A");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertTrue (verified);
+	assertTrue (authenticated);
+	assertEqual (1, _notificationCounter);
+}
+
+
+void AuthAdminServiceTest::testLDAPLoginAfterLoginUnderOtherNamePostsNotification()
+{
+	Directory directory;
+	addServiceAccountAndAlice(directory);
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		accountModeParams(true), directory);
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool refused = pAAS->authenticate("alice@example.com", "A");
+	const bool authenticated = pAAS->authenticate("alice", "A");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertFalse (refused);
+	assertTrue (authenticated);
+	assertEqual (1, _notificationCounter);
+}
+
+
+void AuthAdminServiceTest::testLDAPLoginUnderOtherCaseIsRemembered()
+{
+	Directory directory;
+	directory.passwords[userDN("alice")] = "A";
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool checked = pAAS->authenticate("Alice", "A");
+	const bool remembered = pAAS->authenticate("Alice", "A");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertTrue (checked);
+	assertTrue (remembered);
+	assertEqual (1, _notificationCounter);
+}
+
+
+void AuthAdminServiceTest::testAccountLoginUnderOtherLDAPNameIsRemembered()
+{
+	Directory directory;
+	addServiceAccountAndAlice(directory);
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		accountModeParams(true), directory);
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	std::string accountName;
+	const bool checked = pAAS->authenticateAccount("alice@example.com", "A", accountName);
+	const bool remembered = pAAS->authenticate("alice", "A");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertTrue (checked);
+	assertEqual ("alice", accountName);
+	assertTrue (remembered);
+	assertEqual (1, _notificationCounter);
 }
 
 
@@ -4343,9 +4604,16 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthenticateNotification);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLoginNotificationIsNotLoggedAsInformation);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRememberedLoginPostsNoNotification);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLoginAfterVerifyCredentialsPostsNotification);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLoginAfterRefusedValidationPostsNotification);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testZeroCredentialsCacheTimeoutRemembersNoCheck);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRememberedCheckEndsAfterTimeoutWhileUsed);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testNegativeCredentialsCacheTimeoutIsRejected);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPasswordChangeForgetsRememberedCheck);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPasswordChangedByOtherProgramEndsRememberedCheck);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPasswordChangedByOtherProgramEndsRememberedCheckWithFailureCount);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRememberedLoginWithInlineFailureCountPostsNoNotification);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPasswordChangeUnderOtherSpellingEndsRememberedCheck);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testUserRemovalForgetsRememberedCheck);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLockOutForgetsRememberedCheck);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLockOutAttributeForgetsRememberedCheck);
@@ -4393,6 +4661,11 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testExternalRole);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAdminOfShippedDatabaseIsLocalUserWithLDAP);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLDAPPasswordChangeUpdatesStoredHash);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRememberedLDAPLoginPostsNoNotification);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLDAPLoginAfterVerifyCredentialsPostsNotification);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLDAPLoginAfterLoginUnderOtherNamePostsNotification);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLDAPLoginUnderOtherCaseIsRemembered);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAccountLoginUnderOtherLDAPNameIsRemembered);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLocalUserWithCapitalLettersIsNotLDAPUser);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testOtherCallsProceedDuringLDAPLogin);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testConcurrentLDAPLoginsOfOneUser);

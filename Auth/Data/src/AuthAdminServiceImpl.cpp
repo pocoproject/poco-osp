@@ -219,7 +219,10 @@ bool AuthAdminServiceImpl::verifyCredentials(const std::string& username, const 
 	std::string storedUsername(username);
 	bool isLDAPUser = false;
 	bool remembered = false;
-	if (!authenticateImpl(storedUsername, credentials, false, isLDAPUser, remembered)) return false;
+	if (!authenticateImpl(storedUsername, credentials, CheckKind::VERIFY, isLDAPUser, remembered))
+	{
+		return false;
+	}
 
 	if (Poco::icompare(storedUsername, username) != 0)
 	{
@@ -939,7 +942,10 @@ bool AuthAdminServiceImpl::authenticate(const std::string& usernameInput, const 
 	auto username { usernameInput };
 	bool isLDAPUser = false;
 	bool remembered = false;
-	if (!authenticateImpl(username, credentials, true, isLDAPUser, remembered)) return false;
+	if (!authenticateImpl(username, credentials, CheckKind::LOGIN, isLDAPUser, remembered))
+	{
+		return false;
+	}
 
 	if (Poco::icompare(username, usernameInput) != 0)
 	{
@@ -961,7 +967,10 @@ bool AuthAdminServiceImpl::authenticateAccount(const std::string& username, cons
 	auto storedName { username };
 	bool isLDAPUser = false;
 	bool remembered = false;
-	if (!authenticateImpl(storedName, credentials, true, isLDAPUser, remembered)) return false;
+	if (!authenticateImpl(storedName, credentials, CheckKind::ACCOUNT_LOGIN, isLDAPUser, remembered))
+	{
+		return false;
+	}
 
 	if (!remembered)
 	{
@@ -1006,9 +1015,10 @@ void AuthAdminServiceImpl::postLoginNotification(const std::string& username, bo
 }
 
 
-bool AuthAdminServiceImpl::authenticateImpl(std::string& username, const std::string& credentials, bool validate,
+bool AuthAdminServiceImpl::authenticateImpl(std::string& username, const std::string& credentials, CheckKind kind,
 	bool& isLDAPUser, bool& remembered) const
 {
+	const bool validate = kind != CheckKind::VERIFY;
 	const std::string requestedName(username);
 	AccountState account;
 	{
@@ -1046,7 +1056,7 @@ bool AuthAdminServiceImpl::authenticateImpl(std::string& username, const std::st
 					// Only now, so that a login whose transaction fails adds nothing to the caches.
 					if (checkAccepted)
 					{
-						rememberCheckImpl(username, credentials, *check);
+						rememberCheckImpl(username, credentials, *check, validate && authenticated);
 					}
 					return authenticated;
 				}
@@ -1163,7 +1173,10 @@ bool AuthAdminServiceImpl::authenticateImpl(std::string& username, const std::st
 				xa.commit();
 				if (credentialsAccepted)
 				{
-					rememberCheckImpl(username, credentials, check.value_or(PasswordCheck()));
+					const bool loggedIn = validate && authenticated &&
+						(kind == CheckKind::ACCOUNT_LOGIN ||
+							Poco::icompare(username, requestedName) == 0);
+					rememberCheckImpl(username, credentials, check.value_or(PasswordCheck()), loggedIn);
 				}
 				return authenticated;
 			}
@@ -1293,15 +1306,36 @@ std::optional<bool> AuthAdminServiceImpl::authenticateCachedImpl(Poco::Data::Ses
 		return false;
 	}
 
-	Poco::SharedPtr<std::string> pCachedPass = _passwordCache.get(username);
-	if (pCachedPass != nullptr)
+	Poco::SharedPtr<RememberedCheck> pRemembered = _passwordCache.get(username);
+	if (pRemembered != nullptr)
 	{
 		_logger.debug("Have password in cache."s);
 		std::string hashedCreds = hashCachedCredentials(username, credentials);
-		if (equalsInConstantTime(*pCachedPass, hashedCreds))
+		if (equalsInConstantTime(pRemembered->credentialsHash, hashedCreds))
 		{
-			resetFailureCountImpl(sess, username);
-			return true;
+			// Another program, or a change under another spelling of the user name that the
+			// database treats as equal, can have replaced the stored hash.
+			std::string storedHash;
+			Poco::Nullable<int> failures;
+			if (isInlineAttribute(USER_ATTR_FAILURES))
+			{
+				// One read of the user's row gives the failure count to reset with the stored hash.
+				sess << sqlFor("passwordHashAndInlineUserAttribute"s), USER_ATTR_FAILURES, useRef(username),
+					into(storedHash), into(failures), now;
+			}
+			else
+			{
+				storedHash = storedHashImpl(sess, username);
+			}
+			if (storedHash == pRemembered->storedHash)
+			{
+				if (failures.value(0) != 0)
+				{
+					replaceUserAttributeImpl(sess, username, USER_ATTR_FAILURES, "0"s);
+				}
+				return true;
+			}
+			_passwordCache.remove(username);
 		}
 		// The password may have been changed elsewhere, so the stored
 		// credentials decide.
@@ -1511,16 +1545,16 @@ void AuthAdminServiceImpl::acceptStoredCredentialsImpl(Poco::Data::Session& sess
 
 
 void AuthAdminServiceImpl::rememberCheckImpl(const std::string& username, const std::string& credentials,
-	const PasswordCheck& check) const
+	const PasswordCheck& check, bool loggedIn) const
 {
 	const std::string& storedHash = check.newHash.empty() ? check.storedHash : check.newHash;
 	if (!storedHash.empty())
 	{
 		_passwordPersistentHashCache.update(username, storedHash);
 	}
-	if (_authParams.credentialsCacheTimeout > 0)
+	if (loggedIn && _authParams.credentialsCacheTimeout > 0)
 	{
-		_passwordCache.update(username, hashCachedCredentials(username, credentials));
+		_passwordCache.update(username, RememberedCheck{hashCachedCredentials(username, credentials), storedHash});
 	}
 }
 
@@ -2409,19 +2443,6 @@ void AuthAdminServiceImpl::lockOutUserIfTooManyFailures(Poco::Data::Session& ses
 		lockOutUserImpl(sess, username, lockOutUntil);
 
 		_logger.notice("Locked out user %s after %d failed authentication attempts."s, username, failures);
-	}
-}
-
-
-void AuthAdminServiceImpl::resetFailureCountImpl(Poco::Data::Session& sess, const std::string& username) const
-{
-	if (!isInlineAttribute(USER_ATTR_FAILURES)) return;
-
-	Poco::Nullable<int> failures;
-	sess << sqlFor("getInlineUserAttribute"s), USER_ATTR_FAILURES, useRef(username), into(failures), now;
-	if (failures.value(0) != 0)
-	{
-		replaceUserAttributeImpl(sess, username, USER_ATTR_FAILURES, "0"s);
 	}
 }
 
