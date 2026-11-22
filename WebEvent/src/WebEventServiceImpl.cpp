@@ -734,12 +734,12 @@ WebEventServiceImpl::ConnectionIdentity WebEventServiceImpl::resolveUser(
 		catch (Poco::Exception& exc)
 		{
 			logger().error(Poco::format("User resolver failed for the connection from %s; the connection belongs to no user: %s",
-				request.clientAddress().toString(), exc.displayText()));
+				request.clientAddress().toString(), Poco::UTF8::escape(exc.displayText())));
 		}
 		catch (std::exception& exc)
 		{
 			logger().error(Poco::format("User resolver failed for the connection from %s; the connection belongs to no user: %s",
-				request.clientAddress().toString(), std::string(exc.what())));
+				request.clientAddress().toString(), Poco::UTF8::escape(exc.what())));
 		}
 		return identity;
 	}
@@ -1522,6 +1522,16 @@ void WebEventServiceImpl::receiveImpl(Subscriber::Ptr pSubscriber)
 			{
 				if (verb == SUBSCRIBE)
 				{
+					// Before the authorizer is asked, so that a message cannot make it
+					// ask about more subjects than a connection can subscribe to.
+					if (_maxSubjects > 0 && subjectNames.size() > static_cast<std::size_t>(_maxSubjects))
+					{
+						logger().information(Poco::format("Removing WebSocket subscriber %s: a SUBSCRIBE message names "
+							"%z subjects, more than the limit of %d.",
+							describe(*pSubscriber), subjectNames.size(), _maxSubjects));
+						removeSubscriber(pWS, false);
+						return;
+					}
 					// Filtered before the subscription, so that nothing is fired or
 					// sent for a refused subject.
 					std::set<std::string> allowedSubjects;
@@ -1556,7 +1566,7 @@ void WebEventServiceImpl::receiveImpl(Subscriber::Ptr pSubscriber)
 						else if (logger().debug())
 						{
 							logger().debug(Poco::format("Dropping NOTIFY %s from %s: client notifications are disabled.",
-								subjectName, describe(*pSubscriber)));
+								Poco::UTF8::escape(subjectName), describe(*pSubscriber)));
 						}
 					}
 				}

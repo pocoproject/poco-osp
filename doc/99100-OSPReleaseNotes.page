@@ -207,8 +207,9 @@ The release also contains bug fixes and other changes that are not listed here.
     <[WebEventService::SubjectAuthorizer]> takes the scope of the connection
     after the user name.
   - WebEvent: a subscriber is removed when it subscribes to more than
-    <[osp.web.event.maxSubjects]> subjects (default 64) or sends nothing, not
-    even a PONG, for twice <[osp.web.event.pingInterval]> (default 60 s).
+    <[osp.web.event.maxSubjects]> subjects (default 64), names more in one
+    <[SUBSCRIBE]> message, or sends nothing, not even a PONG, for twice
+    <[osp.web.event.pingInterval]> (default 60 s).
   - WebEvent: delivery to a subscriber that falls behind is lossy: beyond
     <[osp.web.event.maxPendingFrames]> queued frames, the oldest notification
     frame is dropped.

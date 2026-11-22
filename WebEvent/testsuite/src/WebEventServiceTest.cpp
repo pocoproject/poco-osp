@@ -36,6 +36,7 @@
 #include "Poco/Net/SocketAddress.h"
 #include "Poco/Net/WebSocket.h"
 #include "Poco/Net/StreamSocket.h"
+#include "Poco/Net/SocketStream.h"
 #include "Poco/Net/NetException.h"
 #include "Poco/Format.h"
 #include "Poco/URI.h"
@@ -829,6 +830,24 @@ Poco::Net::StreamSocket connectRawWebSocket(Poco::UInt16 port)
 {
 	Poco::Net::HTTPClientSession session("127.0.0.1", port);
 	return upgradeRawWebSocket(session);
+}
+
+
+[[nodiscard]] Poco::Net::HTTPResponse::HTTPStatus rawUpgradeStatus(Poco::UInt16 port, const std::string& headerFields)
+	/// Sends a WebSocket upgrade request with the given header fields, each
+	/// ending in CRLF, after the fixed ones, and returns the response status.
+{
+	// Written by hand: HTTPRequest does not write a control character in a
+	// header field, but the server reads one.
+	Poco::Net::StreamSocket raw(Poco::Net::SocketAddress("127.0.0.1", port));
+	raw.setReceiveTimeout(Poco::Timespan(5, 0));
+	const std::string upgrade("GET /webevent HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\n"
+		"Upgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" + headerFields + "\r\n");
+	raw.sendBytes(upgrade.data(), static_cast<int>(upgrade.size()));
+	Poco::Net::SocketInputStream responseStream(raw);
+	Poco::Net::HTTPResponse response;
+	response.read(responseStream);
+	return response.getStatus();
 }
 
 
@@ -2138,6 +2157,38 @@ void WebEventServiceTest::testSubscribingBeyondSubjectLimitClosesConnection()
 	try
 	{
 		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testOversizedSubscribeClosesConnectionBeforeAuthorizer()
+	/// A SUBSCRIBE that names more subjects than a connection can subscribe to
+	/// closes the connection before the subject authorizer is asked, also
+	/// when the authorizer would refuse every subject.
+{
+	std::atomic<int> authorizerCalls{0};
+	WebEventServiceImpl::Config config = serviceConfig(1);
+	config.maxPendingFrames = 0;
+	config.maxSubjects = 2;
+	LocalService local(config);
+	local.pService->setSubjectAuthorizer(
+		[&](const std::string&, const std::string&, const std::string&, WebEventService::SubjectAction)
+		{
+			++authorizerCalls;
+			return false;
+		});
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	assertTrue(waitUntil([&]{ return local.pService->listSubscribers().size() == 1; }, 5000));
+	sendSubscribe(ws, "com.example.first,com.example.second,com.example.third");
+	assertTrue(waitUntil([&]{ return local.pService->listSubscribers().empty(); }, 5000));
+	assertEqual(0, authorizerCalls.load());
+
+	try
+	{
 		ws.close();
 	}
 	catch (...) {}
@@ -4072,13 +4123,16 @@ void WebEventServiceTest::testRefusedSubjectIsLoggedEscaped()
 
 void WebEventServiceTest::testSubscriberUserIsLoggedEscaped()
 	/// The user resolver may return a name with control characters: the log
-	/// lines that name the subscriber show the name escaped.
+	/// lines that name the subscriber show the name escaped, also at debug
+	/// level, where the subject of a dropped client NOTIFY is escaped as well.
 {
 	const std::string publicSubject("com.example.public");
 	const std::string refusedSubject("com.example.refused");
+	const std::string droppedSubject("com.example.dropped\r\nforged");
 	const std::string username("alice\r\nWebSocket subscriber mallory");
 
 	LogCapture capture("Poco.OSP.WebEvent");
+	Poco::Logger::get("Poco.OSP.WebEvent").setLevel(Poco::Message::PRIO_DEBUG);
 	LocalService local(1, 0);
 	local.pService->setUserResolver([&](const Poco::Net::HTTPServerRequest&)
 		{
@@ -4091,14 +4145,27 @@ void WebEventServiceTest::testSubscriberUserIsLoggedEscaped()
 		});
 
 	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	ws.setReceiveTimeout(Poco::Timespan(5, 0));
 	sendSubscribe(ws, publicSubject + "," + refusedSubject);
 	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(publicSubject) == 1; }, 5000));
+	// The frames of a client are handled in order: once the pong is in, the
+	// NOTIFY before it has been dropped.
+	sendText(ws, "NOTIFY " + droppedSubject + " WebEvent/1.0\r\ndropped");
+	sendText(ws, "NOTIFY system.ping WebEvent/1.0\r\nping");
+	assertEquals(std::string("system.pong"), receiveNotification(ws).first);
 
 	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
-	assertTrue(std::ranges::any_of(messages, [&](const Poco::Message& message)
+	const auto logged = [&](const std::string& text)
+	{
+		return std::ranges::any_of(messages, [&](const Poco::Message& message)
 		{
-			return message.getText().find("(user " + Poco::UTF8::escape(username) + ")") != std::string::npos;
-		}));
+			return message.getText().find(text) != std::string::npos;
+		});
+	};
+	assertTrue(logged("not allowed to subscribe to " + refusedSubject));
+	assertTrue(logged("WebSocket connection established with"));
+	assertTrue(logged("(user " + Poco::UTF8::escape(username) + ")"));
+	assertTrue(logged("Dropping NOTIFY " + Poco::UTF8::escape(droppedSubject) + " from"));
 	for (const auto& message: messages)
 	{
 		assertTrue(message.getText().find_first_of("\r\n") == std::string::npos);
@@ -4110,6 +4177,91 @@ void WebEventServiceTest::testSubscriberUserIsLoggedEscaped()
 		ws.close();
 	}
 	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testResolverErrorAndOriginAreLoggedEscaped()
+	/// The exception of a user resolver, a Poco::Exception or a
+	/// std::exception, and the Origin header of a refused upgrade can carry
+	/// control characters: the log shows them escaped.
+{
+	const std::string resolverError("resolver failed for \x1b[31mforged");
+	const std::string standardResolverError("resolver failed for \x1b[32mforged");
+	const std::string foreignOrigin("https://foreign\x1b.example");
+
+	LogCapture capture("Poco.OSP.WebEvent");
+	LocalService local(1, 0);
+	local.pService->setUserResolver([&](const Poco::Net::HTTPServerRequest&) -> std::string
+		{
+			throw Poco::IllegalStateException(resolverError);
+		});
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	assertTrue(waitUntil([&]{ return local.pService->listSubscribers().size() == 1; }, 5000));
+	local.pService->setUserResolver([&](const Poco::Net::HTTPServerRequest&) -> std::string
+		{
+			throw std::runtime_error(standardResolverError);
+		});
+	Poco::Net::WebSocket standardWS = connectWebSocket(local.port);
+	assertTrue(waitUntil([&]{ return local.pService->listSubscribers().size() == 2; }, 5000));
+
+	const std::string headerFields = "Sec-WebSocket-Version: 13\r\nOrigin: " + foreignOrigin + "\r\n";
+	assertEqual(static_cast<int>(Poco::Net::HTTPResponse::HTTP_FORBIDDEN),
+		static_cast<int>(rawUpgradeStatus(local.port, headerFields)));
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(3);
+	const auto logged = [&](const std::string& text)
+	{
+		return std::ranges::any_of(messages, [&](const Poco::Message& message)
+		{
+			return message.getText().find(text) != std::string::npos;
+		});
+	};
+	assertTrue(logged(Poco::UTF8::escape(resolverError)));
+	assertTrue(logged(Poco::UTF8::escape(standardResolverError)));
+	assertTrue(logged("origin " + Poco::UTF8::escape(foreignOrigin)));
+	for (const auto& message: messages)
+	{
+		assertTrue(message.getText().find('\x1b') == std::string::npos);
+	}
+
+	for (Poco::Net::WebSocket* pWS: {&ws, &standardWS})
+	{
+		try
+		{
+			pWS->shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+			pWS->close();
+		}
+		catch (...) {}
+	}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testUnsupportedWebSocketVersionIsLoggedEscaped()
+	/// The log line of an upgrade that fails can quote the client's
+	/// Sec-WebSocket-Version header, which can carry control characters, so
+	/// the text is escaped.
+{
+	const std::string version("99\x1b[2J");
+
+	LogCapture capture("Poco.OSP.WebEvent");
+	LocalService local(1, 0);
+
+	assertEqual(static_cast<int>(Poco::Net::HTTPResponse::HTTP_BAD_REQUEST),
+		static_cast<int>(rawUpgradeStatus(local.port, "Sec-WebSocket-Version: " + version + "\r\n")));
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
+	assertTrue(std::ranges::any_of(messages, [&](const Poco::Message& message)
+		{
+			return message.getText().find("failed: ") != std::string::npos
+				&& message.getText().find(Poco::UTF8::escape(version)) != std::string::npos;
+		}));
+	for (const auto& message: messages)
+	{
+		assertTrue(message.getText().find('\x1b') == std::string::npos);
+	}
 	assertEqual(1, local.stop());
 }
 
@@ -4634,6 +4786,7 @@ CppUnit::Test* WebEventServiceTest::suite()
 	CppUnit_addTest(pSuite, WebEventServiceTest, testConnectionLimitHoldsForConcurrentUpgrades);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testUpgradeAfterStopIsClosed);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testSubscribingBeyondSubjectLimitClosesConnection);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testOversizedSubscribeClosesConnectionBeforeAuthorizer);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testWorkerCountIsDefaultedAndLimited);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testInvalidMessagesCloseTheConnection);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testSubjectListKeepsCommasInBrackets);
@@ -4675,6 +4828,8 @@ CppUnit::Test* WebEventServiceTest::suite()
 	CppUnit_addTest(pSuite, WebEventServiceTest, testThrowingSubjectAuthorizerRefuses);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testRefusedSubjectIsLoggedEscaped);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testSubscriberUserIsLoggedEscaped);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testResolverErrorAndOriginAreLoggedEscaped);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testUnsupportedWebSocketVersionIsLoggedEscaped);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testSubjectRefusalsAreThrottled);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testRemovedSubjectAuthorizerAsksNothing);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testRequiredSubjectAuthorizerRefusesSubjectsWithoutOne);

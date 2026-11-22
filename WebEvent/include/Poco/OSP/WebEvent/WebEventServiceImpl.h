@@ -129,8 +129,9 @@ public:
 
 		int maxSubjects = DEFAULT_MAX_SUBJECTS;
 			/// The largest number of subjects one subscriber can subscribe
-			/// to; a SUBSCRIBE beyond it closes the connection. 0 means
-			/// unlimited.
+			/// to; a SUBSCRIBE beyond it closes the connection, as does a
+			/// SUBSCRIBE that names more subjects, before the subject
+			/// authorizer is asked. 0 means unlimited.
 
 		bool requireSubjectAuthorizer = false;
 			/// If true, every subject of a client's SUBSCRIBE and NOTIFY is

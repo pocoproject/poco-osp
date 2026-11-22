@@ -50,6 +50,7 @@ public:
 	void testConnectionLimitHoldsForConcurrentUpgrades();
 	void testUpgradeAfterStopIsClosed();
 	void testSubscribingBeyondSubjectLimitClosesConnection();
+	void testOversizedSubscribeClosesConnectionBeforeAuthorizer();
 	void testWorkerCountIsDefaultedAndLimited();
 	void testInvalidMessagesCloseTheConnection();
 	void testSubjectListKeepsCommasInBrackets();
@@ -91,6 +92,8 @@ public:
 	void testThrowingSubjectAuthorizerRefuses();
 	void testRefusedSubjectIsLoggedEscaped();
 	void testSubscriberUserIsLoggedEscaped();
+	void testResolverErrorAndOriginAreLoggedEscaped();
+	void testUnsupportedWebSocketVersionIsLoggedEscaped();
 	void testSubjectRefusalsAreThrottled();
 	void testRemovedSubjectAuthorizerAsksNothing();
 	void testRequiredSubjectAuthorizerRefusesSubjectsWithoutOne();

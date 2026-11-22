@@ -596,9 +596,11 @@ Defaults to 0 (unlimited).
 
 !! osp.web.event.maxSubjects
 
-The maximum number of subjects one connection can subscribe to. A SUBSCRIBE
-message beyond the limit closes the connection. Specify 0 for no limit.
-Defaults to 64.
+The maximum number of subjects one connection can subscribe to. The limit counts
+the subjects that are subscribed; a SUBSCRIBE message beyond the limit closes the
+connection. A message that names more subjects than the limit closes the
+connection as well, before the subject authorizer is asked about any of them.
+Specify 0 for no limit. Defaults to 64.
 
 
 !! osp.web.event.workers

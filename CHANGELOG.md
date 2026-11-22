@@ -130,8 +130,9 @@ entries.
 - WebEvent: a `NOTIFY` message from a client is passed on only with `osp.web.event.clientNotify` (default false).
 - WebEvent: `WebEventService::SubjectAction` is an enum class with the enumerators `SUBSCRIBE` and `NOTIFY`, and
   `WebEventService::SubjectAuthorizer` takes the scope of the connection after the user name.
-- WebEvent: a subscriber is removed when it subscribes to more than `osp.web.event.maxSubjects` subjects (default 64) or
-  sends nothing, not even a PONG, for twice `osp.web.event.pingInterval` (default 60 s).
+- WebEvent: a subscriber is removed when it subscribes to more than `osp.web.event.maxSubjects` subjects (default 64),
+  names more in one `SUBSCRIBE` message, or sends nothing, not even a PONG, for twice `osp.web.event.pingInterval`
+  (default 60 s).
 - WebEvent: delivery to a subscriber that falls behind is lossy: beyond `osp.web.event.maxPendingFrames` queued frames,
   the oldest notification frame is dropped.
 - Shell: `CommandProcessor::COMMAND_LOGIN`, `COMMAND_HELP` and `COMMAND_QUIT` are removed; the `ShellConnection` and

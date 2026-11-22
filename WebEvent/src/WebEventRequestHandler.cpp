@@ -25,6 +25,7 @@
 #include "Poco/String.h"
 #include "Poco/StringTokenizer.h"
 #include "Poco/URI.h"
+#include "Poco/UTF8String.h"
 #include <memory>
 #include <string>
 #include <utility>
@@ -69,7 +70,8 @@ void WebEventRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request
 						{
 							_pWebEventServiceImpl->logger().debug(username.empty() ?
 								Poco::format("WebSocket connection established with %s.", clientAddress) :
-								Poco::format("WebSocket connection established with %s (user %s).", clientAddress, username));
+								Poco::format("WebSocket connection established with %s (user %s).", clientAddress,
+									Poco::UTF8::escape(username)));
 						}
 						handedOver = true;
 						_pWebEventServiceImpl->addSubscriber(pWS, username, scope, page, clientAddress);
@@ -102,8 +104,9 @@ void WebEventRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request
 		{
 			// A client that is not a WebSocket client, or a broken one: no
 			// action is needed on the server.
+			// The exception text can quote the client's Sec-WebSocket-Version header, so it is escaped.
 			_pWebEventServiceImpl->logger().information(Poco::format("WebSocket upgrade from %s failed: %s",
-				request.clientAddress().toString(), exc.displayText()));
+				request.clientAddress().toString(), Poco::UTF8::escape(exc.displayText())));
 			switch (exc.code())
 			{
 			case Poco::Net::WebSocket::WS_ERR_HANDSHAKE_UNSUPPORTED_VERSION:
@@ -135,7 +138,7 @@ void WebEventRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request
 			Poco::format("WebSocket connection from %s rejected: origin %s is neither the server's own "
 				"nor listed in osp.web.event.allowedOrigins.",
 				request.clientAddress().toString(),
-				request.get("Origin")));
+				Poco::UTF8::escape(request.get("Origin"))));
 		response.setStatusAndReason(Poco::Net::HTTPResponse::HTTP_FORBIDDEN);
 		response.setContentLength(0);
 		response.send();
