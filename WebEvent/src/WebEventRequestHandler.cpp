@@ -61,7 +61,7 @@ void WebEventRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request
 					_pWebEventServiceImpl->requestReceived(pRequest);
 					if (response.getStatus() == Poco::Net::HTTPResponse::HTTP_OK)
 					{
-						std::string username = _pWebEventServiceImpl->resolveUser(request);
+						const auto [username, scope] = _pWebEventServiceImpl->resolveUser(request);
 						std::string page = resolvePage(request);
 						std::string clientAddress = request.clientAddress().toString();
 						Poco::SharedPtr<Poco::Net::WebSocket> pWS = new Poco::Net::WebSocket(request, response);
@@ -72,7 +72,7 @@ void WebEventRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request
 								Poco::format("WebSocket connection established with %s (user %s).", clientAddress, username));
 						}
 						handedOver = true;
-						_pWebEventServiceImpl->addSubscriber(pWS, username, page, clientAddress);
+						_pWebEventServiceImpl->addSubscriber(pWS, username, scope, page, clientAddress);
 					}
 					else
 					{

@@ -247,8 +247,22 @@ public:
 	bool firstSubscriberStats(SubscriberStats& stats, long timeoutMs = 5000);
 	bool firstSubscriber(Subscriber::Ptr& pSubscriber, long timeoutMs = 5000);
 
+	[[nodiscard]] int waitingSetters() const
+		/// Returns how often a setter of the user resolver or the subject
+		/// authorizer has begun to wait for the calls in progress.
+	{
+		return _waitingSetters;
+	}
+
+protected:
+	void setterWaiting() override
+	{
+		++_waitingSetters;
+	}
+
 private:
 	SignalState::Ptr _pDestroyed;
+	std::atomic<int> _waitingSetters{0};
 };
 
 
@@ -530,6 +544,85 @@ struct LocalService
 	std::unique_ptr<Poco::Net::HTTPServer> pServer;
 	Poco::UInt16 port = 0;
 	int refCount = 0;
+};
+
+
+struct BlockedCallState
+	/// What the threads of a test use in which a setter replaces a function
+	/// whose first call blocks until proceed is set. The threads share its
+	/// ownership: a setter that does not return keeps it, with the service,
+	/// which cannot be stopped while the setter blocks.
+{
+	explicit BlockedCallState(int workerCount):
+		local(workerCount, 0)
+	{
+	}
+
+	BlockedCallState() = delete;
+	BlockedCallState(const BlockedCallState&) = delete;
+	BlockedCallState(BlockedCallState&&) = delete;
+	BlockedCallState& operator = (const BlockedCallState&) = delete;
+	BlockedCallState& operator = (BlockedCallState&&) = delete;
+
+	~BlockedCallState() = default;
+
+	std::atomic<int> calls{0};
+	Poco::Event firstEntered;
+	Poco::Event secondEntered;
+	Poco::Event proceed;
+	std::atomic<bool> secondConnected{false};
+	LocalService local;
+		/// Declared last and so destroyed first: the functions installed in
+		/// its service use the members above.
+};
+
+
+class DetachingThread
+	/// A thread that a test waits for with a deadline. A thread that has not
+	/// returned when the object is destroyed is detached rather than joined,
+	/// so that a test fails instead of blocking; its function therefore
+	/// shares the ownership of what it uses.
+{
+public:
+	template <typename Function>
+	explicit DetachingThread(Function function):
+		_pReturned(std::make_shared<Poco::Event>(Poco::Event::EVENT_MANUALRESET)),
+		_thread([function = std::move(function), pReturned = _pReturned]
+			{
+				function();
+				pReturned->set();
+			})
+	{
+	}
+
+	DetachingThread() = delete;
+	DetachingThread(const DetachingThread&) = delete;
+	DetachingThread(DetachingThread&&) = delete;
+	DetachingThread& operator = (const DetachingThread&) = delete;
+	DetachingThread& operator = (DetachingThread&&) = delete;
+
+	~DetachingThread()
+	{
+		if (_pReturned->tryWait(0))
+		{
+			_thread.join();
+		}
+		else
+		{
+			_thread.detach();
+		}
+	}
+
+	[[nodiscard]] bool tryWait(long milliseconds)
+		/// Waits at most the given time for the function to return, and
+		/// returns whether it has.
+	{
+		return _pReturned->tryWait(milliseconds);
+	}
+
+private:
+	std::shared_ptr<Poco::Event> _pReturned;
+	std::thread _thread;
 };
 
 
@@ -3742,7 +3835,9 @@ void WebEventServiceTest::testSubjectAuthorizerDecidesSubscriptions()
 	const std::string secretSubject("com.example.secret");
 
 	LocalService local(1, 0);
-	local.pService->setSubjectAuthorizer([&](const std::string& username, const std::string& subject, WebEventService::SubjectAction action)
+	local.pService->setSubjectAuthorizer(
+		[&](const std::string& username, const std::string&, const std::string& subject,
+			WebEventService::SubjectAction action)
 		{
 			return action == WebEventService::SubjectAction::SUBSCRIBE && (subject != secretSubject || username == "alice");
 		});
@@ -3788,7 +3883,8 @@ void WebEventServiceTest::testSubjectAuthorizerDecidesClientNotifications()
 	const std::string secretSubject("com.example.secret");
 
 	LocalService local(1, 0, true);
-	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction action)
+	local.pService->setSubjectAuthorizer(
+		[&](const std::string&, const std::string&, const std::string& subject, WebEventService::SubjectAction action)
 		{
 			return action == WebEventService::SubjectAction::SUBSCRIBE || subject != secretSubject;
 		});
@@ -3842,7 +3938,8 @@ void WebEventServiceTest::testClientNotificationNeedsEveryAncestorAllowed()
 	const std::string openSubject("com.example.open");
 
 	LocalService local(1, 0, true);
-	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction action)
+	local.pService->setSubjectAuthorizer(
+		[&](const std::string&, const std::string&, const std::string& subject, WebEventService::SubjectAction action)
 		{
 			return action == WebEventService::SubjectAction::SUBSCRIBE || subject != protectedSubject;
 		});
@@ -3888,7 +3985,8 @@ void WebEventServiceTest::testThrowingSubjectAuthorizerRefuses()
 	const std::string pocoSubject("com.example.poco");
 
 	LocalService local(1, 0);
-	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction)
+	local.pService->setSubjectAuthorizer(
+		[&](const std::string&, const std::string&, const std::string& subject, WebEventService::SubjectAction)
 		{
 			if (subject == stdSubject) throw std::runtime_error("authorizer failed");
 			if (subject == pocoSubject) throw Poco::IllegalStateException("authorizer failed");
@@ -3928,7 +4026,8 @@ void WebEventServiceTest::testRefusedSubjectIsLoggedEscaped()
 
 	LogCapture capture("Poco.OSP.WebEvent");
 	LocalService local(1, 0, true);
-	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction)
+	local.pService->setSubjectAuthorizer(
+		[&](const std::string&, const std::string&, const std::string& subject, WebEventService::SubjectAction)
 		{
 			if (subject == failingSubject) throw std::runtime_error("authorizer failed for " + subject);
 			return subject != refusedSubject && subject != notifiedSubject;
@@ -3985,7 +4084,8 @@ void WebEventServiceTest::testSubscriberUserIsLoggedEscaped()
 		{
 			return username;
 		});
-	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction)
+	local.pService->setSubjectAuthorizer(
+		[&](const std::string&, const std::string&, const std::string& subject, WebEventService::SubjectAction)
 		{
 			return subject != refusedSubject;
 		});
@@ -4026,7 +4126,8 @@ void WebEventServiceTest::testSubjectRefusalsAreThrottled()
 	LogCapture capture("Poco.OSP.WebEvent");
 	Poco::Logger::get("Poco.OSP.WebEvent").setLevel(Poco::Message::PRIO_DEBUG);
 	LocalService local(1, 0);
-	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction)
+	local.pService->setSubjectAuthorizer(
+		[&](const std::string&, const std::string&, const std::string& subject, WebEventService::SubjectAction)
 		{
 			if (subject.starts_with(failingPrefix)) throw Poco::IllegalStateException("authorizer failed");
 			return subject == publicSubject;
@@ -4074,7 +4175,8 @@ void WebEventServiceTest::testRemovedSubjectAuthorizerAsksNothing()
 	const std::string secretSubject("com.example.secret");
 
 	LocalService local(1, 0);
-	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction)
+	local.pService->setSubjectAuthorizer(
+		[&](const std::string&, const std::string&, const std::string& subject, WebEventService::SubjectAction)
 		{
 			return subject != secretSubject;
 		});
@@ -4100,6 +4202,279 @@ void WebEventServiceTest::testRemovedSubjectAuthorizerAsksNothing()
 }
 
 
+void WebEventServiceTest::testRequiredSubjectAuthorizerRefusesSubjectsWithoutOne()
+	/// With osp.web.event.requireSubjectAuthorizer, a client's SUBSCRIBE and
+	/// NOTIFY are refused while no authorizer is installed; an installed
+	/// authorizer decides.
+{
+	const std::string subject("com.example.protected");
+
+	WebEventServiceImpl::Config config = serviceConfig(1, 0, true);
+	config.requireSubjectAuthorizer = true;
+	LocalService local(config);
+
+	Poco::Net::WebSocket listener = connectWebSocket(local.port);
+	listener.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(listener, subject);
+	// The frames of a client are handled in order: once the pong is in, the
+	// SUBSCRIBE before it has been handled too.
+	sendText(listener, "NOTIFY system.ping WebEvent/1.0\r\nping");
+	assertEquals(std::string("system.pong"), receiveNotification(listener).first);
+	assertTrue(local.pService->waitForMainThread());
+	assertEqual(0, local.pService->subscriberCount(subject));
+
+	local.pService->setSubjectAuthorizer(
+		[](const std::string&, const std::string&, const std::string&, WebEventService::SubjectAction)
+		{
+			return true;
+		});
+	sendSubscribe(listener, subject);
+	assertTrue(waitUntil([&]{ return local.pService->subscriberCount(subject) == 1; }, 5000));
+
+	local.pService->setSubjectAuthorizer(nullptr);
+	Poco::Net::WebSocket sender = connectWebSocket(local.port);
+	sender.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendText(sender, "NOTIFY " + subject + " WebEvent/1.0\r\nclient");
+	sendText(sender, "NOTIFY system.ping WebEvent/1.0\r\nping");
+	assertEquals(std::string("system.pong"), receiveNotification(sender).first);
+	// Notified after the client's NOTIFY has been handled: the listener's next
+	// frame is this one, so the client's NOTIFY was dropped.
+	local.pService->notify(subject, "marker");
+	assertEquals(std::string("marker"), receiveNotification(listener).second);
+
+	for (auto* pWS: {&listener, &sender})
+	{
+		try
+		{
+			pWS->shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+			pWS->close();
+		}
+		catch (...) {}
+	}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testSettingSubjectAuthorizerWaitsForCallInProgress()
+	/// setSubjectAuthorizer() returns only after the calls of the authorizer
+	/// it replaces have returned, so that the bundle which removes the
+	/// authorizer can unload its code.
+{
+	const std::string subject("com.example.public");
+
+	const auto pState = std::make_shared<BlockedCallState>(1);
+	BlockedCallState& state = *pState;
+	TestableWebEventServiceImpl& service = *state.local.pService;
+	state.local.pService->setSubjectAuthorizer(
+		[&state](const std::string&, const std::string&, const std::string&, WebEventService::SubjectAction)
+		{
+			state.firstEntered.set();
+			state.proceed.tryWait(10000);
+			return true;
+		});
+
+	Poco::Net::WebSocket ws = connectWebSocket(state.local.port);
+	sendSubscribe(ws, subject);
+	const bool authorizerEntered = state.firstEntered.tryWait(5000);
+	const int waitingSetters = service.waitingSetters();
+	DetachingThread setter([pState]
+		{
+			pState->local.pService->setSubjectAuthorizer(nullptr);
+		});
+	const bool setterWaiting = waitUntil([&]{ return service.waitingSetters() > waitingSetters; }, 5000);
+	// A wait for an event that must not come while the authorizer runs.
+	const bool returnedDuringCall = setter.tryWait(200);
+	state.proceed.set();
+	const bool returnedAfterCall = setter.tryWait(5000);
+
+	assertTrue(authorizerEntered);
+	assertTrue(setterWaiting);
+	assertFalse(returnedDuringCall);
+	assertTrue(returnedAfterCall);
+	assertTrue(waitUntil([&]{ return state.local.pService->subscriberCount(subject) == 1; }, 5000));
+
+	try
+	{
+		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, state.local.stop());
+}
+
+
+void WebEventServiceTest::testSettingUserResolverWaitsForCallInProgress()
+	/// setUserResolver() returns only after the calls of the resolver it
+	/// replaces have returned, so that the bundle which removes the resolver
+	/// can unload its code.
+{
+	const auto pState = std::make_shared<BlockedCallState>(1);
+	BlockedCallState& state = *pState;
+	TestableWebEventServiceImpl& service = *state.local.pService;
+	state.local.pService->setUserResolver([&state](const Poco::Net::HTTPServerRequest&)
+		{
+			state.firstEntered.set();
+			state.proceed.tryWait(10000);
+			return std::string("alice");
+		});
+
+	DetachingThread client([pState]
+		{
+			try
+			{
+				Poco::Net::WebSocket ws = connectWebSocket(pState->local.port);
+				ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+				ws.close();
+			}
+			catch (...) {}
+		});
+	const bool resolverEntered = state.firstEntered.tryWait(5000);
+	const int waitingSetters = service.waitingSetters();
+	DetachingThread setter([pState]
+		{
+			pState->local.pService->setUserResolver(nullptr);
+		});
+	const bool setterWaiting = waitUntil([&]{ return service.waitingSetters() > waitingSetters; }, 5000);
+	// A wait for an event that must not come while the resolver runs.
+	const bool returnedDuringCall = setter.tryWait(200);
+	state.proceed.set();
+	const bool returnedAfterCall = setter.tryWait(5000);
+	const bool clientReturned = client.tryWait(5000);
+
+	assertTrue(resolverEntered);
+	assertTrue(setterWaiting);
+	assertFalse(returnedDuringCall);
+	assertTrue(returnedAfterCall);
+	assertTrue(clientReturned);
+	assertEqual(1, state.local.stop());
+}
+
+
+void WebEventServiceTest::testSubjectAuthorizerCallWaitsBehindWaitingSetter()
+	/// A call that starts while setSubjectAuthorizer() waits for a call in
+	/// progress waits for the setter and is not answered by the authorizer
+	/// being replaced, so that client traffic cannot keep the setter waiting.
+{
+	const std::string firstSubject("com.example.first");
+	const std::string secondSubject("com.example.second");
+
+	const auto pState = std::make_shared<BlockedCallState>(2);
+	BlockedCallState& state = *pState;
+	TestableWebEventServiceImpl& service = *state.local.pService;
+	service.setSubjectAuthorizer(
+		[&state](const std::string&, const std::string&, const std::string&, WebEventService::SubjectAction)
+		{
+			if (++state.calls == 1)
+			{
+				state.firstEntered.set();
+				state.proceed.tryWait(10000);
+			}
+			else
+			{
+				state.secondEntered.set();
+			}
+			return true;
+		});
+
+	Poco::Net::WebSocket ws1 = connectWebSocket(state.local.port);
+	sendSubscribe(ws1, firstSubject);
+	const bool authorizerEntered = state.firstEntered.tryWait(5000);
+	const int waitingSetters = service.waitingSetters();
+	DetachingThread setter([pState]
+		{
+			pState->local.pService->setSubjectAuthorizer(nullptr);
+		});
+	// Once the setter waits for the first call, a call that starts waits for the setter.
+	const bool setterWaiting = waitUntil([&]{ return service.waitingSetters() > waitingSetters; }, 5000);
+	Poco::Net::WebSocket ws2 = connectWebSocket(state.local.port);
+	sendSubscribe(ws2, secondSubject);
+	// A wait for an event that must not come: the second call waits for the setter.
+	const bool secondCallAskedOldAuthorizer = state.secondEntered.tryWait(1000);
+	const bool returnedDuringCall = setter.tryWait(0);
+	state.proceed.set();
+	const bool returnedAfterCall = setter.tryWait(5000);
+
+	assertTrue(authorizerEntered);
+	assertTrue(setterWaiting);
+	assertFalse(returnedDuringCall);
+	assertFalse(secondCallAskedOldAuthorizer);
+	assertTrue(returnedAfterCall);
+	assertTrue(waitUntil([&]{ return service.subscriberCount(secondSubject) == 1; }, 5000));
+	assertEqual(1, state.calls.load());
+
+	for (Poco::Net::WebSocket* pWS: {&ws1, &ws2})
+	{
+		try
+		{
+			pWS->shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+			pWS->close();
+		}
+		catch (...) {}
+	}
+	assertEqual(1, state.local.stop());
+}
+
+
+void WebEventServiceTest::testUserResolverCallWaitsBehindWaitingSetter()
+	/// A call that starts while setUserResolver() waits for a call in progress
+	/// waits for the setter and is not answered by the resolver being
+	/// replaced, so that new connections cannot keep the setter waiting.
+{
+	const auto pState = std::make_shared<BlockedCallState>(1);
+	BlockedCallState& state = *pState;
+	TestableWebEventServiceImpl& service = *state.local.pService;
+	service.setUserResolver([&state](const Poco::Net::HTTPServerRequest&)
+		{
+			if (++state.calls == 1)
+			{
+				state.firstEntered.set();
+				state.proceed.tryWait(10000);
+				return std::string("alice");
+			}
+			state.secondEntered.set();
+			return std::string("bob");
+		});
+
+	const auto connect = [pState](std::atomic<bool>* pConnected)
+		{
+			try
+			{
+				Poco::Net::WebSocket ws = connectWebSocket(pState->local.port);
+				if (pConnected != nullptr) *pConnected = true;
+				ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+				ws.close();
+			}
+			catch (...) {}
+		};
+	DetachingThread firstClient([connect]{ connect(nullptr); });
+	const bool resolverEntered = state.firstEntered.tryWait(5000);
+	const int waitingSetters = service.waitingSetters();
+	DetachingThread setter([pState]
+		{
+			pState->local.pService->setUserResolver(nullptr);
+		});
+	// Once the setter waits for the first call, a call that starts waits for the setter.
+	const bool setterWaiting = waitUntil([&]{ return service.waitingSetters() > waitingSetters; }, 5000);
+	DetachingThread secondClient([connect, pConnected = &state.secondConnected]{ connect(pConnected); });
+	// A wait for an event that must not come: the second call waits for the setter.
+	const bool secondCallAskedOldResolver = state.secondEntered.tryWait(1000);
+	const bool returnedDuringCall = setter.tryWait(0);
+	state.proceed.set();
+	const bool returnedAfterCall = setter.tryWait(5000);
+	const bool clientsReturned = firstClient.tryWait(5000) && secondClient.tryWait(5000);
+
+	assertTrue(resolverEntered);
+	assertTrue(setterWaiting);
+	assertFalse(returnedDuringCall);
+	assertFalse(secondCallAskedOldResolver);
+	assertTrue(returnedAfterCall);
+	assertTrue(clientsReturned);
+	assertTrue(state.secondConnected);
+	assertEqual(1, state.calls.load());
+	assertEqual(1, state.local.stop());
+}
+
+
 void WebEventServiceTest::testRefusedSubjectGetsNoInitialData()
 	/// A refused subject is not subscribed, so no initial data is requested
 	/// or sent for it.
@@ -4112,7 +4487,8 @@ void WebEventServiceTest::testRefusedSubjectGetsNoInitialData()
 	provider.data = "secret";
 	LocalService local(1, 0);
 	local.pService->initialDataRequested += delegate(&provider, &InitialDataProvider::onInitialDataRequested);
-	local.pService->setSubjectAuthorizer([&](const std::string&, const std::string& subject, WebEventService::SubjectAction)
+	local.pService->setSubjectAuthorizer(
+		[&](const std::string&, const std::string&, const std::string& subject, WebEventService::SubjectAction)
 		{
 			return subject != secretSubject;
 		});
@@ -4180,10 +4556,11 @@ void WebEventServiceTest::testConcurrentApiAccess()
 		{
 			if (i % 2 == 0)
 			{
-				_pService->setSubjectAuthorizer([](const std::string&, const std::string&, WebEventService::SubjectAction)
-				{
-					return true;
-				});
+				_pService->setSubjectAuthorizer(
+					[](const std::string&, const std::string&, const std::string&, WebEventService::SubjectAction)
+					{
+						return true;
+					});
 			}
 			else
 			{
@@ -4300,6 +4677,11 @@ CppUnit::Test* WebEventServiceTest::suite()
 	CppUnit_addTest(pSuite, WebEventServiceTest, testSubscriberUserIsLoggedEscaped);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testSubjectRefusalsAreThrottled);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testRemovedSubjectAuthorizerAsksNothing);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testRequiredSubjectAuthorizerRefusesSubjectsWithoutOne);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testSettingSubjectAuthorizerWaitsForCallInProgress);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testSettingUserResolverWaitsForCallInProgress);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testSubjectAuthorizerCallWaitsBehindWaitingSetter);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testUserResolverCallWaitsBehindWaitingSetter);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testRefusedSubjectGetsNoInitialData);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testConcurrentApiAccess);
 

@@ -93,6 +93,11 @@ public:
 	void testSubscriberUserIsLoggedEscaped();
 	void testSubjectRefusalsAreThrottled();
 	void testRemovedSubjectAuthorizerAsksNothing();
+	void testRequiredSubjectAuthorizerRefusesSubjectsWithoutOne();
+	void testSettingSubjectAuthorizerWaitsForCallInProgress();
+	void testSettingUserResolverWaitsForCallInProgress();
+	void testSubjectAuthorizerCallWaitsBehindWaitingSetter();
+	void testUserResolverCallWaitsBehindWaitingSetter();
 	void testRefusedSubjectGetsNoInitialData();
 	void testConcurrentApiAccess();
 

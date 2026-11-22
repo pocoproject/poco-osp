@@ -144,10 +144,21 @@ public:
 		NOTIFY     /// The client notifies the subject itself.
 	};
 
-	using SubjectAuthorizer = std::function<bool(const std::string& username, const std::string& subject, SubjectAction action)>;
-		/// Says whether the user of a WebSocket connection (see
-		/// setUserResolver(); empty for none) may subscribe to a subject, or
-		/// notify it.
+	using SubjectAuthorizer = std::function<bool(const std::string& username, const std::string& scope,
+		const std::string& subject, SubjectAction action)>;
+		/// Says whether a WebSocket connection may subscribe to a subject, or
+		/// notify it. The username is the user that the user resolver gave
+		/// the connection or, without a resolver, the user that the web
+		/// server authenticated for its upgrade request; empty if there is
+		/// neither. The scope is the scope of the bearer token that
+		/// authenticated the upgrade request; empty for other credentials, a
+		/// session login and an unauthenticated request (see
+		/// SubscriberInfo).
+		///
+		/// An authorizer that decides by the username alone gives a connection
+		/// with a scope every subject of its user. To prevent this, it refuses
+		/// such a connection, or checks a permission with
+		/// Poco::OSP::Auth::AuthService::authorize(username, scope, permission).
 
 	struct SubscriberInfo
 		/// Information about a connected WebSocket subscriber, captured
@@ -167,6 +178,12 @@ public:
 
 		std::string clientAddress;
 			/// The client's address (host:port) at connection time.
+
+		std::string scope;
+			/// The scope of the bearer token that authenticated the upgrade
+			/// request, with or without a user resolver; empty for other
+			/// credentials, a session login and an unauthenticated request.
+			/// A connection with a scope is not reached by notifyUser().
 	};
 	using SubscriberInfoVec = std::vector<SubscriberInfo>;
 
@@ -181,6 +198,12 @@ public:
 
 		bool hasData = false;
 			/// Set by a delegate, together with data, to have data sent.
+
+		std::string username;
+			/// The user of the subscribing connection, as in SubscriberInfo.
+
+		std::string scope;
+			/// The scope of the subscribing connection, as in SubscriberInfo.
 	};
 
 	Poco::BasicEvent<const Poco::Net::HTTPServerRequest*> requestReceived;
@@ -217,6 +240,15 @@ public:
 		///
 		/// If a delegate throws, the exception is logged, the delegates
 		/// registered after it are not called, and the subscription stands.
+		///
+		/// The delegates run on the event thread of the service and must not
+		/// block: a delegate that waits holds up every notification,
+		/// notifyUser() and the keepalive. They must not call
+		/// listSubscribers(). The data is queued like a notification and
+		/// counts against osp.web.event.maxPendingFrames. For data meant for
+		/// one user, as notifyUser() sends it, a delegate uses the username
+		/// of the request, and answers a request with a scope with nothing,
+		/// as notifyUser() does.
 
 	Poco::BasicEvent<const std::string> unsubscriptionRequestReceived;
 		/// Fired when an unsubscription request for a subject arrives.
@@ -276,7 +308,16 @@ public:
 		///
 		/// The user owning a WebSocket connection is determined at connection
 		/// time (see setUserResolver()); connections that belong to no user
-		/// are never notified by this method.
+		/// are never notified by this method. Neither are connections with a
+		/// scope (see SubscriberInfo): a bearer token limited by a scope does
+		/// not count as the user's login.
+		///
+		/// The subject authorizer is not asked, but a subject that it, or
+		/// osp.web.event.requireSubjectAuthorizer, refused to a connection is
+		/// not added to the subscription of that connection, so this method
+		/// does not reach the connection through that subject, unless the
+		/// connection subscribed to it before (subscriptions are not checked
+		/// again).
 		///
 		/// In contrast to notify(), server-side events (notificationSent,
 		/// subjectNotified) are not fired.
@@ -293,28 +334,42 @@ public:
 		/// server has authenticated for its upgrade request, with credentials
 		/// or the cookie of a logged-in web session, and to no user if the
 		/// request was not authenticated (an empty permission, or "**"
-		/// without credentials) or was authenticated with a bearer token
-		/// that carries a scope. A resolver can give such a connection a
+		/// without credentials). A resolver can give such a connection a
 		/// user; Poco::OSP::Auth::RequestIdentity::current() returns the
-		/// authenticated user and scope while the resolver runs.
+		/// authenticated user and scope while the resolver runs. The scope
+		/// of a bearer token stays with the connection whatever the resolver
+		/// returns, and a connection with a scope is not reached by
+		/// notifyUser() (see SubscriberInfo).
 		///
 		/// The resolver is invoked for every new WebSocket connection, before
 		/// the connection is upgraded, and replaces the authenticated user. It
 		/// should return an empty string for anonymous connections. Pass
 		/// nullptr to remove the resolver (e.g. when the installing bundle
 		/// stops).
+		///
+		/// This waits for the calls of the installed resolver in progress
+		/// before it returns, and destroys that resolver. The resolver must
+		/// therefore not call setUserResolver() itself, nor wait for anything
+		/// that the bundle which removes it holds while it stops: either
+		/// deadlocks.
 
 	virtual void setSubjectAuthorizer(SubjectAuthorizer authorizer) = 0;
 		/// Installs the authorizer that is asked whether a client may
 		/// subscribe to a subject or notify it. Without one, every client
-		/// that has a connection may do both for every subject.
+		/// that has a connection may do both for every subject, unless the
+		/// setting osp.web.event.requireSubjectAuthorizer is true: then every
+		/// subject that a client names is refused while no authorizer is
+		/// installed.
 		///
 		/// The authorizer is asked for each subject a client names in a
 		/// SUBSCRIBE message, and in a NOTIFY message while client
 		/// notifications are enabled. A subject it refuses, or for which it
 		/// throws, is left out of the subscription (or not notified), and the
 		/// rest of the message is processed. Subscriptions made before the
-		/// authorizer is installed are not checked again.
+		/// authorizer is installed are not checked again: a connection made
+		/// before the bundle that installs it has done so, or while that
+		/// bundle restarts, keeps what it subscribed to then, unless
+		/// osp.web.event.requireSubjectAuthorizer is true.
 		///
 		/// The authorizer runs on the worker threads that read the frames of
 		/// the clients, possibly on several at once: it must be thread-safe,
@@ -332,6 +387,12 @@ public:
 		///
 		/// What the server itself notifies (notify(), notifyUser()) is not
 		/// asked about. Pass nullptr to remove the authorizer.
+		///
+		/// This waits for the calls of the installed authorizer in progress
+		/// before it returns, and destroys that authorizer. The authorizer
+		/// must therefore not call setSubjectAuthorizer() itself, nor wait for
+		/// anything that the bundle which removes it holds while it stops:
+		/// either deadlocks.
 
 	[[nodiscard]] virtual int subscriberCount(const std::string& subject) = 0;
 		/// Returns the number of subscribers to the subject.
@@ -341,8 +402,8 @@ public:
 
 	virtual SubscriberInfoVec listSubscribers() = 0;
 		/// Returns a snapshot of all currently connected WebSocket
-		/// subscribers, with the username, page (document URL) and client
-		/// address captured at connection time.
+		/// subscribers, with the username, page (document URL), client
+		/// address and scope captured at connection time.
 		///
 		/// The snapshot is taken on the service's event thread; the call
 		/// blocks until it has been taken. If the service has been stopped,

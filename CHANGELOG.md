@@ -113,6 +113,7 @@ entries.
   request header fields by `Poco::Net::MessageHeader` (see `MessageHeader::setAutoDecode()` for the fields it decodes).
 - WebEvent: `WebEventService` declares further pure virtual functions; the constructors of `WebEventServiceImpl` and
   `WebEventRequestHandler` and the protected functions of `WebEventServiceImpl` are changed.
+  `WebEventServiceImpl::resolveUser()` returns a `ConnectionIdentity` (user and scope) instead of the user name.
 - WebEvent: a WebSocket upgrade whose `Origin` is neither the server's own nor listed in `osp.web.event.allowedOrigins`
   is answered with 403.
 - WebEvent: the WebSocket upgrade of `/webevent` requires HTTP Basic credentials or a bearer token, or the cookie of a
@@ -127,6 +128,8 @@ entries.
   `osp.web.event.permission` and `osp.web.event.session`. The bundle logs an error for each, and does not start if
   `permission` is set without `osp.web.event.permission`.
 - WebEvent: a `NOTIFY` message from a client is passed on only with `osp.web.event.clientNotify` (default false).
+- WebEvent: `WebEventService::SubjectAction` is an enum class with the enumerators `SUBSCRIBE` and `NOTIFY`, and
+  `WebEventService::SubjectAuthorizer` takes the scope of the connection after the user name.
 - WebEvent: a subscriber is removed when it subscribes to more than `osp.web.event.maxSubjects` subjects (default 64) or
   sends nothing, not even a PONG, for twice `osp.web.event.pingInterval` (default 60 s).
 - WebEvent: delivery to a subscriber that falls behind is lossy: beyond `osp.web.event.maxPendingFrames` queued frames,
@@ -189,12 +192,18 @@ entries.
   to a property whose name starts with `osp.` is resolved in the application configuration, then in the bundle properties;
   other references are resolved in the bundle properties only.
 - WebEvent: the event `WebEventService::initialDataRequested` lets an application answer a new subscription with the
-  current value of the subject, sent to the subscribing socket only.
-- WebEvent: `WebEventService::setSubjectAuthorizer()` installs a function that decides, with the user of the
-  connection, which subjects a client may subscribe to and notify; a refused subject is left out of the message.
+  current value of the subject, sent to the subscribing socket only; the request names the user and the scope of the
+  subscribing connection.
+- WebEvent: `WebEventService::setSubjectAuthorizer()` installs a function that decides, with the user and the scope of
+  the connection, which subjects a client may subscribe to and notify; a refused subject is left out of the message.
+  `osp.web.event.requireSubjectAuthorizer` (default false) refuses every subject a client names while no authorizer is
+  installed. An authorizer that decides by the user name alone gives a connection with a scope every subject of its
+  user. `setSubjectAuthorizer()` and `setUserResolver()` wait for the calls in progress of the function they replace
+  before they return.
 - WebEvent: without a user resolver, a connection belongs to the user that the web server has authenticated for its
   upgrade request, so `notifyUser()` and the subject authorizer work without one; a resolver replaces that user. A
-  connection authenticated with a bearer token that carries a scope belongs to no user unless a resolver gives it one.
+  connection authenticated with a bearer token records the token's scope (`SubscriberInfo::scope`); `notifyUser()` does
+  not reach a connection with a scope.
 
 ### New components
 

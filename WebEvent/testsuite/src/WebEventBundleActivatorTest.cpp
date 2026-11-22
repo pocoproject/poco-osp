@@ -110,6 +110,7 @@ void WebEventBundleActivatorTest::testConfigIsReadFromProperties()
 	pSettings->setInt("osp.web.event.pingInterval"s, 11);
 	pSettings->setBool("osp.web.event.clientNotify"s, true);
 	pSettings->setInt("osp.web.event.maxSubjects"s, 13);
+	pSettings->setBool("osp.web.event.requireSubjectAuthorizer"s, true);
 
 	const WebEventServiceImpl::Config config = WebEventServiceImpl::Config::fromConfiguration(*pSettings);
 
@@ -119,6 +120,7 @@ void WebEventBundleActivatorTest::testConfigIsReadFromProperties()
 	assertTrue (config.pingInterval == std::chrono::seconds(11));
 	assertTrue (config.clientNotify);
 	assertEqual (13, config.maxSubjects);
+	assertTrue (config.requireSubjectAuthorizer);
 }
 
 
@@ -135,6 +137,7 @@ void WebEventBundleActivatorTest::testConfigKeepsDefaultsWithoutProperties()
 	assertTrue (config.pingInterval == defaults.pingInterval);
 	assertTrue (config.clientNotify == defaults.clientNotify);
 	assertEqual (defaults.maxSubjects, config.maxSubjects);
+	assertFalse (config.requireSubjectAuthorizer);
 }
 
 

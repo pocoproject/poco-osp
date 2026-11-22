@@ -17,7 +17,11 @@ add_test(
 	WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 	COMMAND OSPWebEvent-testrunner -ignore ${POCO_OSP_CPPIGNORE_FILE} -all
 )
-set_tests_properties(OSPWebEvent PROPERTIES ENVIRONMENT POCO_BASE=${PROJECT_SOURCE_DIR})
+# A test that blocks fails the run instead of waiting for the default timeout of ctest.
+set_tests_properties(OSPWebEvent PROPERTIES
+	ENVIRONMENT POCO_BASE=${PROJECT_SOURCE_DIR}
+	TIMEOUT 600
+)
 
 target_link_libraries(OSPWebEvent-testrunner
 	PRIVATE

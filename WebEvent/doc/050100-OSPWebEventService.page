@@ -148,13 +148,19 @@ the request's cookies:
 
 Connections for which the resolver returned an empty string belong to no user
 and are never notified by notifyUser(). Without a resolver, a connection also
-belongs to no user if the web server did not authenticate its upgrade request,
-or authenticated it with a bearer token that carries a scope: the subject
-authorizer and notifyUser() know only the user name, which would give the
-connection everything the user may do. A resolver can give such a connection a
-user; while it runs, Poco::OSP::Auth::RequestIdentity::current() returns the
-authenticated user and scope. Pass nullptr to setUserResolver() to remove the
-resolver, for example when the bundle that installed it stops.
+belongs to no user if the web server did not authenticate its upgrade request. A
+resolver can give such a connection a user; while it runs,
+Poco::OSP::Auth::RequestIdentity::current() returns the authenticated user and
+scope. Pass nullptr to setUserResolver() to remove the resolver, for example
+when the bundle that installed it stops. setUserResolver() waits for the calls
+of the resolver in progress, so the resolver must not call setUserResolver()
+itself, nor wait for anything that the stopping bundle holds: either deadlocks.
+
+A connection authenticated with a bearer token that carries a scope records
+that scope as well, with or without a resolver; for other credentials and a
+session login the scope is empty. notifyUser() does not reach a connection with
+a scope: a token limited by a scope does not count as the user's login. The
+subject authorizer receives the scope (see Subject Authorizer below).
 
 To answer a new subscription with the current value of a subject, register a
 delegate for the initialDataRequested event. It is fired for each subject a
@@ -171,8 +177,19 @@ that subject to the subscribing connection only:
     }
 ----
 
-Poco::OSP::WebEvent::WebEventService::listSubscribers() returns the user, page
-and client address of every connection. The page is the value of the "page"
+The request also names the user and the scope of the subscribing connection
+(username and scope, as listSubscribers() reports them). A delegate that answers
+with the data of one user, as notifyUser() sends it, uses the username, and
+answers a connection with a scope with nothing, as notifyUser() does. The
+delegates run on the event thread of the service and must not block, for example
+on a database or a remote service: a delegate that waits holds up every
+notification, notifyUser() and the keepalive. They must not call
+listSubscribers(). The data is queued like every notification and counts against
+osp.web.event.maxPendingFrames, so a limit below osp.web.event.maxSubjects can
+drop the initial data of a SUBSCRIBE that names many subjects.
+
+Poco::OSP::WebEvent::WebEventService::listSubscribers() returns the user, scope,
+page and client address of every connection. The page is the value of the "page"
 query parameter of the upgrade request (for example
 "/webevent?page=/app/index.html"), or its Referer header if there is no such
 parameter; browsers send no Referer with WebSocket upgrade requests.
@@ -380,18 +397,27 @@ their clients themselves in such a delegate.
 The permission decides who may connect. Which subjects a connection may subscribe
 to, and notify, is decided by the subject authorizer, a function installed with
 Poco::OSP::WebEvent::WebEventService::setSubjectAuthorizer(). It is asked with the
-user of the connection (the authenticated user, or the one the resolver installed
-with setUserResolver() gave; empty for none), the subject, and the action:
+user of the connection (the one the resolver installed with setUserResolver()
+gave or, without a resolver, the authenticated user; empty for none), the scope
+of the bearer token that authenticated the connection (empty for other
+credentials and a session login), the subject, and the action:
 
     pWebEventService->setSubjectAuthorizer(
-        [](const std::string& username, const std::string& subject,
+        [](const std::string& username, const std::string& scope,
+            const std::string& subject,
             Poco::OSP::WebEvent::WebEventService::SubjectAction action)
         {
+            if (!scope.empty()) return false; // no subjects for scoped tokens
             if (subject == "sample" || subject.starts_with("sample.private"))
                 return username == "admin";
             return action == Poco::OSP::WebEvent::WebEventService::SubjectAction::SUBSCRIBE;
         });
 ----
+
+An authorizer that decides by the user name alone gives a connection with a
+scope every subject of its user. The example refuses such connections; an
+authorizer can instead check a permission with
+Poco::OSP::Auth::AuthService::authorize(user, scope, permission).
 
 The authorizer is asked for each subject of a SUBSCRIBE message, and of a NOTIFY
 message while osp.web.event.clientNotify is true. A subject it refuses is left out
@@ -401,14 +427,23 @@ level otherwise, so that a client cannot fill the log. A subject for which the
 authorizer throws is refused as well, and logged at warning level, with the same
 limit. No initial data is requested for a refused subject. Subscriptions made
 before the authorizer is installed are not checked again. What the server
-notifies with notify() or notifyUser() is not asked about. Without an authorizer,
-every connection may subscribe to and notify every subject; pass nullptr to remove
-it, for example when the bundle that installed it stops.
+notifies with notify() or notifyUser() is not asked about, but it reaches only the
+connections subscribed to the subject or an ancestor of it. A subject refused to a
+connection is not added to its subscription, so the connection receives nothing
+from either through that subject; a subscription made earlier is kept. Without an
+authorizer, every connection may subscribe to and notify every subject, unless
+osp.web.event.requireSubjectAuthorizer is true: then every subject that a client
+names is refused as if the authorizer had refused it, and logged in the same way.
+Pass nullptr to setSubjectAuthorizer() to remove the authorizer, for example when
+the bundle that installed it stops.
 
 The authorizer runs on the worker threads that read the frames of the clients,
 possibly on several at once. It must be thread-safe, and it must not block, for
 example on a database or a remote service: a worker that waits holds up the frames
 of other clients. An authorizer that needs such data looks it up in advance.
+setSubjectAuthorizer() waits for the calls of the authorizer in progress, so the
+authorizer must not call setSubjectAuthorizer() itself, nor wait for anything
+that the stopping bundle holds: either deadlocks.
 
 Subjects have ancestors: a subscription to "sample" receives what is notified for
 "sample.private.data" as well. The two actions treat them differently:
@@ -451,16 +486,33 @@ checks above. The delegate can inspect the request and reject the connection by
 setting the status of the response to anything other than 200 (OK).
 
 Without a subject authorizer (see above), a connection that has been admitted may
-subscribe to every subject. Credentials are checked once, on the upgrade
-request: a connection stays open after the session it was opened with has
-ended, or after the user has lost the permission.
+subscribe to every subject. The bundle that installs the authorizer usually starts
+after the WebEventService, and removes the authorizer while it stops: a connection
+made before it has installed the authorizer, or while it restarts, is not checked,
+and the subscriptions it makes then are kept. Setting
+osp.web.event.requireSubjectAuthorizer to true closes this window: every subject a
+client names is refused while no authorizer is installed. A page that connects in
+the window then receives nothing for the refused subjects until it subscribes to
+them again; this holds for notifyUser() as for notify(), since both reach only the
+connections subscribed to the subject. Data meant for one user is sent with
+notifyUser(), which, with or without an authorizer, reaches only the connections
+of that user that have no scope.
+
+Credentials are checked once, on the upgrade request: a connection stays open
+after the session it was opened with has ended, or after the user has lost the
+permission.
 
 A connection belongs to the user that the web server has authenticated for
-its upgrade request, to no user if a bearer token with a scope authenticated
-it, or, if a resolver is installed with setUserResolver(), to the user the
-resolver gives, and notifyUser() delivers only to the connections of that
-user. The resolver runs for every connection that requestReceived has
-accepted; it identifies the user but rejects nothing.
+its upgrade request or, if a resolver is installed with setUserResolver(), to
+the user the resolver gives, and notifyUser() delivers only to the connections
+of that user that have no scope. The resolver runs for every connection that
+requestReceived has accepted; it identifies the user but rejects nothing.
+
+The default permission "*" admits a bearer token of any scope. A permission
+name is checked with the scope of the token
+(Poco::OSP::Auth::AuthService::authorize(user, scope, permission)), so a
+deployment that issues tokens with a narrow scope names a permission. The
+subject authorizer receives the scope as well.
 
 The page reported by listSubscribers() is taken from the request's "page"
 query parameter or its Referer header. It is supplied by the client, is not
@@ -589,10 +641,13 @@ established; a request without valid credentials is answered with 401
 Unauthorized, one of a user without the permission with 403 Forbidden, and,
 while no auth service (osp.web.authServiceName) is registered, every request
 with 503 Service Unavailable, except as described for "**" below. "*" admits
-every authenticated user of an existing account and nobody else. A permission name, or a comma-separated
-list of names (any one of which suffices), admits only the users granted it.
-There is no permission per subject: a connection that is admitted may subscribe
-to every subject that the subject authorizer, if one is installed, allows.
+every authenticated user of an existing account and nobody else. A permission
+name, or a comma-separated list of names (any one of which suffices), admits
+only the users granted it. "*" admits a bearer token of any scope; a permission
+name is checked with the scope of the token
+(Poco::OSP::Auth::AuthService::authorize(user, scope, permission)). There is no
+permission per subject: a connection that is admitted may subscribe to every
+subject that the subject authorizer, if one is installed, allows.
 Defaults to "*".
 
 An empty value turns the authentication of the upgrade request off: the web
@@ -635,6 +690,17 @@ allowed before the service sees it, and logs the refusal at debug level only.
 Set to true to pass NOTIFY messages sent by clients on to the other
 subscribers and to the server's delegates. Defaults to false, which drops such
 messages.
+
+
+!! osp.web.event.requireSubjectAuthorizer
+
+Set to true to refuse every subject that a client names in a SUBSCRIBE or NOTIFY
+message while no subject authorizer is installed. This closes the window in
+which connections made before the bundle that installs the authorizer has done
+so, or while it restarts, subscribe to subjects without a check (see Security
+Considerations). A page that connects in that window receives nothing for the
+refused subjects until it subscribes to them again. Defaults to false: without
+an authorizer, a client may subscribe to and notify every subject.
 
 
 !! osp.web.event.pingInterval

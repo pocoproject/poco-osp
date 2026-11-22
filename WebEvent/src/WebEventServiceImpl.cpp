@@ -16,10 +16,12 @@
 #include "Poco/OSP/Auth/RequestIdentity.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/Net/HTTPResponse.h"
+#include "Poco/Net/HTTPServerRequest.h"
 #include "Poco/Net/HTTPServerResponse.h"
 #include "Poco/Net/NetException.h"
 #include "Poco/Net/PollSet.h"
 #include "Poco/Net/SocketDefs.h"
+#include "Poco/Net/WebSocket.h"
 #include "Poco/Util/AbstractConfiguration.h"
 #include "Poco/Buffer.h"
 #include "Poco/Bugcheck.h"
@@ -31,6 +33,8 @@
 #include "Poco/Logger.h"
 #include "Poco/Message.h"
 #include "Poco/Notification.h"
+#include "Poco/RWLock.h"
+#include "Poco/SharedPtr.h"
 #include "Poco/Thread.h"
 #include "Poco/Timespan.h"
 #include "Poco/UTF8String.h"
@@ -125,10 +129,13 @@ namespace
 class AddSubscriberNotification: public TaskNotification
 {
 public:
-	AddSubscriberNotification(WebEventServiceImpl& service, Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::string& username, const std::string& page, const std::string& clientAddress):
+	AddSubscriberNotification(WebEventServiceImpl& service, Poco::SharedPtr<Poco::Net::WebSocket> pWS,
+		const std::string& username, const std::string& scope, const std::string& page,
+		const std::string& clientAddress):
 		TaskNotification(service),
 		_pWS(pWS),
 		_username(username),
+		_scope(scope),
 		_page(page),
 		_clientAddress(clientAddress)
 	{
@@ -155,12 +162,13 @@ public:
 	void execute() override
 	{
 		_executed = true;
-		_service.addSubscriberImpl(_pWS, _username, _page, _clientAddress);
+		_service.addSubscriberImpl(_pWS, _username, _scope, _page, _clientAddress);
 	}
 
 private:
 	Poco::SharedPtr<Poco::Net::WebSocket> _pWS;
 	std::string _username;
+	std::string _scope;
 	std::string _page;
 	std::string _clientAddress;
 	bool _executed = false;
@@ -415,6 +423,8 @@ WebEventServiceImpl::Config WebEventServiceImpl::Config::fromConfiguration(
 		static_cast<int>(config.pingInterval.count())));
 	config.clientNotify = configuration.getBool("osp.web.event.clientNotify", config.clientNotify);
 	config.maxSubjects = configuration.getInt("osp.web.event.maxSubjects", config.maxSubjects);
+	config.requireSubjectAuthorizer = configuration.getBool("osp.web.event.requireSubjectAuthorizer",
+		config.requireSubjectAuthorizer);
 	return config;
 }
 
@@ -487,6 +497,7 @@ WebEventServiceImpl::WebEventServiceImpl(Poco::OSP::BundleContext::Ptr pContext,
 	_pollTimeout(config.pollTimeout),
 	_clientNotify(config.clientNotify),
 	_maxSubjects(config.maxSubjects),
+	_requireSubjectAuthorizer(config.requireSubjectAuthorizer),
 	_socketCount(0),
 	_pPollSet(std::make_unique<Poco::Net::PollSet>()),
 	_wakeUpPending(false),
@@ -602,7 +613,9 @@ void WebEventServiceImpl::notifyUser(const std::string& username, const std::str
 
 void WebEventServiceImpl::setUserResolver(UserResolver resolver)
 {
-	Poco::FastMutex::ScopedLock lock(_userResolverMutex);
+	Poco::FastMutex::ScopedLock turnstile(_userResolverTurnstile);
+	setterWaiting();
+	Poco::RWLock::ScopedWriteLock lock(_userResolverLock);
 
 	_userResolver = std::move(resolver);
 }
@@ -610,7 +623,9 @@ void WebEventServiceImpl::setUserResolver(UserResolver resolver)
 
 void WebEventServiceImpl::setSubjectAuthorizer(SubjectAuthorizer authorizer)
 {
-	Poco::FastMutex::ScopedLock lock(_subjectAuthorizerMutex);
+	Poco::FastMutex::ScopedLock turnstile(_subjectAuthorizerTurnstile);
+	setterWaiting();
+	Poco::RWLock::ScopedWriteLock lock(_subjectAuthorizerLock);
 
 	_subjectAuthorizer = std::move(authorizer);
 }
@@ -618,21 +633,18 @@ void WebEventServiceImpl::setSubjectAuthorizer(SubjectAuthorizer authorizer)
 
 bool WebEventServiceImpl::authorizedSubject(const Subscriber& subscriber, const std::string& subject, SubjectAction action)
 {
-	SubjectAuthorizer authorizer;
-	{
-		Poco::FastMutex::ScopedLock lock(_subjectAuthorizerMutex);
-		authorizer = _subjectAuthorizer;
-	}
-	if (authorizer == nullptr) return true;
-
 	std::optional<std::string> refusedSubject;
 	std::optional<std::string> failure;
+	bool withoutAuthorizer = false;
 	const auto ask = [&](const std::string& askedSubject)
 	{
 		if (refusedSubject.has_value()) return;
 		try
 		{
-			if (!authorizer(subscriber.username, askedSubject, action)) refusedSubject = askedSubject;
+			if (!_subjectAuthorizer(subscriber.username, subscriber.scope, askedSubject, action))
+			{
+				refusedSubject = askedSubject;
+			}
 		}
 		catch (...)
 		{
@@ -640,15 +652,28 @@ bool WebEventServiceImpl::authorizedSubject(const Subscriber& subscriber, const 
 			failure = currentExceptionText();
 		}
 	};
-	if (action == SubjectAction::NOTIFY)
 	{
-		// A notification reaches the subscribers of every ancestor as well, so
-		// a client must not reach a protected subject through a descendant.
-		forSubjectAndAncestors(subject, ask);
-	}
-	else
-	{
-		ask(subject);
+		// The authorizer is called, not a copy of it: the bundle that removes
+		// it may unload its code once setSubjectAuthorizer() has returned.
+		Poco::FastMutex::ScopedLockWithUnlock turnstile(_subjectAuthorizerTurnstile);
+		Poco::RWLock::ScopedReadLock lock(_subjectAuthorizerLock);
+		turnstile.unlock();
+		if (_subjectAuthorizer == nullptr)
+		{
+			if (!_requireSubjectAuthorizer) return true;
+			refusedSubject = subject;
+			withoutAuthorizer = true;
+		}
+		else if (action == SubjectAction::NOTIFY)
+		{
+			// A notification reaches the subscribers of every ancestor as well, so
+			// a client must not reach a protected subject through a descendant.
+			forSubjectAndAncestors(subject, ask);
+		}
+		else
+		{
+			ask(subject);
+		}
 	}
 	if (!refusedSubject.has_value()) return true;
 
@@ -659,7 +684,13 @@ bool WebEventServiceImpl::authorizedSubject(const Subscriber& subscriber, const 
 	const std::string consequence = action == SubjectAction::SUBSCRIBE
 		? std::string("the subject is left out of the subscription")
 		: Poco::format("the notification of %s is dropped", asked);
-	if (failure.has_value())
+	if (withoutAuthorizer)
+	{
+		logRejection(action == SubjectAction::SUBSCRIBE ? Rejection::SUBSCRIBE : Rejection::NOTIFY,
+			Poco::format("No subject authorizer is installed, and osp.web.event.requireSubjectAuthorizer is true: "
+				"WebSocket subscriber %s is refused subject %s; %s.", describe(subscriber), asked, consequence));
+	}
+	else if (failure.has_value())
 	{
 		logRejection(Rejection::AUTHORIZER, Poco::format("The subject authorizer failed for subject %s of WebSocket subscriber %s, so %s: %s",
 			refused, describe(subscriber), consequence, Poco::UTF8::escape(*failure)), Poco::Message::PRIO_WARNING);
@@ -683,18 +714,22 @@ bool WebEventServiceImpl::authorizedSubject(const Subscriber& subscriber, const 
 }
 
 
-std::string WebEventServiceImpl::resolveUser(const Poco::Net::HTTPServerRequest& request) const
+WebEventServiceImpl::ConnectionIdentity WebEventServiceImpl::resolveUser(
+	const Poco::Net::HTTPServerRequest& request) const
 {
-	UserResolver resolver;
-	{
-		Poco::FastMutex::ScopedLock lock(_userResolverMutex);
-		resolver = _userResolver;
-	}
-	if (resolver)
+	const Poco::OSP::Auth::RequestIdentity* pIdentity = Poco::OSP::Auth::RequestIdentity::current();
+	ConnectionIdentity identity;
+	if (pIdentity != nullptr) identity.scope = pIdentity->scope();
+	// The resolver is called, not a copy of it: the bundle that removes it
+	// may unload its code once setUserResolver() has returned.
+	Poco::FastMutex::ScopedLockWithUnlock turnstile(_userResolverTurnstile);
+	Poco::RWLock::ScopedReadLock lock(_userResolverLock);
+	turnstile.unlock();
+	if (_userResolver != nullptr)
 	{
 		try
 		{
-			return resolver(request);
+			identity.username = _userResolver(request);
 		}
 		catch (Poco::Exception& exc)
 		{
@@ -706,12 +741,10 @@ std::string WebEventServiceImpl::resolveUser(const Poco::Net::HTTPServerRequest&
 			logger().error(Poco::format("User resolver failed for the connection from %s; the connection belongs to no user: %s",
 				request.clientAddress().toString(), std::string(exc.what())));
 		}
-		return std::string();
+		return identity;
 	}
-	// The subject authorizer and notifyUser() know the user name only, so a
-	// login limited by a scope would count there as the full user.
-	const Poco::OSP::Auth::RequestIdentity* pIdentity = Poco::OSP::Auth::RequestIdentity::current();
-	return pIdentity != nullptr && pIdentity->scope().empty() ? pIdentity->user() : std::string();
+	if (pIdentity != nullptr) identity.username = pIdentity->user();
+	return identity;
 }
 
 
@@ -875,9 +908,10 @@ void WebEventServiceImpl::runWorker()
 }
 
 
-void WebEventServiceImpl::addSubscriber(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::string& username, const std::string& page, const std::string& clientAddress)
+void WebEventServiceImpl::addSubscriber(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::string& username,
+	const std::string& scope, const std::string& page, const std::string& clientAddress)
 {
-	enqueueMain(new AddSubscriberNotification(*this, std::move(pWS), username, page, clientAddress));
+	enqueueMain(new AddSubscriberNotification(*this, std::move(pWS), username, scope, page, clientAddress));
 	if (_stopped)
 	{
 		// stop() may have cleared the queue before the enqueue above. Once it
@@ -1139,7 +1173,8 @@ std::vector<WebEventServiceImpl::Subscriber::Ptr> WebEventServiceImpl::collectSu
 		auto subscribers = _subjectMap.equal_range(subject);
 		for (auto it = subscribers.first; it != subscribers.second; ++it)
 		{
-			if (!username.empty() && it->second->username != username) continue;
+			// A login limited by a scope does not count as the user's.
+			if (!username.empty() && (it->second->username != username || !it->second->scope.empty())) continue;
 			if (seen.insert(it->second.get()).second)
 			{
 				targets.push_back(it->second);
@@ -1163,11 +1198,13 @@ std::shared_ptr<const std::string> WebEventServiceImpl::makeNotifyFrame(const st
 }
 
 
-void WebEventServiceImpl::addSubscriberImpl(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::string& username, const std::string& page, const std::string& clientAddress)
+void WebEventServiceImpl::addSubscriberImpl(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::string& username,
+	const std::string& scope, const std::string& page, const std::string& clientAddress)
 {
 	Subscriber::Ptr pSubscriber = new Subscriber;
 	pSubscriber->pWebSocket = pWS;
 	pSubscriber->username = username;
+	pSubscriber->scope = scope;
 	pSubscriber->page = page;
 	pSubscriber->clientAddress = clientAddress;
 	_socketMap[*pWS] = pSubscriber;
@@ -1187,6 +1224,7 @@ void WebEventServiceImpl::listSubscribersImpl(SubscriberInfoVec& subscribers)
 	{
 		SubscriberInfo info;
 		info.username = it->second->username;
+		info.scope = it->second->scope;
 		info.page = it->second->page;
 		info.clientAddress = it->second->clientAddress;
 		subscribers.push_back(info);
@@ -1251,6 +1289,8 @@ void WebEventServiceImpl::subscribeImpl(Poco::SharedPtr<Poco::Net::WebSocket> pW
 
 				InitialDataRequest request;
 				request.subject = *itSub;
+				request.username = it->second->username;
+				request.scope = it->second->scope;
 				fireEvent(initialDataRequested, this, request, logger(), "initialDataRequested(" + *itSub + ")",
 					"the subscription has been made");
 				if (request.hasData)
@@ -1954,6 +1994,11 @@ Poco::NotificationQueue& WebEventServiceImpl::mainQueue()
 Poco::NotificationQueue& WebEventServiceImpl::workerQueue()
 {
 	return _workerQueue;
+}
+
+
+void WebEventServiceImpl::setterWaiting()
+{
 }
 
 

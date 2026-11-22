@@ -33,6 +33,7 @@
 #include "Poco/AutoPtr.h"
 #include "Poco/SharedPtr.h"
 #include "Poco/Mutex.h"
+#include "Poco/RWLock.h"
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -131,6 +132,12 @@ public:
 			/// to; a SUBSCRIBE beyond it closes the connection. 0 means
 			/// unlimited.
 
+		bool requireSubjectAuthorizer = false;
+			/// If true, every subject of a client's SUBSCRIBE and NOTIFY is
+			/// refused while no subject authorizer is installed, as a refusal
+			/// of the authorizer; otherwise a client may then subscribe to
+			/// and notify every subject.
+
 		std::chrono::milliseconds pollTimeout{1000};
 			/// The longest time the main thread waits for its sockets when
 			/// nothing arrives, before it looks again at the keepalive sweep
@@ -140,7 +147,8 @@ public:
 		[[nodiscard]] static Config fromConfiguration(const Poco::Util::AbstractConfiguration& configuration);
 			/// Returns the Config given by the osp.web.event properties workers,
 			/// maxWebSockets, maxPendingFrames, pingInterval (in seconds),
-			/// clientNotify and maxSubjects; a property not given keeps its default.
+			/// clientNotify, maxSubjects and requireSubjectAuthorizer; a property
+			/// not given keeps its default.
 	};
 
 	explicit WebEventServiceImpl(Poco::OSP::BundleContext::Ptr pContext = nullptr);
@@ -172,14 +180,29 @@ public:
 	[[nodiscard]] int subscriberCount(const std::string& subject) override;
 	SubscriberInfoVec listSubscribers() override;
 
-	[[nodiscard]] std::string resolveUser(const Poco::Net::HTTPServerRequest& request) const;
-		/// Invokes the installed user resolver for the given WebSocket
-		/// upgrade request; returns an empty string if the resolver throws a
+	struct ConnectionIdentity
+		/// The user and the scope that a WebSocket connection records.
+	{
+		std::string username;
+			/// The user of the connection, as in SubscriberInfo; empty for a
+			/// connection that belongs to no user.
+
+		std::string scope;
+			/// The scope of the bearer token that authenticated the upgrade
+			/// request, as in SubscriberInfo; empty for other credentials, a
+			/// session login and an unauthenticated request.
+	};
+
+	[[nodiscard]] ConnectionIdentity resolveUser(const Poco::Net::HTTPServerRequest& request) const;
+		/// Returns the user and the scope of the connection of the given
+		/// WebSocket upgrade request. The user is the answer of the installed
+		/// user resolver, or an empty string if the resolver throws a
 		/// Poco::Exception or a std::exception. Any other exception is
-		/// passed on. Without a resolver, returns the user that the web
+		/// passed on. Without a resolver, the user is the one that the web
 		/// server has authenticated for the request
 		/// (Poco::OSP::Auth::RequestIdentity), or an empty string if it has
-		/// authenticated none or the identity has a scope.
+		/// authenticated none. The scope is that of the request identity,
+		/// with or without a resolver.
 
 	// Service
 	[[nodiscard]] const std::type_info& type() const override;
@@ -211,6 +234,7 @@ protected:
 		Poco::SharedPtr<Poco::Net::WebSocket> pWebSocket;
 		std::set<std::string> subjectNames;
 		std::string username;
+		std::string scope;
 		std::string page;
 		std::string clientAddress;
 		Poco::Clock lastActive;
@@ -281,6 +305,17 @@ protected:
 	[[nodiscard]] Poco::NotificationQueue& workerQueue();
 		/// Returns the queue the worker threads take their tasks from.
 
+	virtual void setterWaiting();
+		/// Called by setUserResolver() and setSubjectAuthorizer() while they
+		/// hold the lock that makes new calls of the function they replace
+		/// wait, before they wait for the calls in progress. Does nothing.
+		///
+		/// It is a hook for test doubles, which override it to learn that a
+		/// setter has reached this point; other overrides are not supported.
+		/// An override must not block, because new calls of the function wait
+		/// until the setter returns, and must not call into the service, which
+		/// can deadlock.
+
 private:
 	using SubjectMap = std::multimap<std::string, Subscriber::Ptr>;
 
@@ -313,14 +348,16 @@ private:
 
 	void runMain();
 	void runWorker();
-	void addSubscriber(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::string& username = std::string(), const std::string& page = std::string(), const std::string& clientAddress = std::string());
+	void addSubscriber(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::string& username,
+		const std::string& scope, const std::string& page, const std::string& clientAddress);
 	void removeSubscriber(Poco::SharedPtr<Poco::Net::WebSocket> pWS, bool clientShutdown);
 	[[nodiscard]] bool authorizedSubject(const Subscriber& subscriber, const std::string& subject, SubjectAction action);
 		/// Returns whether the subject authorizer lets the user of the
 		/// subscriber do that with the subject, and for NOTIFY with each of
-		/// its ancestors as well: true without an authorizer, false if it
-		/// throws. A refusal is logged with logRejection(), at warning level
-		/// if the authorizer throws.
+		/// its ancestors as well; false if the authorizer throws. Without an
+		/// authorizer, returns false if osp.web.event.requireSubjectAuthorizer
+		/// is true, true otherwise. A refusal is logged with logRejection(), at
+		/// warning level if the authorizer throws.
 	void subscribe(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::set<std::string>& subjectNames);
 	void unsubscribe(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::set<std::string>& subjectNames);
 	void enqueueSend(Subscriber::Ptr pSubscriber, const std::string& subject, std::shared_ptr<const std::string> pFrame, int flags = Poco::Net::WebSocket::FRAME_TEXT);
@@ -334,9 +371,11 @@ private:
 	[[nodiscard]] std::vector<Subscriber::Ptr> collectSubscribers(const std::string& subjectName,
 		const std::string& username = std::string());
 		/// Returns, once each, the subscribers of subjectName and of every
-		/// ancestor subject, restricted to username when it is not empty.
-		/// Must run on the main thread.
-	void addSubscriberImpl(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::string& username, const std::string& page, const std::string& clientAddress);
+		/// ancestor subject, restricted, when username is not empty, to the
+		/// connections of that user without a scope. Must run on the main
+		/// thread.
+	void addSubscriberImpl(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::string& username,
+		const std::string& scope, const std::string& page, const std::string& clientAddress);
 	void listSubscribersImpl(SubscriberInfoVec& subscribers);
 	void removeSubscriberImpl(Poco::SharedPtr<Poco::Net::WebSocket> pWS, bool clientShutdown);
 	void subscribeImpl(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::set<std::string>& subjectNames);
@@ -447,6 +486,7 @@ private:
 	Poco::Timespan _pollTimeout;
 	bool _clientNotify;
 	int _maxSubjects;
+	bool _requireSubjectAuthorizer;
 	Poco::Clock _lastPingSweep;
 	Poco::Clock _lastStallCheck;
 	std::atomic<int> _socketCount;
@@ -479,9 +519,21 @@ private:
 		/// Clock(0) before the first one.
 	Poco::FastMutex _rejectionLogMutex;
 	UserResolver _userResolver;
-	mutable Poco::FastMutex _userResolverMutex;
+	mutable Poco::RWLock _userResolverLock;
+		/// Read-locked while the resolver runs, so that setUserResolver()
+		/// waits for the calls in progress.
+	mutable Poco::FastMutex _userResolverTurnstile;
+		/// Held by setUserResolver() while it takes the write lock, and by a
+		/// call while it takes the read lock, so that the calls which start
+		/// while the setter waits wait behind it. A reader-preferring RWLock
+		/// (glibc) would otherwise let them keep the setter waiting.
 	SubjectAuthorizer _subjectAuthorizer;
-	Poco::FastMutex _subjectAuthorizerMutex;
+	Poco::RWLock _subjectAuthorizerLock;
+		/// Read-locked while the authorizer runs, so that
+		/// setSubjectAuthorizer() waits for the calls in progress.
+	Poco::FastMutex _subjectAuthorizerTurnstile;
+		/// Held by setSubjectAuthorizer() while it takes the write lock, and by
+		/// a call while it takes the read lock, as _userResolverTurnstile.
 	std::atomic<bool> _stopped;
 	Poco::FastMutex _stopMutex;
 	Poco::Logger& _logger;

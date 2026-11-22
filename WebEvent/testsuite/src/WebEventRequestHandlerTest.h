@@ -43,8 +43,9 @@ public:
 	void testOptionalCredentialsPermissionAdmitsRequestWithoutCredentials();
 	void testConnectionBelongsToAuthenticatedUser();
 	void testUserResolverReplacesAuthenticatedUser();
-	void testConnectionWithScopedTokenBelongsToNoUser();
-	void testUserResolverGivesScopedConnectionUser();
+	void testScopedTokenConnectionIsNotReachedByNotifyUser();
+	void testResolvedUserOfScopedConnectionKeepsScope();
+	void testInitialDataRequestNamesUserAndScope();
 
 	void setUp() override;
 	void tearDown() override;
