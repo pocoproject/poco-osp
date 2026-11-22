@@ -49,6 +49,10 @@ public:
 
 	void start();
 		/// Loads, resolves and starts the bundles.
+		///
+		/// Throws a Poco::OSP::BundleStateException if a bundle could not
+		/// be resolved. The BundleLoader only logs that and leaves the bundle
+		/// installed, so a test would otherwise run without it.
 
 	void stop();
 		/// Stops and unloads the bundles.

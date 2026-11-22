@@ -12,6 +12,8 @@
 #include "Poco/OSP/Web/WebServerDispatcher.h"
 #include "Poco/OSP/OSPSubsystem.h"
 #include "Poco/OSP/BundleLoader.h"
+#include "Poco/OSP/Bundle.h"
+#include "Poco/OSP/OSPException.h"
 #include "Poco/OSP/ServiceRef.h"
 #include "Poco/Net/HTTPServerRequest.h"
 #include "Poco/Bugcheck.h"
@@ -22,6 +24,7 @@
 #include "Poco/TemporaryFile.h"
 #include <set>
 #include <string>
+#include <vector>
 
 
 using namespace std::string_literals;
@@ -81,6 +84,15 @@ std::string TestApplication::privateCodeCachePath()
 void TestApplication::start()
 {
 	initialize(*this);
+	std::vector<Poco::OSP::Bundle::Ptr> bundles;
+	bundleLoader().listBundles(bundles);
+	for (const auto& pBundle: bundles)
+	{
+		if (pBundle->state() == Poco::OSP::Bundle::BUNDLE_INSTALLED)
+		{
+			throw Poco::OSP::BundleStateException("Bundle not resolved"s, pBundle->symbolicName());
+		}
+	}
 }
 
 
