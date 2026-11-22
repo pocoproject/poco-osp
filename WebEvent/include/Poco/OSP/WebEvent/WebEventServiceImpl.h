@@ -168,7 +168,7 @@ public:
 		/// passed on. Without a resolver, returns the user that the web
 		/// server has authenticated for the request
 		/// (Poco::OSP::Auth::RequestIdentity), or an empty string if it has
-		/// authenticated none.
+		/// authenticated none or the identity has a scope.
 
 	// Service
 	[[nodiscard]] const std::type_info& type() const override;

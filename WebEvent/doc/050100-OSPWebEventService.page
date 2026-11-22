@@ -146,11 +146,15 @@ the request's cookies:
     pWebEventService->notifyUser("alice", "sample.event", "Some event data");
 ----
 
-Connections for which the resolver returned an empty string, or whose upgrade
-request the web server did not authenticate while no resolver was installed,
-belong to no user and are never notified by notifyUser(). Pass nullptr to
-setUserResolver() to remove the resolver, for example when the bundle that
-installed it stops.
+Connections for which the resolver returned an empty string belong to no user
+and are never notified by notifyUser(). Without a resolver, a connection also
+belongs to no user if the web server did not authenticate its upgrade request,
+or authenticated it with a bearer token that carries a scope: the subject
+authorizer and notifyUser() know only the user name, which would give the
+connection everything the user may do. A resolver can give such a connection a
+user; while it runs, Poco::OSP::Auth::RequestIdentity::current() returns the
+authenticated user and scope. Pass nullptr to setUserResolver() to remove the
+resolver, for example when the bundle that installed it stops.
 
 To answer a new subscription with the current value of a subject, register a
 delegate for the initialDataRequested event. It is fired for each subject a
@@ -449,9 +453,10 @@ request: a connection stays open after the session it was opened with has
 ended, or after the user has lost the permission.
 
 A connection belongs to the user that the web server has authenticated for
-its upgrade request, or, if a resolver is installed with setUserResolver(), to
-the user the resolver gives, and notifyUser() delivers only to the connections
-of that user. The resolver runs for every connection that requestReceived has
+its upgrade request, to no user if a bearer token with a scope authenticated
+it, or, if a resolver is installed with setUserResolver(), to the user the
+resolver gives, and notifyUser() delivers only to the connections of that
+user. The resolver runs for every connection that requestReceived has
 accepted; it identifies the user but rejects nothing.
 
 The page reported by listSubscribers() is taken from the request's "page"

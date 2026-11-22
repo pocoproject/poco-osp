@@ -148,7 +148,8 @@ public:
 	{
 		std::string username;
 			/// The user owning the connection, as determined at connection
-			/// time (see setUserResolver()); empty for anonymous connections.
+			/// time (see setUserResolver()); empty for a connection that
+			/// belongs to no user.
 
 		std::string page;
 			/// The URL (or path) of the document that opened the connection,
@@ -285,7 +286,10 @@ public:
 		/// server has authenticated for its upgrade request, with credentials
 		/// or the cookie of a logged-in web session, and to no user if the
 		/// request was not authenticated (an empty permission, or "**"
-		/// without credentials).
+		/// without credentials) or was authenticated with a bearer token
+		/// that carries a scope. A resolver can give such a connection a
+		/// user; Poco::OSP::Auth::RequestIdentity::current() returns the
+		/// authenticated user and scope while the resolver runs.
 		///
 		/// The resolver is invoked for every new WebSocket connection, before
 		/// the connection is upgraded, and replaces the authenticated user. It

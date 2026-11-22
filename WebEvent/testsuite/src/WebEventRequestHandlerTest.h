@@ -40,6 +40,8 @@ public:
 	void testUpgradeWithBearerTokenIsAdmitted();
 	void testConnectionBelongsToAuthenticatedUser();
 	void testUserResolverReplacesAuthenticatedUser();
+	void testConnectionWithScopedTokenBelongsToNoUser();
+	void testUserResolverGivesScopedConnectionUser();
 
 	void setUp() override;
 	void tearDown() override;

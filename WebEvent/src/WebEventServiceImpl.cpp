@@ -654,8 +654,10 @@ std::string WebEventServiceImpl::resolveUser(const Poco::Net::HTTPServerRequest&
 		}
 		return std::string();
 	}
+	// The subject authorizer and notifyUser() know the user name only, so a
+	// login limited by a scope would count there as the full user.
 	const Poco::OSP::Auth::RequestIdentity* pIdentity = Poco::OSP::Auth::RequestIdentity::current();
-	return pIdentity != nullptr ? pIdentity->user() : std::string();
+	return pIdentity != nullptr && pIdentity->scope().empty() ? pIdentity->user() : std::string();
 }
 
 

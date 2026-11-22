@@ -172,7 +172,8 @@ entries.
 - WebEvent: `WebEventService::setSubjectAuthorizer()` installs a function that decides, with the user of the
   connection, which subjects a client may subscribe to and notify; a refused subject is left out of the message.
 - WebEvent: without a user resolver, a connection belongs to the user that the web server has authenticated for its
-  upgrade request, so `notifyUser()` and the subject authorizer work without one; a resolver replaces that user.
+  upgrade request, so `notifyUser()` and the subject authorizer work without one; a resolver replaces that user. A
+  connection authenticated with a bearer token that carries a scope belongs to no user unless a resolver gives it one.
 
 ### New components
 

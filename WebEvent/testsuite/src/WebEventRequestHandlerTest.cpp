@@ -19,6 +19,7 @@
 #include "Poco/OSP/Web/WebSession.h"
 #include "Poco/OSP/Web/WebSessionManager.h"
 #include "Poco/OSP/Auth/AuthService.h"
+#include "Poco/OSP/Auth/RequestIdentity.h"
 #include "Poco/OSP/Bundle.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/OSP/PreferencesService.h"
@@ -96,6 +97,9 @@ const std::string ACCOUNT_PASSWORD("account-password");
 const std::string READER_TOKEN("reader-token");
 	/// The only bearer token the token validator accepts, a token of READER.
 
+const std::string READER_TOKEN_SCOPE("test");
+	/// The scope the token validator gives READER_TOKEN.
+
 const std::string RESTRICTED_PERMISSION("test.events.read");
 	/// A permission name to restrict the endpoint to, as osp.web.event.permission allows.
 
@@ -116,6 +120,9 @@ const std::string TEST_PAYLOAD("{\"value\":1}");
 
 const std::string TEST_NOTIFICATION("NOTIFY " + TEST_SUBJECT + " WebEvent/1.0\r\n" + TEST_PAYLOAD);
 	/// The frame a subscriber of TEST_SUBJECT receives for TEST_PAYLOAD.
+
+const std::string TEST_CHILD_SUBJECT(TEST_SUBJECT + ".child");
+	/// A subject below TEST_SUBJECT, whose notifications reach the subscribers of TEST_SUBJECT.
 
 constexpr int STATUS_UNAUTHORIZED = HTTPResponse::HTTP_UNAUTHORIZED;
 
@@ -156,7 +163,7 @@ public:
 	{
 		if (token != READER_TOKEN) return false;
 		username = READER;
-		scope = "test";
+		scope = READER_TOKEN_SCOPE;
 		return true;
 	}
 };
@@ -852,6 +859,64 @@ void WebEventRequestHandlerTest::testUserResolverReplacesAuthenticatedUser()
 }
 
 
+void WebEventRequestHandlerTest::testConnectionWithScopedTokenBelongsToNoUser()
+	/// Without a user resolver, a connection authenticated with a bearer token
+	/// that carries a scope belongs to no user: the subject authorizer is asked
+	/// with an empty user name, and notifyUser() does not reach it.
+{
+	Endpoint endpoint;
+	endpoint.service().setSubjectAuthorizer(
+		[](const std::string& username, const std::string&, WebEventServiceImpl::SubjectAction)
+		{
+			return username.empty();
+		});
+
+	Poco::Net::HTTPRequest request = endpoint.upgradeRequest("/");
+	request.setCredentials("Bearer", READER_TOKEN);
+	Poco::Net::WebSocket ws = endpoint.upgrade(request);
+	assertEqual(TEST_NOTIFICATION, subscribeAndReceive(endpoint.service(), ws));
+
+	const WebEventServiceImpl::SubscriberInfoVec subscribers = endpoint.service().listSubscribers();
+	assertEqual(1, static_cast<int>(subscribers.size()));
+	assertTrue(subscribers[0].username.empty());
+
+	// Frames of different subjects are not coalesced and keep their order,
+	// so the notification of TEST_SUBJECT is the next frame only if
+	// notifyUser() has sent none.
+	endpoint.service().notifyUser(READER, TEST_CHILD_SUBJECT, TEST_PAYLOAD);
+	endpoint.service().notify(TEST_SUBJECT, TEST_PAYLOAD);
+	assertEqual(TEST_NOTIFICATION, receiveFrame(ws));
+}
+
+
+void WebEventRequestHandlerTest::testUserResolverGivesScopedConnectionUser()
+	/// A user resolver can give a connection authenticated with a bearer token
+	/// that carries a scope the user of the token, from the identity that the
+	/// web server has authenticated.
+{
+	Endpoint endpoint;
+	endpoint.service().setUserResolver(
+		[](const Poco::Net::HTTPServerRequest&)
+		{
+			const Poco::OSP::Auth::RequestIdentity* pIdentity = Poco::OSP::Auth::RequestIdentity::current();
+			if (pIdentity == nullptr || pIdentity->scope() != READER_TOKEN_SCOPE) return std::string();
+			return pIdentity->user();
+		});
+
+	Poco::Net::HTTPRequest request = endpoint.upgradeRequest("/");
+	request.setCredentials("Bearer", READER_TOKEN);
+	Poco::Net::WebSocket ws = endpoint.upgrade(request);
+	assertEqual(TEST_NOTIFICATION, subscribeAndReceive(endpoint.service(), ws));
+
+	const WebEventServiceImpl::SubscriberInfoVec subscribers = endpoint.service().listSubscribers();
+	assertEqual(1, static_cast<int>(subscribers.size()));
+	assertEqual(READER, subscribers[0].username);
+
+	endpoint.service().notifyUser(READER, TEST_SUBJECT, TEST_PAYLOAD);
+	assertEqual(TEST_NOTIFICATION, receiveFrame(ws));
+}
+
+
 void WebEventRequestHandlerTest::setUp()
 {
 }
@@ -878,6 +943,8 @@ CppUnit::Test* WebEventRequestHandlerTest::suite()
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testUpgradeWithBearerTokenIsAdmitted);
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testConnectionBelongsToAuthenticatedUser);
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testUserResolverReplacesAuthenticatedUser);
+	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testConnectionWithScopedTokenBelongsToNoUser);
+	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testUserResolverGivesScopedConnectionUser);
 
 	return pSuite;
 }
