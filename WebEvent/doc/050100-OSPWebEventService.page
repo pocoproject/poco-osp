@@ -130,9 +130,13 @@ subject name and the second item containing the data.
 
 To send a notification only to the connections of one user, use
 Poco::OSP::WebEvent::WebEventService::notifyUser(). The user a connection
-belongs to is determined when the connection is established, by the resolver
-installed with Poco::OSP::WebEvent::WebEventService::setUserResolver(), for
-example by looking up the web session referenced by the request's cookies:
+belongs to is determined when the connection is established: the user that the
+web server has authenticated for the upgrade request (see Authentication and
+Authorization below). An application that identifies users in another way
+installs a resolver with
+Poco::OSP::WebEvent::WebEventService::setUserResolver(), which replaces the
+authenticated user, for example by looking up the web session referenced by
+the request's cookies:
 
     pWebEventService->setUserResolver(
         [](const Poco::Net::HTTPServerRequest& request)
@@ -142,10 +146,11 @@ example by looking up the web session referenced by the request's cookies:
     pWebEventService->notifyUser("alice", "sample.event", "Some event data");
 ----
 
-Connections for which the resolver returned an empty string, or that were
-established without a resolver, belong to no user and are never notified by
-notifyUser(). Pass nullptr to setUserResolver() to remove the resolver, for
-example when the bundle that installed it stops.
+Connections for which the resolver returned an empty string, or whose upgrade
+request the web server did not authenticate while no resolver was installed,
+belong to no user and are never notified by notifyUser(). Pass nullptr to
+setUserResolver() to remove the resolver, for example when the bundle that
+installed it stops.
 
 To answer a new subscription with the current value of a subject, register a
 delegate for the initialDataRequested event. It is fired for each subject a
@@ -368,8 +373,8 @@ reject a connection for reasons of its own.
 The permission decides who may connect. Which subjects a connection may subscribe
 to, and notify, is decided by the subject authorizer, a function installed with
 Poco::OSP::WebEvent::WebEventService::setSubjectAuthorizer(). It is asked with the
-user of the connection (as the resolver installed with setUserResolver() gave it;
-empty for none), the subject, and the action:
+user of the connection (the authenticated user, or the one the resolver installed
+with setUserResolver() gave; empty for none), the subject, and the action:
 
     pWebEventService->setSubjectAuthorizer(
         [](const std::string& username, const std::string& subject,
@@ -443,9 +448,10 @@ subscribe to every subject. Credentials are checked once, on the upgrade
 request: a connection stays open after the session it was opened with has
 ended, or after the user has lost the permission.
 
-The resolver installed with setUserResolver() determines the user a
-connection belongs to, and notifyUser() delivers only to the connections of
-that user. The resolver runs for every connection that requestReceived has
+A connection belongs to the user that the web server has authenticated for
+its upgrade request, or, if a resolver is installed with setUserResolver(), to
+the user the resolver gives, and notifyUser() delivers only to the connections
+of that user. The resolver runs for every connection that requestReceived has
 accepted; it identifies the user but rejects nothing.
 
 The page reported by listSubscribers() is taken from the request's "page"

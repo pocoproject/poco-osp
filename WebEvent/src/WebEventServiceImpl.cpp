@@ -13,6 +13,7 @@
 
 
 #include "Poco/OSP/WebEvent/WebEventServiceImpl.h"
+#include "Poco/OSP/Auth/RequestIdentity.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/Net/HTTPResponse.h"
 #include "Poco/Net/HTTPServerResponse.h"
@@ -651,8 +652,10 @@ std::string WebEventServiceImpl::resolveUser(const Poco::Net::HTTPServerRequest&
 			logger().error(Poco::format("User resolver failed for the connection from %s; the connection belongs to no user: %s",
 				request.clientAddress().toString(), std::string(exc.what())));
 		}
+		return std::string();
 	}
-	return std::string();
+	const Poco::OSP::Auth::RequestIdentity* pIdentity = Poco::OSP::Auth::RequestIdentity::current();
+	return pIdentity != nullptr ? pIdentity->user() : std::string();
 }
 
 

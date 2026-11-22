@@ -38,6 +38,8 @@ public:
 	void testUpgradeWithoutWebSessionIgnoresCookie();
 	void testUpgradeWithBasicCredentialsIsAdmitted();
 	void testUpgradeWithBearerTokenIsAdmitted();
+	void testConnectionBelongsToAuthenticatedUser();
+	void testUserResolverReplacesAuthenticatedUser();
 
 	void setUp() override;
 	void tearDown() override;

@@ -163,9 +163,12 @@ public:
 
 	[[nodiscard]] std::string resolveUser(const Poco::Net::HTTPServerRequest& request) const;
 		/// Invokes the installed user resolver for the given WebSocket
-		/// upgrade request; returns an empty string if no resolver is
-		/// installed or the resolver throws a Poco::Exception or a
-		/// std::exception. Any other exception is passed on.
+		/// upgrade request; returns an empty string if the resolver throws a
+		/// Poco::Exception or a std::exception. Any other exception is
+		/// passed on. Without a resolver, returns the user that the web
+		/// server has authenticated for the request
+		/// (Poco::OSP::Auth::RequestIdentity), or an empty string if it has
+		/// authenticated none.
 
 	// Service
 	[[nodiscard]] const std::type_info& type() const override;

@@ -138,8 +138,8 @@ public:
 	};
 
 	using SubjectAuthorizer = std::function<bool(const std::string& username, const std::string& subject, SubjectAction action)>;
-		/// Says whether the user of a WebSocket connection (as the user
-		/// resolver gave it; empty for none) may subscribe to a subject, or
+		/// Says whether the user of a WebSocket connection (see
+		/// setUserResolver(); empty for none) may subscribe to a subject, or
 		/// notify it.
 
 	struct SubscriberInfo
@@ -147,8 +147,8 @@ public:
 		/// at connection (upgrade) time.
 	{
 		std::string username;
-			/// The user owning the connection, as determined by the resolver
-			/// installed with setUserResolver(); empty for anonymous connections.
+			/// The user owning the connection, as determined at connection
+			/// time (see setUserResolver()); empty for anonymous connections.
 
 		std::string page;
 			/// The URL (or path) of the document that opened the connection,
@@ -267,10 +267,8 @@ public:
 		/// connection belongs to the given user, using the given data.
 		///
 		/// The user owning a WebSocket connection is determined at connection
-		/// time by the resolver installed with setUserResolver(); connections
-		/// established without a resolver, or for which the resolver returned
-		/// an empty string, belong to no user and are never notified by this
-		/// method.
+		/// time (see setUserResolver()); connections that belong to no user
+		/// are never notified by this method.
 		///
 		/// In contrast to notify(), server-side events (notificationSent,
 		/// subjectNotified) are not fired.
@@ -283,10 +281,17 @@ public:
 		/// WebSocket connection from its upgrade request (e.g. by looking up
 		/// the web session referenced by the request's cookies).
 		///
+		/// Without a resolver, a connection belongs to the user that the web
+		/// server has authenticated for its upgrade request, with credentials
+		/// or the cookie of a logged-in web session, and to no user if the
+		/// request was not authenticated (an empty permission, or "**"
+		/// without credentials).
+		///
 		/// The resolver is invoked for every new WebSocket connection, before
-		/// the connection is upgraded. It should return an empty string for
-		/// anonymous connections. Pass nullptr to remove the resolver (e.g.
-		/// when the installing bundle stops).
+		/// the connection is upgraded, and replaces the authenticated user. It
+		/// should return an empty string for anonymous connections. Pass
+		/// nullptr to remove the resolver (e.g. when the installing bundle
+		/// stops).
 
 	virtual void setSubjectAuthorizer(SubjectAuthorizer authorizer) = 0;
 		/// Installs the authorizer that is asked whether a client may

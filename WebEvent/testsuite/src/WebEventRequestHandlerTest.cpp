@@ -566,6 +566,17 @@ private:
 };
 
 
+std::string receiveFrame(Poco::Net::WebSocket& ws)
+	/// Returns the next frame the connection receives.
+{
+	ws.setReceiveTimeout(Poco::Timespan(5, 0));
+	std::vector<char> buffer(1024);
+	int flags = 0;
+	const int received = ws.receiveFrame(buffer.data(), static_cast<int>(buffer.size()), flags);
+	return std::string(buffer.data(), received > 0 ? static_cast<std::size_t>(received) : 0);
+}
+
+
 std::string subscribeAndReceive(WebEventServiceImpl& service, Poco::Net::WebSocket& ws)
 	/// Subscribes the connection to TEST_SUBJECT, notifies TEST_PAYLOAD for it
 	/// once the service has the subscription, and returns the frame the
@@ -577,11 +588,7 @@ std::string subscribeAndReceive(WebEventServiceImpl& service, Poco::Net::WebSock
 	if (!waiter.wait(5000)) return std::string();
 
 	service.notify(TEST_SUBJECT, TEST_PAYLOAD);
-	ws.setReceiveTimeout(Poco::Timespan(5, 0));
-	std::vector<char> buffer(1024);
-	int flags = 0;
-	const int received = ws.receiveFrame(buffer.data(), static_cast<int>(buffer.size()), flags);
-	return std::string(buffer.data(), received > 0 ? static_cast<std::size_t>(received) : 0);
+	return receiveFrame(ws);
 }
 
 
@@ -796,6 +803,55 @@ void WebEventRequestHandlerTest::testUpgradeWithBearerTokenIsAdmitted()
 }
 
 
+void WebEventRequestHandlerTest::testConnectionBelongsToAuthenticatedUser()
+	/// Without a user resolver, a connection belongs to the user that the web
+	/// server has authenticated for its upgrade request: the subject
+	/// authorizer is asked with that user, and notifyUser() reaches it.
+{
+	Endpoint endpoint(LOGIN_SESSION);
+	endpoint.service().setSubjectAuthorizer(
+		[](const std::string& username, const std::string&, WebEventServiceImpl::SubjectAction)
+		{
+			return username == READER;
+		});
+
+	const Poco::Net::NameValueCollection cookies = endpoint.login(READER);
+	assertFalse(cookies.empty());
+	Poco::Net::HTTPRequest request = endpoint.upgradeRequest("?page=%2Fapp");
+	request.setCookies(cookies);
+	Poco::Net::WebSocket ws = endpoint.upgrade(request);
+	assertEqual(TEST_NOTIFICATION, subscribeAndReceive(endpoint.service(), ws));
+
+	const WebEventServiceImpl::SubscriberInfoVec subscribers = endpoint.service().listSubscribers();
+	assertEqual(1, static_cast<int>(subscribers.size()));
+	assertEqual(READER, subscribers[0].username);
+
+	endpoint.service().notifyUser(READER, TEST_SUBJECT, TEST_PAYLOAD);
+	assertEqual(TEST_NOTIFICATION, receiveFrame(ws));
+}
+
+
+void WebEventRequestHandlerTest::testUserResolverReplacesAuthenticatedUser()
+{
+	const std::string resolvedUser("test.resolved");
+	Endpoint endpoint;
+	endpoint.service().setUserResolver(
+		[&resolvedUser](const Poco::Net::HTTPServerRequest&)
+		{
+			return resolvedUser;
+		});
+
+	Poco::Net::HTTPRequest request = endpoint.upgradeRequest("/");
+	Poco::Net::HTTPBasicCredentials(READER, ACCOUNT_PASSWORD).authenticate(request);
+	Poco::Net::WebSocket ws = endpoint.upgrade(request);
+	assertEqual(TEST_NOTIFICATION, subscribeAndReceive(endpoint.service(), ws));
+
+	const WebEventServiceImpl::SubscriberInfoVec subscribers = endpoint.service().listSubscribers();
+	assertEqual(1, static_cast<int>(subscribers.size()));
+	assertEqual(resolvedUser, subscribers[0].username);
+}
+
+
 void WebEventRequestHandlerTest::setUp()
 {
 }
@@ -820,6 +876,8 @@ CppUnit::Test* WebEventRequestHandlerTest::suite()
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testUpgradeWithoutWebSessionIgnoresCookie);
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testUpgradeWithBasicCredentialsIsAdmitted);
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testUpgradeWithBearerTokenIsAdmitted);
+	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testConnectionBelongsToAuthenticatedUser);
+	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testUserResolverReplacesAuthenticatedUser);
 
 	return pSuite;
 }
