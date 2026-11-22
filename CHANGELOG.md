@@ -2,10 +2,11 @@
 
 ## 2.0.0 (unreleased)
 
-The first release of POCO OSP as a repository of its own. It contains the Open Service Platform of macchina.io; the
-entries below describe the changes that a user of the macchina.io versions must know. The macchina.io versions differ
-from each other, so an entry can describe a difference to only some of them. The release also contains bug fixes and
-other changes that are not listed here. The release notes (`doc/99100-OSPReleaseNotes.page`) have the same entries.
+The first release of POCO OSP as a repository of its own. Its code is imported from the Open Service Platform of
+macchina.io; the entries below describe the changes from the imported code that its users must know. The imported code
+exists in several versions, so an entry can describe a difference to only some of them. The release also contains bug
+fixes and other changes that are not listed here. The release notes (`doc/99100-OSPReleaseNotes.page`) have the same
+entries.
 
 ### Breaking changes
 
@@ -64,7 +65,7 @@ other changes that are not listed here. The release notes (`doc/99100-OSPRelease
 - Auth/TwoFactor: after `auth.twofactor.maxFailures` wrong codes (default 5; 0 disables the lock-out), the user is
   locked out for `auth.twofactor.lockOutPeriod` seconds (default 600), also a user of `auth.neverLockOutUsers`.
 - Auth/TwoFactor: the secrets are stored with AES-256-GCM. A secret in the old format is stored again in the new format
-  after the first accepted code; macchina.io versions cannot read the new format.
+  after the first accepted code; the imported code cannot read the new format.
 - Auth/TwoFactor: the key is derived from the passphrase and a key salt (`auth.twofactor.keySalt`, otherwise generated
   at the first start and kept in the bundle preferences); instances that share one SQL user database need the same salt.
 - Auth/Remoting: `Authenticator` and `Authorizer` take the identity from `RequestIdentity::current()` and ignore the
