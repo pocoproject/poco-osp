@@ -9,13 +9,13 @@
 
 
 #include "SampleConfigurationTest.h"
+#include "TestApplication.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
 #include "CppUnit/TestCase.h"
 #include "CppUnit/Test.h"
 #include "Poco/Util/PropertyFileConfiguration.h"
 #include "Poco/AutoPtr.h"
-#include "Poco/Environment.h"
 #include "Poco/Path.h"
 #if defined(OSP_SAMPLES_TEST_NETSSL)
 #include "Poco/Net/X509Certificate.h"
@@ -24,20 +24,6 @@
 
 
 using namespace std::string_literals;
-
-
-namespace
-{
-	[[nodiscard]] std::string sampleConfiguration(const std::string& program)
-		/// Returns the path of the configuration file of the given sample program.
-	{
-		Poco::Path path(Poco::Path::forDirectory(Poco::Environment::get("POCO_BASE"s)));
-		path.pushDirectory("samples"s);
-		path.pushDirectory(program);
-		path.setFileName(program + ".properties"s);
-		return path.toString();
-	}
-}
 
 
 SampleConfigurationTest::SampleConfigurationTest(const std::string& name): CppUnit::TestCase(name)
@@ -65,7 +51,8 @@ void SampleConfigurationTest::checkWebServersListenOnLoopbackAddress(const std::
 	// The web server bundles read the addresses to listen on from these
 	// settings. The test does not start a server: the bundles start none
 	// with port 0, and another process can take any other port.
-	Poco::AutoPtr<Poco::Util::PropertyFileConfiguration> pConfig = new Poco::Util::PropertyFileConfiguration(sampleConfiguration(program));
+	Poco::AutoPtr<Poco::Util::PropertyFileConfiguration> pConfig =
+		new Poco::Util::PropertyFileConfiguration(TestApplication::sampleConfiguration(program));
 	assertEqual ("127.0.0.1"s, pConfig->getString("osp.web.server.host"s));
 	assertEqual ("127.0.0.1"s, pConfig->getString("osp.web.server.secureHost"s));
 }
@@ -73,7 +60,8 @@ void SampleConfigurationTest::checkWebServersListenOnLoopbackAddress(const std::
 
 void SampleConfigurationTest::testBundleServerVerifiesServerCertificates()
 {
-	Poco::AutoPtr<Poco::Util::PropertyFileConfiguration> pConfig = new Poco::Util::PropertyFileConfiguration(sampleConfiguration("BundleServer"s));
+	Poco::AutoPtr<Poco::Util::PropertyFileConfiguration> pConfig =
+		new Poco::Util::PropertyFileConfiguration(TestApplication::sampleConfiguration("BundleServer"s));
 	assertEqual ("relaxed"s, pConfig->getString("openSSL.client.verificationMode"s));
 	assertEqual ("RejectCertificateHandler"s, pConfig->getString("openSSL.client.invalidCertificateHandler.name"s));
 	assertTrue (pConfig->getBool("openSSL.client.loadDefaultCAFile"s));
@@ -86,7 +74,7 @@ void SampleConfigurationTest::testBundleServerVerifiesServerCertificates()
 void SampleConfigurationTest::testBundleServerCertificateNamesLocalhost()
 {
 	// The host check of a POCO client, which takes the names from the subject alternative names only.
-	Poco::Path path(sampleConfiguration("BundleServer"s));
+	Poco::Path path(TestApplication::sampleConfiguration("BundleServer"s));
 	path.setFileName("any.pem"s);
 	const Poco::Net::X509Certificate certificate(path.toString());
 	assertTrue (Poco::Net::X509Certificate::verify(certificate, "localhost"s));

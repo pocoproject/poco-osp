@@ -30,6 +30,7 @@ public:
 	void testSubjectDelegatesWorkAfterSampleIsUninstalled();
 	void testNotificationIsLoggedOnOneLine();
 	void testNotificationIsNotLoggedAtInformationLevel();
+	void testWebSocketNeedsLogin();
 
 	static CppUnit::Test* suite();
 

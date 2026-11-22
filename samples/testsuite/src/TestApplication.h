@@ -71,6 +71,10 @@ public:
 		/// Returns the path of the file of the bundle with the given
 		/// symbolic name in the bundle directory of the build.
 
+	[[nodiscard]] static std::string sampleConfiguration(const std::string& program);
+		/// Returns the path of the configuration file of the given sample
+		/// program in the sources.
+
 	[[nodiscard]] static std::string privateCodeCachePath();
 		/// Returns a new code cache directory for a TestApplication, to be set
 		/// as osp.codeCache in config() before start(). An application that

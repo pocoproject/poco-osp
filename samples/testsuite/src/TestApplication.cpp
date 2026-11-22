@@ -17,6 +17,7 @@
 #include "Poco/OSP/ServiceRef.h"
 #include "Poco/Net/HTTPServerRequest.h"
 #include "Poco/Bugcheck.h"
+#include "Poco/Environment.h"
 #include "Poco/Exception.h"
 #include "Poco/File.h"
 #include "Poco/Glob.h"
@@ -72,6 +73,16 @@ TestApplication::~TestApplication()
 	{
 		poco_unexpected();
 	}
+}
+
+
+std::string TestApplication::sampleConfiguration(const std::string& program)
+{
+	Poco::Path path(Poco::Path::forDirectory(Poco::Environment::get("POCO_BASE"s)));
+	path.pushDirectory("samples"s);
+	path.pushDirectory(program);
+	path.setFileName(program + ".properties"s);
+	return path.toString();
 }
 
 

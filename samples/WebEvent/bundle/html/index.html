@@ -35,7 +35,7 @@
             if (eventWSOpened)
               log("WebSocket closed.", "green");
             else
-              log("WebSocket could not be opened. The server accepts it only from a browser that has logged in to its web session.", "red");
+              log("WebSocket could not be opened. The server accepts it only after a login.", "red");
             eventWS = null;
           };
           eventWS.onerror = function()
@@ -85,11 +85,38 @@
       {
       	notify("system.ping", "");
       }
+
+      function login()
+      {
+        var request = new XMLHttpRequest();
+        request.open("POST", "login");
+        request.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+        request.onload = function()
+        {
+          if (request.status == 204)
+            window.location.reload();
+          else
+            log("Login failed: " + request.responseText, "red");
+        };
+        request.send(new URLSearchParams(new FormData(document.getElementById("login"))).toString());
+      }
     </script>
   </head>
   <body onload="createEventWS()">
     <h1>WebEvent Sample</h1>
-    <p>The server accepts the WebSocket of this page only from a browser that has logged in to the web session named by the setting osp.web.event.session, which is empty by default. Set osp.web.event.session to the name of the session in which the application's login page logs users in, log in with that page, then reload this page.</p>
+    <p>
+      The server accepts the WebSocket of this page only from a browser that has logged in to the web session that
+      the setting osp.web.event.session names. The login below checks the user name and the password with the
+      authentication service of the server, for example the one of the SimpleAuthService sample, which knows the
+      users admin and user with the passwords of the settings adminPassword and userPassword. It logs the browser in
+      to the web session sample.webevent, which the configuration of the BundleServer sample names in
+      osp.web.event.session, and reloads this page.
+    </p>
+    <form id="login" onsubmit="login(); return false">
+      <input type="text" name="username" placeholder="User name" autocomplete="username" />
+      <input type="password" name="password" placeholder="Password" autocomplete="current-password" />
+      <button type="submit">Log In</button>
+    </form>
     <form>
       <button onclick="subscribe('sample.tenSecondsTimer'); return false">Subscribe to 10 Seconds Timer</button>
       <button onclick="unsubscribe('sample.tenSecondsTimer'); return false">Unsubscribe from 10 Seconds Timer</button>
