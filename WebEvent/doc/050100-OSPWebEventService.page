@@ -344,13 +344,14 @@ every request handler that declares a permission:
     osp.web.event.session is set to the name of a web session and the browser
     has logged in to that session: a request handler of the application has
     stored the name of the user in the session's "username" property (see
-    Session-Based Authentication in the OSP Web documentation). The default
-    is empty: no session login. A page served by the same server then sends
-    the cookie with the upgrade request. A browser that has not logged in,
-    or whose session has ended (by logout, by expiry, or by a restart of the
-    server when no session store keeps the sessions), is refused, even on a
-    page that itself requires no login. If a request carries both a cookie
-    and an Authorization header, the Authorization header decides.
+    Session-Based Authentication in the OSP Web documentation), and the user is
+    an account of the auth service. The default is empty: no session login. A
+    page served by the same server then sends the cookie with the upgrade
+    request. A browser that has not logged in, or whose session has ended (by
+    logout, by expiry, or by a restart of the server when no session store keeps
+    the sessions), is refused, even on a page that itself requires no login. If
+    a request carries both a cookie and an Authorization header, the
+    Authorization header decides.
 
 The global osp.web.authMethods setting limits which of these methods apply.
 An upgrade request without credentials, or with credentials the server does not
@@ -369,7 +370,9 @@ received as if they were current.
 
 The permission is the setting osp.web.event.permission (see Configuring the
 WebEventService below). Beyond that, a delegate of the requestReceived event can
-reject a connection for reasons of its own.
+reject a connection for reasons of its own. An empty permission turns the
+authentication of the upgrade request off, for applications that authenticate
+their clients themselves in such a delegate.
 
 
 !! Subject Authorizer
@@ -567,11 +570,15 @@ Defaults to 256.
 
 The name of the web session whose cookie authenticates the WebSocket upgrade
 requests of browsers. A browser is admitted only once it has logged in to that
-session. Defaults to empty: no session login; every client authenticates the
-upgrade request with an Authorization header, with HTTP Basic credentials, or
-with a bearer token if the web server has a token validator
-(osp.web.tokenValidatorName). The global osp.web.authMethods setting limits
-which of the three apply.
+session: the session stores the name of the user in its "username" property, and
+the user is an account of the auth service. Defaults to empty: no session login;
+every client authenticates the upgrade request with an Authorization header,
+with HTTP Basic credentials, or with a bearer token if the web server has a
+token validator (osp.web.tokenValidatorName). The global osp.web.authMethods
+setting limits which of the three apply.
+
+A bundle property websession.id is not read: the bundle logs an error when it is
+set.
 
 
 !! osp.web.event.permission
@@ -579,13 +586,32 @@ which of the three apply.
 The permission a client needs to open a WebEvent connection. The web server
 checks it on the WebSocket upgrade request, before the connection is
 established; a request without valid credentials is answered with 401
-Unauthorized, one of a user without the permission with 403 Forbidden. "*"
-admits every authenticated user of an existing account and nobody else. A
-permission name, or a comma-separated list of names (any one of which
-suffices), admits only the users granted it. There is no permission per
-subject: a connection that is admitted may subscribe to every subject that the
-subject authorizer, if one is installed, allows. Must not be empty, which would
-admit unauthenticated connections. Defaults to "*".
+Unauthorized, one of a user without the permission with 403 Forbidden, and,
+while no auth service (osp.web.authServiceName) is registered, every request
+with 503 Service Unavailable, except as described for "**" below. "*" admits
+every authenticated user of an existing account and nobody else. A permission name, or a comma-separated
+list of names (any one of which suffices), admits only the users granted it.
+There is no permission per subject: a connection that is admitted may subscribe
+to every subject that the subject authorizer, if one is installed, allows.
+Defaults to "*".
+
+An empty value turns the authentication of the upgrade request off: the web
+server does not authenticate the request, also when it carries credentials,
+and the connection has no user unless a user resolver (setUserResolver())
+gives it one. The service still checks the Origin header, and a delegate of the
+requestReceived event decides whether the connection is accepted. This admits
+unauthenticated connections; it is meant for applications that authenticate
+their clients themselves, for example by a token in the query of the upgrade
+request, and works without an auth service.
+
+"**" is not a substitute for an empty value. It admits a request without
+credentials, but it answers a request with credentials that the web server
+cannot check (another authorization scheme, or a bearer token without a token
+validator) with 401, and a request with credentials or the cookie of a
+logged-in session with 503 while no auth service is registered.
+
+A bundle property permission is not read: the bundle logs an error when it is
+set, and does not start if it is set and osp.web.event.permission is not.
 
 
 !! osp.web.event.allowedOrigins

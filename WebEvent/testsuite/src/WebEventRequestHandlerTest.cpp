@@ -70,6 +70,7 @@
 #include <ios>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -324,10 +325,20 @@ class Endpoint
 	/// and a login path that opens web sessions.
 {
 public:
-	explicit Endpoint(const std::string& session = std::string(), const std::string& permission = std::string());
+	enum class AuthServiceRegistration: Poco::UInt8
+		/// Whether the endpoint registers an auth service.
+	{
+		REGISTERED,
+		NONE
+	};
+
+	explicit Endpoint(const std::string& session = std::string(),
+		const std::optional<std::string>& permission = std::nullopt,
+		AuthServiceRegistration authService = AuthServiceRegistration::REGISTERED);
 		/// Creates the endpoint, with the given web session and permission as
 		/// osp.web.event.session and osp.web.event.permission in the
-		/// application configuration, if they are given. The login path logs
+		/// application configuration. An empty session is left out; an empty
+		/// permission is set, std::nullopt leaves it out. The login path logs
 		/// users in to LOGIN_SESSION.
 
 	~Endpoint();
@@ -388,7 +399,8 @@ private:
 };
 
 
-Endpoint::Endpoint(const std::string& session, const std::string& permission):
+Endpoint::Endpoint(const std::string& session, const std::optional<std::string>& permission,
+	AuthServiceRegistration authService):
 	_bundles(shippedProperties()),
 	_pSessionManager(new WebSessionManager(_bundles.context()))
 {
@@ -399,11 +411,14 @@ Endpoint::Endpoint(const std::string& session, const std::string& permission):
 
 	Poco::AutoPtr<Poco::Util::MapConfiguration> pSettings = new Poco::Util::MapConfiguration;
 	if (!session.empty()) pSettings->setString("osp.web.event.session", session);
-	if (!permission.empty()) pSettings->setString("osp.web.event.permission", permission);
+	if (permission.has_value()) pSettings->setString("osp.web.event.permission", *permission);
 	_bundles.registry().registerService(Poco::OSP::PreferencesService::SERVICE_NAME,
 		new Poco::OSP::PreferencesService(_bundles.context()->persistentDirectory(), pSettings),
 		Poco::OSP::Properties());
-	_bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Poco::OSP::Properties());
+	if (authService == AuthServiceRegistration::REGISTERED)
+	{
+		_bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Poco::OSP::Properties());
+	}
 	_bundles.registry().registerService(TOKEN_VALIDATOR_NAME, new TestTokenValidator, Poco::OSP::Properties());
 	_bundles.registry().registerService(WebSessionManager::SERVICE_NAME, _pSessionManager, Poco::OSP::Properties());
 
@@ -810,6 +825,51 @@ void WebEventRequestHandlerTest::testUpgradeWithBearerTokenIsAdmitted()
 }
 
 
+void WebEventRequestHandlerTest::testEmptyPermissionAdmitsUnauthenticatedConnection()
+	/// An empty osp.web.event.permission turns the authentication off, also
+	/// without an auth service: a request without credentials is admitted,
+	/// and its connection belongs to no user.
+{
+	Endpoint endpoint(std::string(), std::string(), Endpoint::AuthServiceRegistration::NONE);
+
+	Poco::Net::HTTPRequest request = endpoint.upgradeRequest("?page=%2Fapp");
+	request.set("Origin", endpoint.origin());
+	Poco::Net::WebSocket ws = endpoint.upgrade(request);
+	assertEqual(1, endpoint.handlersCreated());
+	assertEqual(TEST_NOTIFICATION, subscribeAndReceive(endpoint.service(), ws));
+
+	const WebEventServiceImpl::SubscriberInfoVec subscribers = endpoint.service().listSubscribers();
+	assertEqual(1, static_cast<int>(subscribers.size()));
+	assertTrue(subscribers[0].username.empty());
+}
+
+
+void WebEventRequestHandlerTest::testEmptyPermissionKeepsOriginCheck()
+	/// With an empty osp.web.event.permission the web server does not check
+	/// the Origin header; the request handler does.
+{
+	Endpoint endpoint(std::string(), std::string(), Endpoint::AuthServiceRegistration::NONE);
+
+	Poco::Net::HTTPRequest foreign = endpoint.upgradeRequest("?page=%2Fapp");
+	foreign.set("Origin", "http://foreign.example");
+	assertEqual(STATUS_FORBIDDEN, endpoint.upgradeStatus(foreign));
+	assertEqual(1, endpoint.handlersCreated());
+	assertTrue(endpoint.service().listSubscribers().empty());
+}
+
+
+void WebEventRequestHandlerTest::testOptionalCredentialsPermissionAdmitsRequestWithoutCredentials()
+	/// The permission "**" admits a request without credentials.
+{
+	Endpoint endpoint(std::string(), std::string("**"));
+
+	Poco::Net::HTTPRequest request = endpoint.upgradeRequest("/");
+	Poco::Net::WebSocket ws = endpoint.upgrade(request);
+	assertEqual(1, endpoint.handlersCreated());
+	assertEqual(TEST_NOTIFICATION, subscribeAndReceive(endpoint.service(), ws));
+}
+
+
 void WebEventRequestHandlerTest::testConnectionBelongsToAuthenticatedUser()
 	/// Without a user resolver, a connection belongs to the user that the web
 	/// server has authenticated for its upgrade request: the subject
@@ -941,6 +1001,10 @@ CppUnit::Test* WebEventRequestHandlerTest::suite()
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testUpgradeWithoutWebSessionIgnoresCookie);
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testUpgradeWithBasicCredentialsIsAdmitted);
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testUpgradeWithBearerTokenIsAdmitted);
+	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testEmptyPermissionAdmitsUnauthenticatedConnection);
+	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testEmptyPermissionKeepsOriginCheck);
+	CppUnit_addTest(pSuite, WebEventRequestHandlerTest,
+		testOptionalCredentialsPermissionAdmitsRequestWithoutCredentials);
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testConnectionBelongsToAuthenticatedUser);
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testUserResolverReplacesAuthenticatedUser);
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testConnectionWithScopedTokenBelongsToNoUser);

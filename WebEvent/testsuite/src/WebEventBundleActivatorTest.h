@@ -27,6 +27,14 @@ public:
 
 	void testConfigIsReadFromProperties();
 	void testConfigKeepsDefaultsWithoutProperties();
+	void testCurrentBundlePropertiesAreAccepted();
+	void testOldSessionPropertyIsReported();
+	void testOldSessionPropertyIsReportedWhenReplaced();
+	void testOldPermissionPropertyIsReportedWhenReplaced();
+	void testOldSessionPropertyIsReportedWithEmptySession();
+	void testOldPermissionPropertyIsReportedWithEmptyPermission();
+	void testOldPermissionPropertyAloneStopsStart();
+	void testActivatorStartFailsWithOldPermissionPropertyAlone();
 	void testActivatorRegistersAndStopsService();
 	void testFactoryRequiresService();
 

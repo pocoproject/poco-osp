@@ -120,6 +120,12 @@ entries.
   answered with 401 otherwise. An application whose login uses a web session sets `osp.web.event.session` to the name
   of that session to keep the cookie login. `osp.web.event.permission` names the permission a user needs (default `*`:
   every user of an existing account, a comma-separated list: any one of them); a user without it is answered with 403.
+  Without an auth service (`osp.web.authServiceName`) the upgrade is answered with 503. An application without a login,
+  or one that authenticates its clients itself in a `requestReceived` delegate, sets `osp.web.event.permission` to an
+  empty value: the web server then authenticates nobody, and the `Origin` header is still checked.
+- WebEvent: the bundle properties `permission` and `websession.id` of the WebEvent bundle are not read; the settings are
+  `osp.web.event.permission` and `osp.web.event.session`. The bundle logs an error for each, and does not start if
+  `permission` is set without `osp.web.event.permission`.
 - WebEvent: a `NOTIFY` message from a client is passed on only with `osp.web.event.clientNotify` (default false).
 - WebEvent: a subscriber is removed when it subscribes to more than `osp.web.event.maxSubjects` subjects (default 64) or
   sends nothing, not even a PONG, for twice `osp.web.event.pingInterval` (default 60 s).

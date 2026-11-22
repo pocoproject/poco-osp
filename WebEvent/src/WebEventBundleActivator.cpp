@@ -70,6 +70,8 @@ public:
 	void start(BundleContext::Ptr pContext) override
 	{
 		Poco::OSP::PreferencesService::Ptr pPrefs = Poco::OSP::ServiceFinder::find<Poco::OSP::PreferencesService>(pContext);
+		WebEventServiceImpl::checkBundleProperties(pContext->thisBundle()->properties(), *pPrefs->configuration(),
+			pContext->logger());
 
 		_pWebEventService = new WebEventServiceImpl(pContext,
 			WebEventServiceImpl::Config::fromConfiguration(*pPrefs->configuration()));

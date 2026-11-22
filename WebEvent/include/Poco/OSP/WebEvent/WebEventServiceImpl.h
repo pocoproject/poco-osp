@@ -86,6 +86,17 @@ public:
 
 	[[nodiscard]] static int defaultWorkerCount();
 
+	static void checkBundleProperties(const Poco::Util::AbstractConfiguration& bundleProperties,
+		const Poco::Util::AbstractConfiguration& configuration, Poco::Logger& logger);
+		/// Checks the properties of the WebEvent bundle, which include those
+		/// of its extension bundles, for the bundle properties permission and
+		/// websession.id, which the bundle does not read. Logs an error for
+		/// each that names the setting to use instead: osp.web.event.permission
+		/// or osp.web.event.session. Throws a Poco::InvalidArgumentException if
+		/// permission is set and osp.web.event.permission is set neither in the
+		/// configuration nor in the bundle properties, so that the bundle does
+		/// not start without the restriction it is configured to apply.
+
 	struct OSPWebEvent_API Config
 		/// The settings of a WebEventServiceImpl.
 	{

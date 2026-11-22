@@ -38,6 +38,9 @@ public:
 	void testUpgradeWithoutWebSessionIgnoresCookie();
 	void testUpgradeWithBasicCredentialsIsAdmitted();
 	void testUpgradeWithBearerTokenIsAdmitted();
+	void testEmptyPermissionAdmitsUnauthenticatedConnection();
+	void testEmptyPermissionKeepsOriginCheck();
+	void testOptionalCredentialsPermissionAdmitsRequestWithoutCredentials();
 	void testConnectionBelongsToAuthenticatedUser();
 	void testUserResolverReplacesAuthenticatedUser();
 	void testConnectionWithScopedTokenBelongsToNoUser();

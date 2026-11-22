@@ -9,6 +9,7 @@
 
 
 #include "WebEventBundleActivatorTest.h"
+#include "LogCapture.h"
 #include "TemporaryBundle.h"
 #include "Poco/OSP/WebEvent/WebEventService.h"
 #include "Poco/OSP/WebEvent/WebEventServiceImpl.h"
@@ -32,6 +33,8 @@
 #include "Poco/AutoPtr.h"
 #include "Poco/ClassLoader.h"
 #include "Poco/Exception.h"
+#include "Poco/Logger.h"
+#include "Poco/Message.h"
 #include "Poco/Path.h"
 #include "Poco/TemporaryFile.h"
 #include "Poco/ThreadPool.h"
@@ -43,6 +46,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <vector>
 
 
 using Poco::OSP::WebEvent::WebEventService;
@@ -82,6 +86,10 @@ namespace
 		}
 		return static_cast<int>(response.getStatus());
 	}
+
+
+	const std::string CHECK_LOGGER("WebEventBundleActivatorTest");
+		/// The logger the checks of the bundle properties log to.
 }
 
 
@@ -127,6 +135,169 @@ void WebEventBundleActivatorTest::testConfigKeepsDefaultsWithoutProperties()
 	assertTrue (config.pingInterval == defaults.pingInterval);
 	assertTrue (config.clientNotify == defaults.clientNotify);
 	assertEqual (defaults.maxSubjects, config.maxSubjects);
+}
+
+
+void WebEventBundleActivatorTest::testCurrentBundlePropertiesAreAccepted()
+	/// The osp.web.event settings in the bundle properties are not reported.
+{
+	LogCapture capture(CHECK_LOGGER);
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pBundleProperties = new Poco::Util::MapConfiguration;
+	pBundleProperties->setString("osp.web.event.session"s, "test.session"s);
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pSettings = new Poco::Util::MapConfiguration;
+
+	WebEventServiceImpl::checkBundleProperties(*pBundleProperties, *pSettings, Poco::Logger::get(CHECK_LOGGER));
+
+	assertTrue (capture.channel().waitForMessages(0).empty());
+}
+
+
+void WebEventBundleActivatorTest::testOldSessionPropertyIsReported()
+	/// The bundle property websession.id is not read: an error names the
+	/// setting that replaces it.
+{
+	LogCapture capture(CHECK_LOGGER);
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pBundleProperties = new Poco::Util::MapConfiguration;
+	pBundleProperties->setString("websession.id"s, "test.session"s);
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pSettings = new Poco::Util::MapConfiguration;
+
+	WebEventServiceImpl::checkBundleProperties(*pBundleProperties, *pSettings, Poco::Logger::get(CHECK_LOGGER));
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
+	assertEqual (1, messages.size());
+	assertTrue (messages[0].getPriority() == Poco::Message::PRIO_ERROR);
+	assertTrue (messages[0].getText().find("osp.web.event.session"s) != std::string::npos);
+}
+
+
+void WebEventBundleActivatorTest::testOldSessionPropertyIsReportedWhenReplaced()
+	/// The bundle property websession.id is not read: with osp.web.event.session
+	/// set, the error asks to remove the bundle property and does not claim that
+	/// browsers are not authenticated by the cookie.
+{
+	LogCapture capture(CHECK_LOGGER);
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pBundleProperties = new Poco::Util::MapConfiguration;
+	pBundleProperties->setString("websession.id"s, "test.session"s);
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pSettings = new Poco::Util::MapConfiguration;
+	pSettings->setString("osp.web.event.session"s, "test.session"s);
+
+	WebEventServiceImpl::checkBundleProperties(*pBundleProperties, *pSettings, Poco::Logger::get(CHECK_LOGGER));
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
+	assertEqual (1, messages.size());
+	assertTrue (messages[0].getPriority() == Poco::Message::PRIO_ERROR);
+	assertTrue (messages[0].getText().find("Remove the bundle property"s) != std::string::npos);
+	assertTrue (messages[0].getText().find("not authenticated"s) == std::string::npos);
+}
+
+
+void WebEventBundleActivatorTest::testOldPermissionPropertyIsReportedWhenReplaced()
+	/// The bundle property permission is not read: with osp.web.event.permission
+	/// set, an error names that setting, and the bundle starts.
+{
+	LogCapture capture(CHECK_LOGGER);
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pBundleProperties = new Poco::Util::MapConfiguration;
+	pBundleProperties->setString("permission"s, "test.events.read"s);
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pSettings = new Poco::Util::MapConfiguration;
+	pSettings->setString("osp.web.event.permission"s, "test.events.read"s);
+
+	WebEventServiceImpl::checkBundleProperties(*pBundleProperties, *pSettings, Poco::Logger::get(CHECK_LOGGER));
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
+	assertEqual (1, messages.size());
+	assertTrue (messages[0].getPriority() == Poco::Message::PRIO_ERROR);
+	assertTrue (messages[0].getText().find("osp.web.event.permission"s) != std::string::npos);
+}
+
+
+void WebEventBundleActivatorTest::testOldSessionPropertyIsReportedWithEmptySession()
+	/// With osp.web.event.session set to an empty value, the error says that
+	/// browsers are not admitted by a session cookie, instead of naming a web
+	/// session.
+{
+	LogCapture capture(CHECK_LOGGER);
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pBundleProperties = new Poco::Util::MapConfiguration;
+	pBundleProperties->setString("websession.id"s, "test.session"s);
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pSettings = new Poco::Util::MapConfiguration;
+	pSettings->setString("osp.web.event.session"s, ""s);
+
+	WebEventServiceImpl::checkBundleProperties(*pBundleProperties, *pSettings, Poco::Logger::get(CHECK_LOGGER));
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
+	assertEqual (1, messages.size());
+	assertTrue (messages[0].getPriority() == Poco::Message::PRIO_ERROR);
+	assertTrue (messages[0].getText().find("osp.web.event.session is empty"s) != std::string::npos);
+}
+
+
+void WebEventBundleActivatorTest::testOldPermissionPropertyIsReportedWithEmptyPermission()
+	/// With osp.web.event.permission set to an empty value, the error says
+	/// that the web server does not authenticate the upgrade requests, instead
+	/// of naming a permission.
+{
+	LogCapture capture(CHECK_LOGGER);
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pBundleProperties = new Poco::Util::MapConfiguration;
+	pBundleProperties->setString("permission"s, "test.events.read"s);
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pSettings = new Poco::Util::MapConfiguration;
+	pSettings->setString("osp.web.event.permission"s, ""s);
+
+	WebEventServiceImpl::checkBundleProperties(*pBundleProperties, *pSettings, Poco::Logger::get(CHECK_LOGGER));
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
+	assertEqual (1, messages.size());
+	assertTrue (messages[0].getPriority() == Poco::Message::PRIO_ERROR);
+	assertTrue (messages[0].getText().find("osp.web.event.permission is empty"s) != std::string::npos);
+	assertTrue (messages[0].getText().find("does not authenticate"s) != std::string::npos);
+}
+
+
+void WebEventBundleActivatorTest::testOldPermissionPropertyAloneStopsStart()
+	/// The bundle property permission without osp.web.event.permission would
+	/// leave the WebEvent endpoint without the configured restriction.
+{
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pBundleProperties = new Poco::Util::MapConfiguration;
+	pBundleProperties->setString("permission"s, "test.events.read"s);
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pSettings = new Poco::Util::MapConfiguration;
+
+	try
+	{
+		WebEventServiceImpl::checkBundleProperties(*pBundleProperties, *pSettings, Poco::Logger::get(CHECK_LOGGER));
+		fail("the bundle must not start with the bundle property permission alone");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+}
+
+
+void WebEventBundleActivatorTest::testActivatorStartFailsWithOldPermissionPropertyAlone()
+	/// The start checks the bundle properties: with the bundle property
+	/// permission alone it fails, and no service is registered; with
+	/// osp.web.event.permission set as well, the same bundle starts.
+{
+	TemporaryBundle bundles("permission = test.events.read\n"s);
+	Poco::TemporaryFile persistency;
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pSettings = new Poco::Util::MapConfiguration;
+	registerPreferences(bundles, persistency, pSettings);
+
+	Poco::ClassLoader<Poco::OSP::BundleActivator> activatorLoader;
+	activatorLoader.loadLibrary(WEBEVENT_BUNDLE_LIBRARY);
+	std::unique_ptr<Poco::OSP::BundleActivator> pActivator(
+		activatorLoader.create("Poco::OSP::WebEvent::WebEventBundleActivator"s));
+	try
+	{
+		pActivator->start(bundles.context());
+		fail("the bundle must not start with the bundle property permission alone");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+	assertTrue (bundles.registry().findByName(WebEventService::SERVICE_NAME) == nullptr);
+
+	pSettings->setString("osp.web.event.permission"s, "test.events.read"s);
+	pActivator->start(bundles.context());
+	assertTrue (bundles.registry().findByName(WebEventService::SERVICE_NAME) != nullptr);
+	pActivator->stop(bundles.context());
 }
 
 
@@ -217,6 +388,14 @@ CppUnit::Test* WebEventBundleActivatorTest::suite()
 
 	CppUnit_addTest(pSuite, WebEventBundleActivatorTest, testConfigIsReadFromProperties);
 	CppUnit_addTest(pSuite, WebEventBundleActivatorTest, testConfigKeepsDefaultsWithoutProperties);
+	CppUnit_addTest(pSuite, WebEventBundleActivatorTest, testCurrentBundlePropertiesAreAccepted);
+	CppUnit_addTest(pSuite, WebEventBundleActivatorTest, testOldSessionPropertyIsReported);
+	CppUnit_addTest(pSuite, WebEventBundleActivatorTest, testOldSessionPropertyIsReportedWhenReplaced);
+	CppUnit_addTest(pSuite, WebEventBundleActivatorTest, testOldPermissionPropertyIsReportedWhenReplaced);
+	CppUnit_addTest(pSuite, WebEventBundleActivatorTest, testOldSessionPropertyIsReportedWithEmptySession);
+	CppUnit_addTest(pSuite, WebEventBundleActivatorTest, testOldPermissionPropertyIsReportedWithEmptyPermission);
+	CppUnit_addTest(pSuite, WebEventBundleActivatorTest, testOldPermissionPropertyAloneStopsStart);
+	CppUnit_addTest(pSuite, WebEventBundleActivatorTest, testActivatorStartFailsWithOldPermissionPropertyAlone);
 	CppUnit_addTest(pSuite, WebEventBundleActivatorTest, testActivatorRegistersAndStopsService);
 	CppUnit_addTest(pSuite, WebEventBundleActivatorTest, testFactoryRequiresService);
 

@@ -419,6 +419,60 @@ WebEventServiceImpl::Config WebEventServiceImpl::Config::fromConfiguration(
 }
 
 
+void WebEventServiceImpl::checkBundleProperties(const Poco::Util::AbstractConfiguration& bundleProperties,
+	const Poco::Util::AbstractConfiguration& configuration, Poco::Logger& logger)
+{
+	// The web server takes these settings from the configuration first, then from the bundle properties.
+	if (bundleProperties.has("websession.id"))
+	{
+		if (!configuration.has("osp.web.event.session") && !bundleProperties.has("osp.web.event.session"))
+		{
+			logger.error("The bundle property websession.id of the WebEvent bundle is not read, so browsers are not "
+				"authenticated by the cookie of that web session; set osp.web.event.session to its name instead.");
+		}
+		else
+		{
+			const std::string session = configuration.getString("osp.web.event.session",
+				bundleProperties.getString("osp.web.event.session", ""));
+			if (session.empty())
+			{
+				logger.error("The bundle property websession.id of the WebEvent bundle is not read; "
+					"osp.web.event.session is empty, so browsers are not admitted by a session cookie. Remove the "
+					"bundle property.");
+			}
+			else
+			{
+				logger.error(Poco::format("The bundle property websession.id of the WebEvent bundle is not read; the "
+					"web session is %s, set by osp.web.event.session. Remove the bundle property.",
+					Poco::UTF8::escape(session)));
+			}
+		}
+	}
+	if (bundleProperties.has("permission"))
+	{
+		if (!configuration.has("osp.web.event.permission") && !bundleProperties.has("osp.web.event.permission"))
+		{
+			throw Poco::InvalidArgumentException("The bundle property permission of the WebEvent bundle is not read, "
+				"and osp.web.event.permission, which replaces it, is not set");
+		}
+		const std::string permission = configuration.getString("osp.web.event.permission",
+			bundleProperties.getString("osp.web.event.permission", ""));
+		if (permission.empty())
+		{
+			logger.error("The bundle property permission of the WebEvent bundle is not read; osp.web.event.permission "
+				"is empty, so the web server does not authenticate WebEvent upgrade requests. Remove the bundle "
+				"property.");
+		}
+		else
+		{
+			logger.error(Poco::format("The bundle property permission of the WebEvent bundle is not read; the "
+				"permission is %s, set by osp.web.event.permission. Remove the bundle property.",
+				Poco::UTF8::escape(permission)));
+		}
+	}
+}
+
+
 WebEventServiceImpl::WebEventServiceImpl(Poco::OSP::BundleContext::Ptr pContext):
 	WebEventServiceImpl(std::move(pContext), Config())
 {

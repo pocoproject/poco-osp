@@ -124,6 +124,13 @@ class OSPWebEvent_API WebEventService: public Poco::OSP::Service
 	/// the permission with 403 Forbidden. A connection that has been
 	/// admitted may subscribe to every subject that the subject authorizer,
 	/// if one is installed, allows (see setSubjectAuthorizer()).
+	///
+	/// An empty osp.web.event.permission turns the authentication off, for
+	/// applications that authenticate their clients themselves: the web
+	/// server admits every upgrade request, the connection has no user
+	/// unless a user resolver gives it one, the Origin header is still
+	/// checked, and a delegate of requestReceived decides. "**" is not a
+	/// substitute: it refuses credentials that the web server cannot check.
 {
 public:
 	using Ptr = Poco::AutoPtr<WebEventService>;
