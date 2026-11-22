@@ -107,7 +107,20 @@ subdirectories of the directory specified in <[path]>. The following values are 
   - <[all]>: any bundle can map resources or request handlers to subdirectories
 
 The <[description]> attribute can be used to provide a textual description of the resource to be found at the path.
-The <[path]> and <[description]> attributes can contain references to bundle properties (in the usual form ${property}).
+The values of the attributes <[path]>, <[pattern]>, <[methods]>, <[description]>, <[realm]>, <[permission]>,
+<[session]>, <[csrfTokenHeader]>, <[allowWebSocketOrigin]>, <[allowOrigin]>, <[allowMethods]>, <[allowHeaders]> and
+<[redirectOn401]> can contain property references, in the form ${property} or ${property:-default}. A reference to a
+property whose name starts with <[osp.]> is resolved in the application configuration; if the application
+configuration does not have the property, it is resolved in the bundle properties. Other references are resolved in
+the bundle properties only. A bundle can so leave a setting of its extension to the application configuration, with a
+default for an application that does not set it:
+
+    <extension point="osp.web.server.requesthandler"
+               path="/sample/events"
+               class="SampleRequestHandlerFactory"
+               permission="${osp.sample.permission:-*}"
+               session="${osp.sample.session:-}"/>
+----
 
 If resource caching has been enabled in the OSP Web configuration (see below), resources will be kept in a cache
 in memory. This can significantly speed up the server, at the cost of increased memory usage. Resource directories
@@ -200,9 +213,7 @@ The following attributes are supported for request handlers. The attributes othe
     An upgrade request from another origin is answered with 403 Forbidden before its credentials or its
     session cookie are checked, so that a page of another site cannot use or extend the user's session.
     Requests without an "Origin" header (clients other than browsers) and requests that are not WebSocket
-    upgrades are not affected. Property references in the value are resolved in the application
-    configuration, then in the bundle properties; the WebEvent bundle sets
-    <[allowWebSocketOrigin="${osp.web.event.allowedOrigins:-}"]>.
+    upgrades are not affected.
   - <[cors]>: If "true", enable CORS (Cross-Origin Resource Sharing), and CORS preflight requests
     as well as CORS response headers will be handled by the framework.
   - <[allowOrigin]>: Specify the allowed origins for CORS requests: "*", "**" or a comma-separated

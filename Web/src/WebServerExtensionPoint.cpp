@@ -18,15 +18,20 @@
 #include "Poco/OSP/Web/WebRequestHandlerFactory.h"
 #include "LibraryReference.h"
 #include "Poco/OSP/OSPException.h"
+#include "Poco/OSP/Configuration.h"
 #include "Poco/OSP/ExtensionPointService.h"
 #include "Poco/StringTokenizer.h"
 #include "Poco/String.h"
 #include "Poco/OSP/PreferencesService.h"
 #include "Poco/OSP/ServiceRef.h"
 #include "Poco/OSP/ServiceRegistry.h"
+#include "Poco/Util/AbstractConfiguration.h"
 #include "Poco/SharedPtr.h"
 #include "Poco/Bugcheck.h"
+#include <algorithm>
+#include <string>
 #include <memory>
+#include <string_view>
 #include <utility>
 
 
@@ -34,6 +39,40 @@ using Poco::FastMutex;
 
 
 namespace Poco::OSP::Web {
+
+
+namespace
+{
+	std::string expandAttribute(
+		std::string_view value,
+		const Configuration* pAppConfig,
+		const Poco::Util::AbstractConfiguration& bundleProperties)
+		/// Replaces each reference to a key that starts with "osp." and is in the application
+		/// configuration with the key's value there, then expands the other references with
+		/// the bundle properties.
+	{
+		static constexpr std::string_view APPLICATION_KEY_PREFIX("osp.");
+
+		std::string result;
+		std::string_view::size_type pos = 0;
+		while (pAppConfig != nullptr && pos < value.size())
+		{
+			const std::string_view::size_type begin = value.find("${", pos);
+			if (begin == std::string_view::npos) break;
+			const std::string_view::size_type end = value.find('}', begin);
+			if (end == std::string_view::npos) break;
+			const std::string key(value.substr(begin + 2, std::min(end, value.find(":-", begin)) - begin - 2));
+			result.append(value, pos, begin - pos);
+			if (key.starts_with(APPLICATION_KEY_PREFIX) && pAppConfig->has(key))
+				result += pAppConfig->getString(key);
+			else
+				result.append(value, begin, end + 1 - begin);
+			pos = end + 1;
+		}
+		result.append(value.substr(pos));
+		return bundleProperties.expand(result);
+	}
+}
 
 
 const std::string WebServerExtensionPoint::EXTPOINT_DIRECTORY("osp.web.server.directory");
@@ -112,14 +151,16 @@ void WebServerExtensionPoint::handleRequestHandler(Bundle::ConstPtr pBundle, Poc
 	WebServerDispatcher::VirtualPath vPath;
 	handleCommon(pBundle, pExtensionElem, vPath);
 
-	std::string pattern = pBundle->properties().expand(pExtensionElem->getAttribute(ATTR_PATTERN));
+	const Configuration::Ptr pAppConfig = applicationConfiguration();
+	const Poco::Util::AbstractConfiguration& bundleProperties = pBundle->properties();
+	std::string pattern = expandAttribute(pExtensionElem->getAttribute(ATTR_PATTERN), pAppConfig, bundleProperties);
 	if (!pattern.empty())
 	{
 		vPath.pPattern = new Poco::RegularExpression(pattern, Poco::RegularExpression::RE_ANCHORED);
 		vPath.path     = pattern;
 	}
 
-	std::string methods = pBundle->properties().expand(pExtensionElem->getAttribute(ATTR_METHODS));
+	std::string methods = expandAttribute(pExtensionElem->getAttribute(ATTR_METHODS), pAppConfig, bundleProperties);
 	if (!methods.empty())
 	{
 		Poco::StringTokenizer tok(methods, ",;", Poco::StringTokenizer::TOK_TRIM | Poco::StringTokenizer::TOK_IGNORE_EMPTY);
@@ -144,39 +185,39 @@ void WebServerExtensionPoint::handleRequestHandler(Bundle::ConstPtr pBundle, Poc
 
 void WebServerExtensionPoint::handleCommon(Bundle::ConstPtr pBundle, Poco::XML::Element* pExtensionElem, WebServerDispatcher::VirtualPath& vPath)
 {
+	const Configuration::Ptr pAppConfig = applicationConfiguration();
+	const auto expand = [&](const std::string& name)
+	{
+		return expandAttribute(pExtensionElem->getAttribute(name), pAppConfig, pBundle->properties());
+	};
 	vPath.pOwnerBundle             = pBundle;
-	vPath.path                     = pBundle->properties().expand(pExtensionElem->getAttribute(ATTR_PATH));
-	vPath.description              = pBundle->properties().expand(pExtensionElem->getAttribute(ATTR_DESCRIPTION));
-	vPath.security.realm           = pBundle->properties().expand(pExtensionElem->getAttribute(ATTR_REALM));
-	vPath.security.permission      = pBundle->properties().expand(pExtensionElem->getAttribute(ATTR_PERMISSION));
+	vPath.path                     = expand(ATTR_PATH);
+	vPath.description              = expand(ATTR_DESCRIPTION);
+	vPath.security.realm           = expand(ATTR_REALM);
+	vPath.security.permission      = expand(ATTR_PERMISSION);
 	vPath.security.authMethods     = WebServerDispatcher::parseAuthMethods(pExtensionElem->getAttribute(ATTR_AUTHMETHODS));
-	vPath.security.session         = pBundle->properties().expand(pExtensionElem->getAttribute(ATTR_SESSION));
+	vPath.security.session         = expand(ATTR_SESSION);
 	vPath.security.secure          = pExtensionElem->getAttribute(ATTR_SECURE) == "true";
 	vPath.security.csrfProtection  = pExtensionElem->getAttribute(ATTR_CSRFPROTECTION) == "true";
-	vPath.security.csrfTokenHeader = pBundle->properties().expand(pExtensionElem->getAttribute(ATTR_CSRFTOKENHEADER));
+	vPath.security.csrfTokenHeader = expand(ATTR_CSRFTOKENHEADER);
 	vPath.cors.enable              = pExtensionElem->getAttribute(ATTR_CORS) == "true";
-	vPath.cors.allowOrigin         = pBundle->properties().expand(pExtensionElem->getAttribute(ATTR_ALLOWORIGIN));
-	vPath.cors.allowMethods        = pBundle->properties().expand(pExtensionElem->getAttribute(ATTR_ALLOWMETHODS));
+	vPath.cors.allowOrigin         = expand(ATTR_ALLOWORIGIN);
+	vPath.cors.allowMethods        = expand(ATTR_ALLOWMETHODS);
 	vPath.cors.allowCredentials    = pExtensionElem->getAttribute(ATTR_ALLOWCREDENTIALS) != "false";
-	vPath.cors.allowHeaders        = pBundle->properties().expand(pExtensionElem->getAttribute(ATTR_ALLOWHEADERS));
+	vPath.cors.allowHeaders        = expand(ATTR_ALLOWHEADERS);
 	vPath.hidden                   = pExtensionElem->getAttribute(ATTR_HIDDEN) == "true";
 	vPath.cache                    = pExtensionElem->getAttribute(ATTR_CACHE) != "false";
 	vPath.exactMatch               = pExtensionElem->getAttribute(ATTR_EXACTMATCH) == "true";
-	vPath.redirectOn401            = pBundle->properties().expand(pExtensionElem->getAttribute(ATTR_REDIRECTON401));
+	vPath.redirectOn401            = expand(ATTR_REDIRECTON401);
 	// Fall back to a global default from PreferencesService so admins can set
 	// one login redirect for all directory/handler extensions instead of
 	// repeating it on every bundle. Bundle-local properties don't include the
 	// global app config; PreferencesService::configuration() does.
-	const Configuration::Ptr pAppConfig = applicationConfiguration();
 	if (vPath.redirectOn401.empty() && pAppConfig != nullptr)
 	{
 		vPath.redirectOn401 = pAppConfig->getString("osp.web.redirectOn401", "");
 	}
-	// The application configuration first: the bundle properties do not contain it, and would
-	// replace a reference with a default, such as ${osp.web.event.allowedOrigins:-}, by the default.
-	std::string allowWebSocketOrigin = pExtensionElem->getAttribute(ATTR_ALLOWWEBSOCKETORIGIN);
-	if (pAppConfig != nullptr) allowWebSocketOrigin = pAppConfig->expand(allowWebSocketOrigin);
-	vPath.security.allowWebSocketOrigin = pBundle->properties().expand(allowWebSocketOrigin);
+	vPath.security.allowWebSocketOrigin = expand(ATTR_ALLOWWEBSOCKETORIGIN);
 
 	if (vPath.security.csrfProtection && vPath.security.csrfTokenHeader.empty())
 	{

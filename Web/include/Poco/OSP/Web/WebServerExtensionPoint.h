@@ -88,8 +88,7 @@ class OSPWeb_API WebServerExtensionPoint: public ExtensionPoint
 	///                   with a permission (also "*" or "**"). Origins are compared without regard
 	///                   to case.
 	///                   An upgrade from another origin is answered with 403 Forbidden before the
-	///                   credentials are checked. Property references are resolved in the
-	///                   application configuration, then in the bundle properties.
+	///                   credentials are checked.
 	///    * hidden:      If "true", path is not included by WebServerDispatcher::listVirtualPaths().
 	///    * redirectOn401:
 	///                   For "osp.web.server.directory" only: if a GET request would result in a
@@ -163,6 +162,13 @@ class OSPWeb_API WebServerExtensionPoint: public ExtensionPoint
 	///                   must have different fully qualified names (for example in a namespace of the bundle),
 	///                   as the dynamic linker can bind a class to one with the same name in another bundle.
 	///    * library:     The name of the shared library containing the request handler factory.
+	///
+	/// The values of the attributes path, pattern, methods, description, realm, permission, session,
+	/// csrfTokenHeader, allowWebSocketOrigin, allowOrigin, allowMethods, allowHeaders and redirectOn401
+	/// can contain property references (${property} or ${property:-default}). A reference to a property
+	/// whose name starts with "osp." is resolved in the application configuration of the
+	/// PreferencesService, and in the bundle properties if the application configuration does not have
+	/// the property; other references are resolved in the bundle properties only.
 {
 public:
 	WebServerExtensionPoint() = delete;

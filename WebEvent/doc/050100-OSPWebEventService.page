@@ -563,9 +563,10 @@ Note that behind a proxy that terminates TLS, the service sees plain HTTP
 connections, and the public origin of the pages (for example
 "https://app.example.com") must be listed here.
 
-With a permission set, the web server refuses an upgrade from an origin that
-is not allowed before the service sees it, and logs the refusal at debug level
-only.
+The extension of the bundle passes the list to the web server as well
+(allowWebSocketOrigin="${osp.web.event.allowedOrigins:-}"), so with a
+permission set, the web server refuses an upgrade from an origin that is not
+allowed before the service sees it, and logs the refusal at debug level only.
 
 
 !! osp.web.event.clientNotify

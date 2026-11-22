@@ -25,6 +25,7 @@
 #include "Poco/Net/HTTPRequestHandler.h"
 #include "Poco/DOM/Document.h"
 #include "Poco/DOM/Element.h"
+#include "Poco/Util/AbstractConfiguration.h"
 #include "Poco/Util/MapConfiguration.h"
 #include "Poco/AutoPtr.h"
 #include <map>
@@ -78,6 +79,14 @@ namespace
 		}
 		return pExtensionPoint->parse(bundle.bundle(), pElem);
 	}
+
+	void registerApplicationConfiguration(TemporaryBundle& bundle, Poco::Util::AbstractConfiguration* pConfig)
+		/// Registers a PreferencesService whose application configuration is the given one.
+	{
+		bundle.registry().registerService(Poco::OSP::PreferencesService::SERVICE_NAME,
+			new Poco::OSP::PreferencesService(bundle.context()->persistentDirectory(), pConfig),
+			Poco::OSP::Properties());
+	}
 }
 
 
@@ -91,7 +100,11 @@ WebServerExtensionPointTest::~WebServerExtensionPointTest() = default;
 
 void WebServerExtensionPointTest::setUp()
 {
-	_pBundle = std::make_unique<TemporaryBundle>("web.path = /app\nweb.origin = https://bundle.example\n");
+	_pBundle = std::make_unique<TemporaryBundle>(
+		"web.path = /app\n"
+		"web.origin = https://bundle.example\n"
+		"osp.test.realm = bundle realm\n"
+		"osp.test.permission = bundle.permission\n");
 }
 
 
@@ -149,12 +162,34 @@ void WebServerExtensionPointTest::testAllowWebSocketOriginResolvesReferences()
 	assertEqual (std::string(), allowWebSocketOrigin(applicationReference));
 
 	Poco::AutoPtr<Poco::Util::MapConfiguration> pApplicationConfig(new Poco::Util::MapConfiguration);
-	_pBundle->registry().registerService(Poco::OSP::PreferencesService::SERVICE_NAME,
-		new Poco::OSP::PreferencesService(_pBundle->context()->persistentDirectory(), pApplicationConfig), Poco::OSP::Properties());
+	registerApplicationConfiguration(*_pBundle, pApplicationConfig);
 	assertEqual (std::string(), allowWebSocketOrigin(applicationReference));
 
 	pApplicationConfig->setString("osp.web.event.allowedOrigins", "https://app.example");
 	assertEqual (std::string("https://app.example,https://bundle.example"), allowWebSocketOrigin(applicationReference + ",${web.origin}"));
+}
+
+
+void WebServerExtensionPointTest::testOspReferencesResolveInApplicationConfiguration()
+{
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pApplicationConfig(new Poco::Util::MapConfiguration);
+	pApplicationConfig->setString("osp.test.session", "test.login");
+	pApplicationConfig->setString("osp.test.permission", "test.events.read");
+	pApplicationConfig->setString("web.path", "/application");
+	registerApplicationConfiguration(*_pBundle, pApplicationConfig);
+
+	WebServerDispatcher::VirtualPath vPath = parseCommon(*_pBundle, {
+		{"path", "${web.path}/events"},
+		{"session", "${osp.test.session:-}"},
+		{"permission", "${osp.test.permission:-*}"},
+		{"realm", "${osp.test.realm}"},
+		{"description", "${osp.test.description:-Test events}"}});
+
+	assertEqual (std::string("/app/events"), vPath.path);
+	assertEqual (std::string("test.login"), vPath.security.session);
+	assertEqual (std::string("test.events.read"), vPath.security.permission);
+	assertEqual (std::string("bundle realm"), vPath.security.realm);
+	assertEqual (std::string("Test events"), vPath.description);
 }
 
 
@@ -235,6 +270,7 @@ CppUnit::Test* WebServerExtensionPointTest::suite()
 	CppUnit_addTest(pSuite, WebServerExtensionPointTest, testCommonAttributes);
 	CppUnit_addTest(pSuite, WebServerExtensionPointTest, testCommonAttributeDefaults);
 	CppUnit_addTest(pSuite, WebServerExtensionPointTest, testAllowWebSocketOriginResolvesReferences);
+	CppUnit_addTest(pSuite, WebServerExtensionPointTest, testOspReferencesResolveInApplicationConfiguration);
 	CppUnit_addTest(pSuite, WebServerExtensionPointTest, testInvalidAllowSpecialization);
 	CppUnit_addTest(pSuite, WebServerExtensionPointTest, testInvalidResponseFormat);
 #if defined(OSPWEB_TEST_LIBRARY)

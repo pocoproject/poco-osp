@@ -71,6 +71,8 @@ other changes that are not listed here. The release notes (`doc/99100-OSPRelease
   `X-OSP-Authorized-*` headers.
 - Auth/AuthCommand, BundleAdmin, Shell: the `auth` command, and `passwd` for another user, check `authAdmin`;
   BundleAdmin and the bundle commands of the shell check `bundleAdmin`; `loglevel` checks `logAdmin`.
+- Web: a reference to a property whose name starts with `osp.` in a web server extension attribute takes the value of
+  the application configuration when it has one, before the bundle property of that name.
 - Web: `WebServerDispatcher::addFilter()` takes the bundle of the filter factory, `WebSessionStore::saveTimeout()` is
   pure virtual, and some functions of `MediaTypeMapper` and `WebSession` return a copy instead of a reference.
 - Web: a `permission` with several comma-separated permissions is granted to a user who has any one of them.
@@ -162,6 +164,9 @@ other changes that are not listed here. The release notes (`doc/99100-OSPRelease
 - OSP: the manifest header `Bundle-Description` states what a bundle is and does; `Bundle::description()` returns it
   with bundle properties expanded. The bndlspec element `<description>` gives it, written as one line, whitespace
   collapsed.
+- Web: in the attributes of a web server extension that accept property references (see the Web manual), a reference
+  to a property whose name starts with `osp.` is resolved in the application configuration, then in the bundle properties;
+  other references are resolved in the bundle properties only.
 - WebEvent: the event `WebEventService::initialDataRequested` lets an application answer a new subscription with the
   current value of the subject, sent to the subscribing socket only.
 - WebEvent: `WebEventService::setSubjectAuthorizer()` installs a function that decides, with the user of the
