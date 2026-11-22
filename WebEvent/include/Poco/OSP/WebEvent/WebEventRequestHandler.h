@@ -36,8 +36,8 @@ class OSPWebEvent_API WebEventRequestHandler: public Poco::Net::HTTPRequestHandl
 	/// the first SUBSCRIBE.
 	///
 	/// The handler does not authenticate the request itself: the bundle's
-	/// web server extension declares a permission and, if the bundle
-	/// property websession.id names one, a web session, so the
+	/// web server extension declares a permission and, if the setting
+	/// osp.web.event.session names one, a web session, so the
 	/// WebServerDispatcher authenticates and authorizes the upgrade request
 	/// before it creates the handler, and answers a refused request with
 	/// 401 Unauthorized or 403 Forbidden. The handler then checks the Origin

@@ -29,6 +29,7 @@ public:
 	~WebEventRequestHandlerTest() override;
 
 	void testExtensionRequiresAuthentication();
+	void testExtensionTakesSettingsFromConfiguration();
 	void testUnauthenticatedUpgradeIsRefused();
 	void testUnauthorizedUpgradeIsRefused();
 	void testUpgradeWithoutPermissionIsRefused();

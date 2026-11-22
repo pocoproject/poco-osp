@@ -14,11 +14,14 @@
 #include "Poco/OSP/WebEvent/WebEventServiceImpl.h"
 #include "Poco/OSP/Web/TokenValidator.h"
 #include "Poco/OSP/Web/WebServerDispatcher.h"
+#include "Poco/OSP/Web/WebServerExtensionPoint.h"
 #include "Poco/OSP/Web/WebServerRequestHandlerFactory.h"
 #include "Poco/OSP/Web/WebSession.h"
 #include "Poco/OSP/Web/WebSessionManager.h"
 #include "Poco/OSP/Auth/AuthService.h"
+#include "Poco/OSP/Bundle.h"
 #include "Poco/OSP/BundleContext.h"
+#include "Poco/OSP/PreferencesService.h"
 #include "Poco/OSP/Properties.h"
 #include "Poco/Net/HTTPBasicCredentials.h"
 #include "Poco/Net/HTTPClientSession.h"
@@ -42,7 +45,7 @@
 #include "Poco/DOM/Element.h"
 #include "Poco/DOM/NodeList.h"
 #include "Poco/SAX/InputSource.h"
-#include "Poco/Util/PropertyFileConfiguration.h"
+#include "Poco/Util/MapConfiguration.h"
 #include "Poco/AutoPtr.h"
 #include "Poco/Bugcheck.h"
 #include "Poco/Delegate.h"
@@ -52,6 +55,7 @@
 #include "Poco/FileStream.h"
 #include "Poco/Path.h"
 #include "Poco/SharedPtr.h"
+#include "Poco/StreamCopier.h"
 #include "Poco/ThreadPool.h"
 #include "Poco/Timespan.h"
 #include "Poco/Types.h"
@@ -93,7 +97,7 @@ const std::string READER_TOKEN("reader-token");
 	/// The only bearer token the token validator accepts, a token of READER.
 
 const std::string RESTRICTED_PERMISSION("test.events.read");
-	/// A permission name to restrict the endpoint to, as bundle.properties allows.
+	/// A permission name to restrict the endpoint to, as osp.web.event.permission allows.
 
 const std::string AUTH_SERVICE_NAME("test.auth");
 
@@ -239,28 +243,54 @@ private:
 };
 
 
-struct Extension
-	/// The attributes of the bundle's request handler extension that decide
-	/// whether the web server lets a request through to the handler.
-{
-	std::string path;
-	std::string permission;
-	std::string session;
-	std::string realm;
-	std::string authMethods;
-};
-
-
-Extension shippedExtension()
-	/// Returns the request handler extension as the WebEvent bundle ships it,
-	/// read from the bundle's sources and expanded with the bundle's
-	/// properties, as the web server's extension point expands it.
+Poco::Path shippedBundleFile(const std::string& name)
+	/// Returns the path of a file in the bundle directory of the WebEvent
+	/// bundle's sources.
 {
 	Poco::Path bundleDir(Poco::Path::forDirectory(Poco::Environment::get("POCO_BASE")));
 	bundleDir.pushDirectory("WebEvent");
 	bundleDir.pushDirectory("bundle");
-	Poco::AutoPtr<Poco::Util::PropertyFileConfiguration> pProperties = new Poco::Util::PropertyFileConfiguration(Poco::Path(bundleDir, "bundle.properties").toString());
-	const std::string extensionsPath(Poco::Path(bundleDir, "extensions.xml").toString());
+	return Poco::Path(bundleDir, name);
+}
+
+
+std::string shippedProperties()
+	/// Returns the bundle.properties file of the WebEvent bundle.
+{
+	Poco::FileInputStream stream(shippedBundleFile("bundle.properties").toString());
+	std::string properties;
+	Poco::StreamCopier::copyToString(stream, properties);
+	return properties;
+}
+
+
+class ExtensionMapper: public Poco::OSP::Web::WebServerExtensionPoint
+	/// Maps an extension as the web server's extension point does, without
+	/// loading the library of its request handler factory.
+{
+public:
+	ExtensionMapper(Poco::OSP::BundleContext::Ptr pContext, WebServerDispatcher* pDispatcher):
+		WebServerExtensionPoint(std::move(pContext), pDispatcher)
+	{
+	}
+
+	[[nodiscard]] WebServerDispatcher::VirtualPath map(
+		const Poco::OSP::Bundle::Ptr& pBundle,
+		Poco::XML::Element* pElement)
+	{
+		WebServerDispatcher::VirtualPath vPath;
+		handleCommon(pBundle, pElement, vPath);
+		return vPath;
+	}
+};
+
+
+WebServerDispatcher::VirtualPath shippedExtension(const TemporaryBundle& bundles, WebServerDispatcher& dispatcher)
+	/// Returns the virtual path that the web server's extension point maps for
+	/// the request handler extension of the WebEvent bundle, read from the
+	/// bundle's sources, as an extension of the directory bundle of bundles.
+{
+	const std::string extensionsPath(shippedBundleFile("extensions.xml").toString());
 	Poco::FileInputStream extensionsStream(extensionsPath);
 	Poco::XML::InputSource source(extensionsStream);
 	Poco::XML::DOMParser parser;
@@ -268,16 +298,11 @@ Extension shippedExtension()
 	Poco::AutoPtr<Poco::XML::NodeList> pExtensions = pDocument->getElementsByTagName("extension");
 	for (unsigned long i = 0; i < pExtensions->length(); ++i)
 	{
-		const auto* pElement = static_cast<const Poco::XML::Element*>(pExtensions->item(i));
+		auto* pElement = static_cast<Poco::XML::Element*>(pExtensions->item(i));
 		if (pElement->getAttribute("point") == "osp.web.server.requesthandler" && pElement->getAttribute("class") == "Poco::OSP::WebEvent::WebEventRequestHandlerFactory")
 		{
-			Extension extension;
-			extension.path        = pProperties->expand(pElement->getAttribute("path"));
-			extension.permission  = pProperties->expand(pElement->getAttribute("permission"));
-			extension.session     = pProperties->expand(pElement->getAttribute("session"));
-			extension.realm       = pProperties->expand(pElement->getAttribute("realm"));
-			extension.authMethods = pElement->getAttribute("authMethods");
-			return extension;
+			Poco::AutoPtr<ExtensionMapper> pMapper(new ExtensionMapper(bundles.context(), &dispatcher));
+			return pMapper->map(bundles.bundle(), pElement);
 		}
 	}
 	throw Poco::NotFoundException("WebEvent request handler extension", extensionsPath);
@@ -287,15 +312,16 @@ Extension shippedExtension()
 class Endpoint
 	/// The WebEvent endpoint as the web server serves it, on a loopback port:
 	/// a WebServerDispatcher that maps the bundle's request handler extension
-	/// as the bundle declares it, with the accounts of TestAuthService, the
-	/// token of TestTokenValidator, a web session manager, and a login path
-	/// that opens web sessions.
+	/// as the web server's extension point does, with the accounts of
+	/// TestAuthService, the token of TestTokenValidator, a web session manager,
+	/// and a login path that opens web sessions.
 {
 public:
 	explicit Endpoint(const std::string& session = std::string(), const std::string& permission = std::string());
-		/// Creates the endpoint, mapped with the given web session and
-		/// permission in place of the ones the bundle declares, if they are
-		/// given. The login path logs users in to LOGIN_SESSION.
+		/// Creates the endpoint, with the given web session and permission as
+		/// osp.web.event.session and osp.web.event.permission in the
+		/// application configuration, if they are given. The login path logs
+		/// users in to LOGIN_SESSION.
 
 	~Endpoint();
 		/// Stops the service and the server.
@@ -307,6 +333,10 @@ public:
 
 	[[nodiscard]] WebEventServiceImpl& service();
 		/// Returns the WebEvent service behind the endpoint.
+
+	[[nodiscard]] const WebServerDispatcher::VirtualPath& webEventPath() const;
+		/// Returns the virtual path of the WebEvent endpoint, as the web
+		/// server's extension point maps the bundle's extension.
 
 	[[nodiscard]] int handlersCreated() const;
 		/// Returns the number of requests the dispatcher has let through to
@@ -340,7 +370,7 @@ private:
 	// Declared first, so that the services registered with its registry
 	// and the bundle context outlive everything below.
 	TemporaryBundle _bundles;
-	Extension _extension;
+	WebServerDispatcher::VirtualPath _webEventPath;
 	WebSessionManager::Ptr _pSessionManager;
 	WebEventServiceImpl::Ptr _pService;
 	Poco::SharedPtr<WebEventHandlerFactory> _pHandlerFactory;
@@ -352,8 +382,7 @@ private:
 
 
 Endpoint::Endpoint(const std::string& session, const std::string& permission):
-	_bundles(""),
-	_extension(shippedExtension()),
+	_bundles(shippedProperties()),
 	_pSessionManager(new WebSessionManager(_bundles.context()))
 {
 	WebEventServiceImpl::Config config;
@@ -361,9 +390,12 @@ Endpoint::Endpoint(const std::string& session, const std::string& permission):
 	_pService = new WebEventServiceImpl(_bundles.context(), config);
 	_pHandlerFactory = new WebEventHandlerFactory(_pService);
 
-	if (!session.empty()) _extension.session = session;
-	if (!permission.empty()) _extension.permission = permission;
-
+	Poco::AutoPtr<Poco::Util::MapConfiguration> pSettings = new Poco::Util::MapConfiguration;
+	if (!session.empty()) pSettings->setString("osp.web.event.session", session);
+	if (!permission.empty()) pSettings->setString("osp.web.event.permission", permission);
+	_bundles.registry().registerService(Poco::OSP::PreferencesService::SERVICE_NAME,
+		new Poco::OSP::PreferencesService(_bundles.context()->persistentDirectory(), pSettings),
+		Poco::OSP::Properties());
 	_bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Poco::OSP::Properties());
 	_bundles.registry().registerService(TOKEN_VALIDATOR_NAME, new TestTokenValidator, Poco::OSP::Properties());
 	_bundles.registry().registerService(WebSessionManager::SERVICE_NAME, _pSessionManager, Poco::OSP::Properties());
@@ -374,17 +406,9 @@ Endpoint::Endpoint(const std::string& session, const std::string& permission):
 	dispatcherConfig.tokenValidatorName = TOKEN_VALIDATOR_NAME;
 	_pDispatcher = new WebServerDispatcher(dispatcherConfig);
 
-	WebServerDispatcher::VirtualPath webEventPath;
-	webEventPath.path = _extension.path;
-	webEventPath.pFactory = _pHandlerFactory;
-	webEventPath.security.mode = WebServerDispatcher::SM_NONE;
-	webEventPath.security.permission = _extension.permission;
-	webEventPath.security.session = _extension.session;
-	webEventPath.security.realm = _extension.realm;
-	webEventPath.security.authMethods = WebServerDispatcher::parseAuthMethods(_extension.authMethods);
-	webEventPath.hidden = true;
-	webEventPath.pOwnerBundle = _bundles.bundle();
-	_pDispatcher->addVirtualPath(webEventPath);
+	_webEventPath = shippedExtension(_bundles, *_pDispatcher);
+	_webEventPath.pFactory = _pHandlerFactory;
+	_pDispatcher->addVirtualPath(_webEventPath);
 
 	WebServerDispatcher::VirtualPath loginPath;
 	loginPath.path = LOGIN_PATH;
@@ -424,6 +448,12 @@ WebEventServiceImpl& Endpoint::service()
 }
 
 
+const WebServerDispatcher::VirtualPath& Endpoint::webEventPath() const
+{
+	return _webEventPath;
+}
+
+
 int Endpoint::handlersCreated() const
 {
 	return _pHandlerFactory->created();
@@ -438,7 +468,8 @@ std::string Endpoint::origin() const
 
 Poco::Net::HTTPRequest Endpoint::upgradeRequest(const std::string& suffix) const
 {
-	return Poco::Net::HTTPRequest(Poco::Net::HTTPRequest::HTTP_GET, _extension.path + suffix, Poco::Net::HTTPMessage::HTTP_1_1);
+	return Poco::Net::HTTPRequest(Poco::Net::HTTPRequest::HTTP_GET, _webEventPath.path + suffix,
+		Poco::Net::HTTPMessage::HTTP_1_1);
 }
 
 
@@ -568,17 +599,29 @@ WebEventRequestHandlerTest::~WebEventRequestHandlerTest() = default;
 
 void WebEventRequestHandlerTest::testExtensionRequiresAuthentication()
 {
-	const Extension extension = shippedExtension();
-	const int authMethods = WebServerDispatcher::parseAuthMethods(extension.authMethods);
+	Endpoint endpoint;
+	const WebServerDispatcher::VirtualPath& extension = endpoint.webEventPath();
+	const int authMethods = extension.security.authMethods;
 
 	assertEqual("/webevent", extension.path);
 	// "**" lets requests without credentials through, as an empty permission does.
-	assertFalse(extension.permission.empty());
-	assertTrue(extension.permission != "**");
-	assertTrue(extension.permission.find("${") == std::string::npos);
-	// No session login by default: an application names the session of its login page.
-	assertTrue(extension.session.empty());
+	assertFalse(extension.security.permission.empty());
+	assertTrue(extension.security.permission != "**");
+	assertTrue(extension.security.permission.find("${") == std::string::npos);
+	// No session login by default: an application names the session of its login.
+	assertTrue(extension.security.session.empty());
 	assertTrue(authMethods == 0 || (authMethods & WebServerDispatcher::AUTH_SESSION) != 0);
+}
+
+
+void WebEventRequestHandlerTest::testExtensionTakesSettingsFromConfiguration()
+	/// osp.web.event.session and osp.web.event.permission in the application
+	/// configuration replace the defaults of the bundle's extension.
+{
+	Endpoint endpoint(LOGIN_SESSION, RESTRICTED_PERMISSION);
+
+	assertEqual(LOGIN_SESSION, endpoint.webEventPath().security.session);
+	assertEqual(RESTRICTED_PERMISSION, endpoint.webEventPath().security.permission);
 }
 
 
@@ -706,7 +749,7 @@ void WebEventRequestHandlerTest::testUpgradeWithSessionCookieFromForeignOriginIs
 
 
 void WebEventRequestHandlerTest::testUpgradeWithoutWebSessionIgnoresCookie()
-	/// Without websession.id, as the bundle ships, the cookie of a logged-in
+	/// Without osp.web.event.session, as the bundle ships, the cookie of a logged-in
 	/// session admits nothing; credentials do.
 {
 	Endpoint endpoint;
@@ -768,6 +811,7 @@ CppUnit::Test* WebEventRequestHandlerTest::suite()
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("WebEventRequestHandlerTest");
 
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testExtensionRequiresAuthentication);
+	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testExtensionTakesSettingsFromConfiguration);
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testUnauthenticatedUpgradeIsRefused);
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testUnauthorizedUpgradeIsRefused);
 	CppUnit_addTest(pSuite, WebEventRequestHandlerTest, testUpgradeWithoutPermissionIsRefused);

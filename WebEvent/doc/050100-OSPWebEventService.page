@@ -289,9 +289,10 @@ event notifications.
 ----
 
 To subscribe to an event, embed the following JavaScript in a web page. The server
-admits the WebSocket of a browser only if the bundle property websession.id names
-the web session of the application's login and the browser has logged in to it
-(see Authentication and Authorization below):
+admits the WebSocket of a browser only if the browser authenticates the upgrade
+request: with the cookie of the web session that osp.web.event.session names, once
+the browser has logged in to that session, or with credentials the web server
+accepts (see Authentication and Authorization below):
 
     <script type="text/javascript" src="webevent.js"></script>
     <script>
@@ -317,29 +318,30 @@ the web session of the application's login and the browser has logged in to it
 
 !!! Authentication and Authorization
 
-The <*com.appinf.osp.webevent*> bundle maps the "/webevent" path with a permission
-and, if the bundle property <[websession.id]> names one, a web session, so the OSP
-web server authenticates and authorizes the WebSocket upgrade request before the
-connection is established, as it does for every request handler that declares a
-permission:
+The <*com.appinf.osp.webevent*> bundle maps the "/webevent" path with the
+permission that osp.web.event.permission names and, if osp.web.event.session names
+one, a web session, so the OSP web server authenticates and authorizes the
+WebSocket upgrade request before the connection is established, as it does for
+every request handler that declares a permission:
 
   - A client sends an Authorization header with the upgrade request: HTTP
     Basic credentials of an account, or a bearer token, which the web server
     checks with its token validator (osp.web.tokenValidatorName). Without
-    <[websession.id]>, the server answers an upgrade request without valid
+    osp.web.event.session, the server answers an upgrade request without valid
     credentials with 401 and an HTTP Basic challenge (a Bearer challenge if
     osp.web.authMethods admits bearer tokens but not Basic credentials); with
-    <[websession.id]>, it answers with 401 and no challenge.
+    osp.web.event.session, it answers with 401 and no challenge.
   - A browser is authenticated by the cookie of its web session if
-    <[websession.id]> is set to the name of the web session in which the
-    application's login page logs users in (for the web interface of
-    macchina.io, "macchina.io"). The default is empty: no session login. A
-    page served by the same server then sends the cookie with the upgrade
-    request. A browser that has not logged in, or whose session has ended (by
-    logout, by expiry, or by a restart of the server when no session store
-    keeps the sessions), is refused, even on a page that itself requires no
-    login. If a request carries both a cookie and an Authorization header, the
-    Authorization header decides.
+    osp.web.event.session is set to the name of a web session and the browser
+    has logged in to that session: a request handler of the application has
+    stored the name of the user in the session's "username" property (see
+    Session-Based Authentication in the OSP Web documentation). The default
+    is empty: no session login. A page served by the same server then sends
+    the cookie with the upgrade request. A browser that has not logged in,
+    or whose session has ended (by logout, by expiry, or by a restart of the
+    server when no session store keeps the sessions), is refused, even on a
+    page that itself requires no login. If a request carries both a cookie
+    and an Authorization header, the Authorization header decides.
 
 The global osp.web.authMethods setting limits which of these methods apply.
 An upgrade request without credentials, or with credentials the server does not
@@ -356,12 +358,9 @@ a check that fails because the server cannot be reached says nothing about the
 session. Otherwise the page keeps retrying, and keeps showing the last events it
 received as if they were current.
 
-The permission is the bundle property <[permission]>. Its default, "*", admits
-every authenticated user of an existing account. A permission name, or a
-comma-separated list of names (any one of which suffices), admits only the users
-granted it. The permission must not be empty, which would admit unauthenticated
-connections. Beyond that, a delegate of the requestReceived event can reject a
-connection for reasons of its own.
+The permission is the setting osp.web.event.permission (see Configuring the
+WebEventService below). Beyond that, a delegate of the requestReceived event can
+reject a connection for reasons of its own.
 
 
 !! Subject Authorizer
@@ -551,6 +550,31 @@ PONG that answers the client's latest PING, at most one of each, count against
 the limit but are never dropped, so with a limit of 1 two frames can be queued.
 Specify 0 for unlimited queueing (which can exhaust memory if clients stall).
 Defaults to 256.
+
+
+!! osp.web.event.session
+
+The name of the web session whose cookie authenticates the WebSocket upgrade
+requests of browsers. A browser is admitted only once it has logged in to that
+session. Defaults to empty: no session login; every client authenticates the
+upgrade request with an Authorization header, with HTTP Basic credentials, or
+with a bearer token if the web server has a token validator
+(osp.web.tokenValidatorName). The global osp.web.authMethods setting limits
+which of the three apply.
+
+
+!! osp.web.event.permission
+
+The permission a client needs to open a WebEvent connection. The web server
+checks it on the WebSocket upgrade request, before the connection is
+established; a request without valid credentials is answered with 401
+Unauthorized, one of a user without the permission with 403 Forbidden. "*"
+admits every authenticated user of an existing account and nobody else. A
+permission name, or a comma-separated list of names (any one of which
+suffices), admits only the users granted it. There is no permission per
+subject: a connection that is admitted may subscribe to every subject that the
+subject authorizer, if one is installed, allows. Must not be empty, which would
+admit unauthenticated connections. Defaults to "*".
 
 
 !! osp.web.event.allowedOrigins

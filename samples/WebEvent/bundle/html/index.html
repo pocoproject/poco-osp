@@ -89,7 +89,7 @@
   </head>
   <body onload="createEventWS()">
     <h1>WebEvent Sample</h1>
-    <p>The server accepts the WebSocket of this page only from a browser that has logged in to the web session named by the websession.id property of the WebEvent bundle, which is empty by default. Set websession.id to the name of the session in which the application's login page logs users in, log in with that page, then reload this page.</p>
+    <p>The server accepts the WebSocket of this page only from a browser that has logged in to the web session named by the setting osp.web.event.session, which is empty by default. Set osp.web.event.session to the name of the session in which the application's login page logs users in, log in with that page, then reload this page.</p>
     <form>
       <button onclick="subscribe('sample.tenSecondsTimer'); return false">Subscribe to 10 Seconds Timer</button>
       <button onclick="unsubscribe('sample.tenSecondsTimer'); return false">Unsubscribe from 10 Seconds Timer</button>

@@ -115,11 +115,11 @@ class OSPWebEvent_API WebEventService: public Poco::OSP::Service
 	///
 	/// The web server authenticates and authorizes the WebSocket upgrade
 	/// request before the connection is established, as the bundle's web
-	/// server extension declares it (bundle properties permission and
-	/// websession.id): by an Authorization header carrying HTTP Basic
-	/// credentials or a bearer token, and, if websession.id names the web
-	/// session of the application's login, a browser by the cookie of that
-	/// session once it has logged in. A request without valid
+	/// server extension declares it (the settings osp.web.event.permission
+	/// and osp.web.event.session): by an Authorization header carrying HTTP
+	/// Basic credentials or a bearer token, and, if osp.web.event.session
+	/// names a web session, a browser by the cookie of that session once it
+	/// has logged in to it. A request without valid
 	/// credentials is answered with 401 Unauthorized, one of a user without
 	/// the permission with 403 Forbidden. A connection that has been
 	/// admitted may subscribe to every subject that the subject authorizer,
