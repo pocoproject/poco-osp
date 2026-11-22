@@ -159,8 +159,7 @@ other changes that are not listed here. The release notes (`doc/99100-OSPRelease
 ### New features
 
 - Build: `poco_osp_bundle()` takes `GENERATED <directories>...`: directories below `bundle/` that a build writes, which
-  are left out of the dependencies of the bundle; without `GENERATED`, the variable `POCO_OSP_BUNDLE_GENERATED` names
-  them.
+  are left out of the dependencies of the bundle.
 - OSP: the manifest header `Bundle-Description` states what a bundle is and does; `Bundle::description()` returns it
   with bundle properties expanded. The bndlspec element `<description>` gives it, written as one line, whitespace
   collapsed.

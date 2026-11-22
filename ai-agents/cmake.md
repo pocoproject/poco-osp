@@ -102,9 +102,7 @@ NOTE: The repository and the POCO build share one CMake cache. An OSP option nev
   [GENERATED <dir>...] [SYMLINKS] [INSTALL_COMPONENT <component>])` runs the bundle creator. The bundles of the
   repository are written to `POCO_OSP_BUNDLE_DIR` (`<build-dir>/bundles`) and installed with the component `Bundles`.
   The bundle depends on the files below its `bundle/` directory, except those in the `GENERATED` directories, which a
-  build writes (a web app built into the bundle); `DEPENDS` names what writes them. A call that gives no `GENERATED`
-  values takes the directories from the variable `POCO_OSP_BUNDLE_GENERATED`, which is empty unless a caller sets it;
-  unsetting or emptying it switches a caller's default off.
+  build writes (a web app built into the bundle); `DEPENDS` names what writes them.
 
 `cmake/PocoOspRemoteGen.cmake` defines `poco_remote_gen()`, which runs RemoteGenNG at configure time and writes the
 generated files into the build directory. An installed POCO OSP provides all three functions through

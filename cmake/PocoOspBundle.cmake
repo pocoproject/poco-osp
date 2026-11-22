@@ -105,9 +105,6 @@ endfunction()
 # GENERATED: Directories below bundle/, relative to it, that a build writes, such as a web app built into
 #   the bundle; DEPENDS names what writes them. Their files are not dependencies of the bundle, so that a
 #   build that writes them under other names neither misses a file of an earlier build nor configures again.
-#   Where a call gives no GENERATED values, the variable POCO_OSP_BUNDLE_GENERATED gives the directories; a
-#   function that builds a web app into its bundles can set it for its caller, and a caller unsets or
-#   empties it to switch that off. Nothing by default.
 # SYMLINKS: Symbolic links in the <files> of the spec are stored as links (BundleCreator --symlinks).
 # INSTALL_COMPONENT: Installs the bundle file, <symbolic name>_<version>.bndl from the spec, into
 #   ${POCO_INSTALL_BUNDLEDIR} (bundles if it is not set) with this install component.
@@ -211,9 +208,6 @@ function(poco_osp_bundle BUNDLE_TARGET)
 	# The build checks the globs again, so that files added, renamed or removed
 	# after configure are picked up. The directories in GENERATED are not
 	# globbed: a build that writes them would make CMake configure again.
-	if(NOT DEFINED BUNDLE_GENERATED)
-		set(BUNDLE_GENERATED ${POCO_OSP_BUNDLE_GENERATED})
-	endif()
 	list(TRANSFORM BUNDLE_GENERATED REPLACE "/+$" "")
 	set(_bundle_dir ${BUNDLE_WORKING_DIRECTORY}/bundle)
 	set(BUNDLE_CONTENT_FILES "")
