@@ -134,8 +134,9 @@ namespace
 	}
 
 
-	void createShippedDatabase(const std::string& path)
-		/// Creates the SQLite database at path with Auth/sql/createdb.sql.
+	void createShippedDatabase(const std::string& path, bool cascade = true)
+		/// Creates the SQLite database at path with Auth/sql/createdb.sql, without
+		/// its ON DELETE CASCADE clauses if cascade is false.
 	{
 		Poco::Data::Session session("SQLite", path);
 		Poco::FileInputStream sqlStream(Poco::Environment::get("POCO_BASE") + "/Auth/sql/createdb.sql");
@@ -145,12 +146,30 @@ namespace
 		{
 			if (line.compare(0, 2, "--") != 0) sql += line + "\n";
 		}
+		if (!cascade)
+		{
+			Poco::replaceInPlace(sql, " ON DELETE CASCADE"s, ""s);
+			if (sql.find("CASCADE"s) != std::string::npos)
+				throw Poco::IllegalStateException("Auth/sql/createdb.sql has a CASCADE clause in another form"s);
+		}
 		Poco::StringTokenizer statements(sql, ";",
 			Poco::StringTokenizer::TOK_TRIM | Poco::StringTokenizer::TOK_IGNORE_EMPTY);
 		for (const auto& statement: statements)
 		{
 			session << statement, now;
 		}
+	}
+
+
+	[[nodiscard]] std::string declaredColumnType(const std::string& path, const std::string& table,
+		const std::string& column)
+		/// Returns the type of the column as the CREATE TABLE statement in the SQLite database at path declares it.
+	{
+		Poco::Data::Session session("SQLite", path);
+		std::string type;
+		session << "SELECT type FROM pragma_table_info(?) WHERE name = ?",
+			useRef(table), useRef(column), into(type), now;
+		return type;
 	}
 
 
@@ -1035,6 +1054,36 @@ void AuthAdminServiceTest::testRoles()
 }
 
 
+void AuthAdminServiceTest::testAssignmentOfUnknownRoleThrows()
+{
+	_pAAS->addUser("user1", "pass1");
+	try
+	{
+		_pAAS->assignRoleToUser("user1", "norole");
+		fail("assigning an unknown role must throw");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+	try
+	{
+		_pAAS->replaceRolesForUser("user1", {"norole"});
+		fail("assigning an unknown role must throw");
+	}
+	catch (Poco::InvalidArgumentException&)
+	{
+	}
+	try
+	{
+		_pAAS->assignRoleToUser("nobody", "norole");
+		fail("assigning a role to an unknown user must throw");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+}
+
+
 void AuthAdminServiceTest::testRemoveRoleRevokesItsPermissions()
 {
 	_pAAS->addUser("user1", "pass1");
@@ -1045,6 +1094,94 @@ void AuthAdminServiceTest::testRemoveRoleRevokesItsPermissions()
 
 	_pAAS->removeRole("role1");
 	assertFalse (_pAAS->authorize("user1", "perm1"));
+}
+
+
+void AuthAdminServiceTest::testRemoveRoleRemovesWhatRefersToIt()
+{
+	// Without enforced foreign keys, as on MySQL before 9.0, the ON DELETE CASCADE clauses of the schema
+	// remove nothing.
+	_pProperties->setString("auth.sql.init.SQLite", "PRAGMA foreign_keys = OFF");
+	AuthAdminServiceImpl::Ptr pAAS = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(),
+		backendAuthParams(_dbPath), AuthAdminServiceImpl::LDAPParams());
+	pAAS->addUser("user1", "pass1");
+	pAAS->addRole("role1");
+	pAAS->addRole("role2");
+	pAAS->addRole("role3");
+	pAAS->assignRoleToUser("user1", "role1");
+	pAAS->assignRoleToUser("user1", "role2");
+	pAAS->setRoleAttribute("role1", "description", "operators");
+	pAAS->setRoleAttribute("role2", "description", "viewers");
+	pAAS->setRoleMapping("role1", "role2");
+	pAAS->setRoleMapping("role2", "role1");
+	pAAS->setRoleMapping("role3", "role2");
+
+	pAAS->removeRole("role1");
+
+	// What refers to role1 is gone, and what refers only to other roles stays.
+	std::set<std::string> roles;
+	pAAS->rolesForUser("user1", roles);
+	assertEqual (std::size_t{1}, roles.size());
+	assertTrue (roles.contains("role2"));
+	std::map<std::string, std::string> mappings;
+	pAAS->allRoleMappings(mappings);
+	assertEqual (std::size_t{1}, mappings.size());
+	assertEqual ("role2"s, mappings.at("role3"));
+	Poco::Data::Session session("SQLite", _dbPath);
+	std::vector<std::string> attributeRoles;
+	session << "SELECT rolename FROM auth_role_attributes", into(attributeRoles), now;
+	assertEqual (std::size_t{1}, attributeRoles.size());
+	assertEqual ("role2"s, attributeRoles.front());
+}
+
+
+void AuthAdminServiceTest::testRemoveRoleWithForeignKeysWithoutCascade()
+{
+	// Enforced foreign keys without ON DELETE CASCADE refuse to delete a role that rows still refer to.
+	Poco::TemporaryFile dbFile;
+	createShippedDatabase(dbFile.path(), false);
+	AuthAdminServiceImpl::Ptr pAAS = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(),
+		backendAuthParams(dbFile.path()), AuthAdminServiceImpl::LDAPParams());
+	pAAS->addUser("user1", "pass1");
+	pAAS->addRole("role1");
+	pAAS->addRole("role2");
+	pAAS->grantPermissionsToRole("role1", {"perm1"});
+	pAAS->assignRoleToUser("user1", "role1");
+	pAAS->setRoleAttribute("role1", "description", "operators");
+	pAAS->setRoleMapping("role2", "role1");
+
+	pAAS->removeRole("role1");
+
+	assertFalse (pAAS->roleExists("role1"));
+	std::set<std::string> roles;
+	pAAS->rolesForUser("user1", roles);
+	assertTrue (roles.empty());
+}
+
+
+void AuthAdminServiceTest::testRemoveUserWithForeignKeysWithoutCascade()
+{
+	// Enforced foreign keys without ON DELETE CASCADE refuse to delete a user that rows still refer to.
+	Poco::TemporaryFile dbFile;
+	createShippedDatabase(dbFile.path(), false);
+	AuthAdminServiceImpl::Ptr pAAS = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(),
+		backendAuthParams(dbFile.path()), AuthAdminServiceImpl::LDAPParams());
+	pAAS->addUser("user1", "pass1");
+	pAAS->addRole("role1");
+	pAAS->grantPermissionsToUser("user1", {"perm1"});
+	pAAS->assignRoleToUser("user1", "role1");
+	pAAS->setUserAttribute("user1", "description", "operator");
+
+	pAAS->removeUser("user1");
+
+	assertFalse (pAAS->userExists("user1"));
+	Poco::Data::Session session("SQLite", dbFile.path());
+	for (const auto& table: {"auth_user_permissions"s, "auth_user_roles"s, "auth_user_attributes"s})
+	{
+		int rows = -1;
+		session << "SELECT COUNT(*) FROM " + table + " WHERE username = 'user1'", into(rows), now;
+		assertEqual (0, rows);
+	}
 }
 
 
@@ -2575,6 +2712,65 @@ void AuthAdminServiceTest::testLockOutWithShippedSchema()
 		assertFalse (pAAS->authenticate("admin", "bad"));
 	}
 	assertTrue (pAAS->isUserLockedOut("admin"));
+}
+
+
+void AuthAdminServiceTest::testShippedSchemaHasWidePermissionColumns()
+{
+	// A permission can contain the name of a user, a role or an object, so the permission columns
+	// are as wide as the user and role names. SQLite does not enforce the declared width.
+	Poco::TemporaryFile dbFile;
+	createShippedDatabase(dbFile.path());
+
+	assertEqual ("VARCHAR(256)"s, declaredColumnType(dbFile.path(), "auth_user_permissions", "permission"));
+	assertEqual ("VARCHAR(256)"s, declaredColumnType(dbFile.path(), "auth_role_permissions", "permission"));
+}
+
+
+void AuthAdminServiceTest::testShippedSchemaHasWideAttributeNameColumns()
+{
+	// The attribute tables refer to the user and role names, which have 256 characters.
+	Poco::TemporaryFile dbFile;
+	createShippedDatabase(dbFile.path());
+
+	assertEqual ("VARCHAR(256)"s, declaredColumnType(dbFile.path(), "auth_user_attributes", "username"));
+	assertEqual ("VARCHAR(256)"s, declaredColumnType(dbFile.path(), "auth_role_attributes", "rolename"));
+}
+
+
+void AuthAdminServiceTest::testBundlePropertiesDefineEachKeyOnce()
+{
+	// Of a key defined twice, the later definition wins, and the earlier one misleads whoever reads or copies it.
+	// As PropertyFileConfiguration reads the file, a value continues on the next line after an odd number of
+	// trailing backslashes.
+	const auto continues = [](const std::string& text)
+	{
+		std::size_t backslashes = 0;
+		for (auto it = text.rbegin(); it != text.rend() && *it == '\\'; ++it) ++backslashes;
+		return backslashes % 2 == 1;
+	};
+	Poco::FileInputStream stream(Poco::Environment::get("POCO_BASE") + "/Auth/Data/bundle/bundle.properties");
+	std::set<std::string> keys;
+	std::string duplicates;
+	std::string line;
+	bool continued = false;
+	while (std::getline(stream, line))
+	{
+		if (!line.empty() && line.back() == '\r') line.pop_back();
+		const std::string entry = Poco::trimLeft(line);
+		if (continued)
+		{
+			continued = continues(line);
+		}
+		else if (!entry.empty() && entry.front() != '#' && entry.front() != '!')
+		{
+			const std::string::size_type separator = entry.find_first_of("=:");
+			continued = separator != std::string::npos && continues(entry);
+			const std::string key = Poco::trimRight(entry.substr(0, separator));
+			if (!keys.insert(key).second) duplicates += " " + key;
+		}
+	}
+	assertEqual (""s, duplicates);
 }
 
 
@@ -4417,6 +4613,42 @@ void AuthAdminServiceTest::testRoleMappings()
 }
 
 
+void AuthAdminServiceTest::testRoleMappingOfUnknownRoleThrows()
+{
+	const auto expectRefused = [this](AuthAdminServiceImpl& service)
+	{
+		try
+		{
+			service.setRoleMapping("norole", "role1");
+			fail("a mapping of an unknown external role must throw");
+		}
+		catch (Poco::NotFoundException&)
+		{
+		}
+		try
+		{
+			service.setRoleMapping("role1", "norole");
+			fail("a mapping to an unknown internal role must throw");
+		}
+		catch (Poco::NotFoundException&)
+		{
+		}
+	};
+	_pAAS->addRole("role1");
+	// With enforced foreign keys the schema refuses the mapping as well.
+	expectRefused(*_pAAS);
+	// Without them, as on MySQL before 9.0, only the service does. Changed after the last use of the fixture's
+	// service, which reads the setting whenever it opens a session.
+	_pProperties->setString("auth.sql.init.SQLite", "PRAGMA foreign_keys = OFF");
+	AuthAdminServiceImpl::Ptr pWithoutForeignKeys = new AuthAdminServiceImpl(*_pProperties, Poco::Logger::root(),
+		backendAuthParams(_dbPath), AuthAdminServiceImpl::LDAPParams());
+	expectRefused(*pWithoutForeignKeys);
+	std::map<std::string, std::string> mappings;
+	pWithoutForeignKeys->allRoleMappings(mappings);
+	assertTrue (mappings.empty());
+}
+
+
 void AuthAdminServiceTest::testInvalidateCachesClearsPermissionsByDefault()
 {
 	_pAAS->addUser("user1", "pass1");
@@ -4505,14 +4737,14 @@ void AuthAdminServiceTest::setUp()
 		"CREATE TABLE auth_user_permissions"
 		"("
 		"    username VARCHAR(256) NOT NULL REFERENCES auth_user(username) ON DELETE CASCADE,"
-		"    permission VARCHAR(32) NOT NULL"
+		"    permission VARCHAR(256) NOT NULL"
 		")",
 		now;
 	session <<
 		"CREATE TABLE auth_role_permissions"
 		"("
 		"    rolename VARCHAR(256) NOT NULL REFERENCES auth_role(rolename) ON DELETE CASCADE,"
-		"    permission VARCHAR(32) NOT NULL"
+		"    permission VARCHAR(256) NOT NULL"
 		")",
 		now;
 	session <<
@@ -4597,7 +4829,11 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testUsersWithAttribute);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testUserQueriesReturnRequestedPage);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRoles);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAssignmentOfUnknownRoleThrows);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRemoveRoleRevokesItsPermissions);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRemoveRoleRemovesWhatRefersToIt);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRemoveRoleWithForeignKeysWithoutCascade);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRemoveUserWithForeignKeysWithoutCascade);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPermissions);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testReplacePermissionsOfUnknownNameThrows);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthenticate);
@@ -4652,6 +4888,9 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLockOutWithNullableFailureCount);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testMissingFailureCountColumnIsLogged);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLockOutWithShippedSchema);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testShippedSchemaHasWidePermissionColumns);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testShippedSchemaHasWideAttributeNameColumns);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testBundlePropertiesDefineEachKeyOnce);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPoolRevokePermissionClearsEveryBackend);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPoolRoutesUserNamesIgnoringCase);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPoolAuthenticatesAccountWithBackendOfUser);
@@ -4712,6 +4951,7 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testConcurrentLoginsThroughNamesOfAccountAreLimitedByFailureCount);
 #endif
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRoleMappings);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRoleMappingOfUnknownRoleThrows);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testInvalidateCachesClearsPermissionsByDefault);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testValidateUserEventIsInitialized);
 
@@ -4737,6 +4977,7 @@ CppUnit::Test* InlineAttributesAuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testUsersWithAttribute);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testRoles);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testRemoveRoleRevokesItsPermissions);
+	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testRemoveRoleRemovesWhatRefersToIt);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testPermissions);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testAuthenticate);
 	CppUnit_addTest(pSuite, InlineAttributesAuthAdminServiceTest, testAuthenticateNotification);

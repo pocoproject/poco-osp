@@ -171,25 +171,25 @@ has more than 64 characters:
     CREATE TABLE auth_user_permissions
     (
         username VARCHAR(256) NOT NULL REFERENCES auth_user(username) ON DELETE CASCADE,
-        permission VARCHAR(32) NOT NULL
+        permission VARCHAR(256) NOT NULL
     );
 
     CREATE TABLE auth_role_permissions
     (
         rolename VARCHAR(256) NOT NULL REFERENCES auth_role(rolename) ON DELETE CASCADE,
-        permission VARCHAR(32) NOT NULL
+        permission VARCHAR(256) NOT NULL
     );
 
     CREATE TABLE auth_user_attributes
     (
-        username VARCHAR(64) NOT NULL REFERENCES auth_user(username) ON DELETE CASCADE,
+        username VARCHAR(256) NOT NULL REFERENCES auth_user(username) ON DELETE CASCADE,
         attribute VARCHAR(64) NOT NULL,
         value VARCHAR(256) NOT NULL
     );
 
     CREATE TABLE auth_role_attributes
     (
-        rolename VARCHAR(64) NOT NULL REFERENCES auth_role(rolename) ON DELETE CASCADE,
+        rolename VARCHAR(256) NOT NULL REFERENCES auth_role(rolename) ON DELETE CASCADE,
         attribute VARCHAR(64) NOT NULL,
         value VARCHAR(256) NOT NULL
     );

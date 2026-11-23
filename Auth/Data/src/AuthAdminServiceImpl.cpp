@@ -648,10 +648,12 @@ void AuthAdminServiceImpl::removeUser(const std::string& username)
 
 void AuthAdminServiceImpl::removeUserImpl(Poco::Data::Session& sess, const std::string& username) const
 {
-	sess << sqlFor("removeUser"s), useRef(username), now;
+	// The rows that refer to the user go first: enforced foreign keys without ON DELETE CASCADE refuse to delete a
+	// user that rows still refer to.
 	sess << sqlFor("removeUserPermissions"s), useRef(username), now;
 	sess << sqlFor("removeUserRoles"s), useRef(username), now;
 	sess << sqlFor("removeAllUserAttributes"s), useRef(username), now;
+	sess << sqlFor("removeUser"s), useRef(username), now;
 }
 
 
@@ -803,8 +805,13 @@ void AuthAdminServiceImpl::removeRole(const std::string& rolename)
 		{
 			if (!roleExistsImpl(sess, rolename)) throw Poco::NotFoundException(rolename);
 
-			sess << sqlFor("removeRole"s), useRef(rolename), now;
+			// The rows that refer to the role go first: without enforced foreign keys, ON DELETE CASCADE removes
+			// nothing, and enforced foreign keys without it refuse to delete a role that rows still refer to.
 			sess << sqlFor("removePermissionsFromRole"s), useRef(rolename), now;
+			sess << sqlFor("removeRoleAssignments"s), useRef(rolename), now;
+			sess << sqlFor("removeAllRoleAttributes"s), useRef(rolename), now;
+			sess << sqlFor("removeRoleMappingsOfRole"s), useRef(rolename), useRef(rolename), now;
+			sess << sqlFor("removeRole"s), useRef(rolename), now;
 		}
 		xa.commit();
 
@@ -1603,6 +1610,10 @@ void AuthAdminServiceImpl::setRoleMapping(const std::string& externalRole, const
 		Poco::Data::Session& sess = session();
 		Poco::Data::Transaction xa(sess, &_logger);
 		{
+			// Not left to the foreign keys of the mapping table, which a database may not enforce.
+			if (!roleExistsImpl(sess, externalRole)) throw Poco::NotFoundException(externalRole);
+			if (!roleExistsImpl(sess, internalRole)) throw Poco::NotFoundException(internalRole);
+
 			sess << sqlFor("removeRoleMapping"s), useRef(externalRole), now;
 			sess << sqlFor("addRoleMapping"s), useRef(externalRole), useRef(internalRole), now;
 		}

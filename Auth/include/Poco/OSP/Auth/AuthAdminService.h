@@ -209,7 +209,8 @@ public:
 		/// password is empty.
 
 	virtual void removeUser(const std::string& username) = 0;
-		/// Removes the user identified by username from the database.
+		/// Removes the user identified by username from the database, together
+		/// with its permissions, its role assignments and its attributes.
 		///
 		/// Throws a Poco::NotFoundException if the user does not exist.
 
@@ -247,7 +248,9 @@ public:
 		/// already exists.
 
 	virtual void removeRole(const std::string& rolename) = 0;
-		/// Removes the role identified by name from the database.
+		/// Removes the role identified by name from the database, together
+		/// with its permissions, its assignments to users, its attributes and
+		/// the role mappings that name it.
 		///
 		/// Throws a Poco::NotFoundException if the role does not exist.
 
@@ -257,7 +260,8 @@ public:
 	virtual void assignRoleToUser(const std::string& username, const std::string& rolename) = 0;
 		/// Assigns a role to an user.
 		///
-		/// Throws a Poco::NotFoundException if the user or role does not exist.
+		/// Throws a Poco::NotFoundException if the user does not exist, and a
+		/// Poco::InvalidArgumentException if the role does not exist.
 		/// Does nothing if the user already has the role.
 
 	virtual void removeRoleFromUser(const std::string& username, const std::string& rolename) = 0;
@@ -270,7 +274,8 @@ public:
 		/// Unassignes all roles from the user, then assigns the
 		/// given roles.
 		///
-		/// Throws a Poco::NotFoundException if the user does not exist.
+		/// Throws a Poco::NotFoundException if the user does not exist, and a
+		/// Poco::InvalidArgumentException if one of the roles does not exist.
 
 	virtual void uncacheUser(const std::string& username) = 0;
 		/// Removes all cached data for the user with the given name.
@@ -365,6 +370,8 @@ public:
 
 	virtual void setRoleMapping(const std::string& externalRole, const std::string& internalRole) = 0;
 		/// Sets the mapping from external role to internal role.
+		///
+		/// Throws a Poco::NotFoundException if either role does not exist.
 
 	virtual void removeRoleMapping(const std::string& externalRole) = 0;
 		/// Removes the mapping for the given external role.

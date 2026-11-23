@@ -37,7 +37,11 @@ public:
 	void testUsersWithAttribute();
 	void testUserQueriesReturnRequestedPage();
 	void testRoles();
+	void testAssignmentOfUnknownRoleThrows();
 	void testRemoveRoleRevokesItsPermissions();
+	void testRemoveRoleRemovesWhatRefersToIt();
+	void testRemoveRoleWithForeignKeysWithoutCascade();
+	void testRemoveUserWithForeignKeysWithoutCascade();
 	void testPermissions();
 	void testReplacePermissionsOfUnknownNameThrows();
 	void testAuthenticate();
@@ -92,6 +96,9 @@ public:
 	void testLockOutWithNullableFailureCount();
 	void testMissingFailureCountColumnIsLogged();
 	void testLockOutWithShippedSchema();
+	void testShippedSchemaHasWidePermissionColumns();
+	void testShippedSchemaHasWideAttributeNameColumns();
+	void testBundlePropertiesDefineEachKeyOnce();
 	void testPoolRevokePermissionClearsEveryBackend();
 	void testPoolRoutesUserNamesIgnoringCase();
 	void testPoolAuthenticatesAccountWithBackendOfUser();
@@ -152,6 +159,7 @@ public:
 	void testConcurrentLoginsThroughNamesOfAccountAreLimitedByFailureCount();
 #endif
 	void testRoleMappings();
+	void testRoleMappingOfUnknownRoleThrows();
 	void testInvalidateCachesClearsPermissionsByDefault();
 	void testValidateUserEventIsInitialized();
 

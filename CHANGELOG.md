@@ -57,11 +57,24 @@ entries.
 - Auth/Data: `addUser()` and `changePassword()` refuse an empty password, and `auth add user` requires the password.
 - Auth/Data: the SQL user database needs the tables `auth_role_attributes` and `auth_role_mappings` of `createdb.sql`;
   the default `auth.sql.effectivePermissionsForUser` reads `auth_role_mappings` and takes the user name three times.
+- Auth/Data: `createdb.sql` declares the permission columns of `auth_user_permissions` and `auth_role_permissions` with
+  256 characters instead of 32, and the name columns of `auth_user_attributes` and `auth_role_attributes` with 256
+  instead of 64. A database created with an earlier script keeps the narrower columns, which PostgreSQL and MySQL
+  enforce; widen them with `ALTER TABLE` for longer permissions, and for attributes of users and roles with longer
+  names.
 - Auth/Data: the setting `auth.sql.verifyPassword` is not used; the service checks the password against the stored hash.
 - Auth/Data: when the `auth_user` table has the inline `auth_failures` column, a login accepted by a remembered check
   reads the password hash and the failure count with the statement `auth.sql.passwordHashAndInlineUserAttribute`.
   A configuration that overrides some `auth.sql.*` statements, such as `auth.sql.passwordHashForUser` or
   `auth.sql.getInlineUserAttribute`, must define it too, for the same table and columns.
+- Auth/Data: `removeRole()` removes the role's user assignments, attributes and role mappings itself, with the
+  statements `auth.sql.removeRoleAssignments`, `auth.sql.removeAllRoleAttributes` and
+  `auth.sql.removeRoleMappingsOfRole`, also where the database does not enforce the foreign keys of `createdb.sql`,
+  such as MySQL before 9.0. A configuration that overrides the `auth.sql.*` statements for its own tables must define
+  them too.
+- Auth/Data: `setRoleMapping()` throws a `Poco::NotFoundException` when the external or the internal role does not
+  exist, instead of a constraint violation of the database; a database that does not enforce the foreign keys of
+  `createdb.sql`, such as MySQL before 9.0, stored such a mapping.
 - Auth/Data: when the LDAP server cannot be used, the stored password of an LDAP user is accepted only with
   `auth.ldap.inaccessible.fallbackToLocal` and within `auth.ldap.cache.lifetimeDays` of the last LDAP login.
 - Auth/Data: an LDAP user is stored under the `sAMAccountName` of its LDAP entry, in lower case, when the entry has one;
