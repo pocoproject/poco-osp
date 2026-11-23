@@ -23,6 +23,8 @@
 #include "Poco/OSP/ServiceRegistry.h"
 #include "Poco/OSP/ServiceRef.h"
 #include "Poco/OSP/Auth/RequestIdentity.h"
+#include "Poco/OSP/Auth/ClientAddressKey.h"
+#include "Poco/OSP/Auth/LoginThrottle.h"
 #include "Poco/Net/HTTPServerRequest.h"
 #include "Poco/Net/HTTPServerResponse.h"
 #include "Poco/Net/HTTPRequestHandler.h"
@@ -58,6 +60,7 @@
 #include "Poco/Bugcheck.h"
 #include "Poco/Config.h"
 #include <algorithm>
+#include <chrono>
 #include <ios>
 #include <memory>
 #include <limits>
@@ -73,6 +76,7 @@ using namespace std::string_literals;
 
 
 using Poco::OSP::Auth::AuthService;
+using Poco::OSP::Auth::LoginThrottle;
 using Poco::OSP::ServiceRegistry;
 using Poco::OSP::ServiceRef;
 using Poco::Net::HTTPRequestHandler;
@@ -368,6 +372,8 @@ WebServerDispatcher::WebServerDispatcher(const Config& config):
 	_addSignature((config.options & CONF_OPT_ADD_SIGNATURE) != 0),
 	_logFullRequest((config.options & CONF_OPT_LOG_FULL_REQUEST) != 0),
 	_authMethods(config.authMethods),
+	_loginExemptAddresses(config.loginThrottle.exemptAddresses),
+	_loginThrottle(config.loginThrottle.throttle),
 	_compressedMediaTypes(config.compressedMediaTypes),
 	_customResponseHeaders(config.customResponseHeaders),
 	_threadPool("WebServer"s),
@@ -676,6 +682,7 @@ void WebServerDispatcher::handleRequest(Poco::Net::HTTPServerRequest& request, P
 			{
 				std::string scope;
 				bool authenticated = false;
+				std::chrono::seconds retryAfter{0};
 				// With optional credentials ("**"), a request without credentials needs no auth service.
 				if (!vPath.security.permission.empty() && authService() == nullptr && (vPath.security.permission != "**" || request.hasCredentials() || sessionNamesUser(request, vPath)))
 				{
@@ -684,7 +691,7 @@ void WebServerDispatcher::handleRequest(Poco::Net::HTTPServerRequest& request, P
 						loggedURI(request));
 					sendResponse(request, HTTPResponse::HTTP_SERVICE_UNAVAILABLE, formatMessage("unavailable"s, vPath.path), vPath.responseFormat);
 				}
-				else if (authorize(request, vPath, username, scope, authenticated))
+				else if (authorize(request, vPath, username, scope, authenticated, retryAfter))
 				{
 					if (vPath.pFactory != nullptr)
 					{
@@ -743,7 +750,17 @@ void WebServerDispatcher::handleRequest(Poco::Net::HTTPServerRequest& request, P
 					// Request-handler (REST) mappings always answer with a 401 so API clients get a
 					// machine-readable error instead of being bounced to the login HTML.
 					const bool redirect = vPath.pFactory == nullptr && !vPath.redirectOn401.empty() && request.getMethod() == Poco::Net::HTTPRequest::HTTP_GET;
-					if (authenticated && (request.hasCredentials() || !redirect))
+					if (retryAfter > std::chrono::seconds(0))
+					{
+						// No challenge and no redirect: the client's password checks are refused
+						// until Retry-After has passed.
+						const std::string seconds(Poco::NumberFormatter::format(retryAfter.count()));
+						response.set("Retry-After"s, seconds);
+						sendResponse(request, HTTPResponse::HTTP_TOO_MANY_REQUESTS,
+							formatMessage("toomany"s, vPath.path, seconds),
+							vPath.pFactory != nullptr ? RESPONSE_FORMAT_JSON : vPath.responseFormat);
+					}
+					else if (authenticated && (request.hasCredentials() || !redirect))
 					{
 						// Valid credentials or a session without the permission: authenticating again would not help.
 						sendResponse(request, HTTPResponse::HTTP_FORBIDDEN, formatMessage("notauth"s, vPath.path), vPath.pFactory != nullptr ? RESPONSE_FORMAT_JSON : vPath.responseFormat);
@@ -1730,7 +1747,7 @@ bool WebServerDispatcher::enableCORS(const Poco::Net::HTTPServerRequest& request
 
 
 bool WebServerDispatcher::authorize(Poco::Net::HTTPServerRequest& request, const VirtualPath& vPath,
-	std::string& username, std::string& scope, bool& authenticated) const
+	std::string& username, std::string& scope, bool& authenticated, std::chrono::seconds& retryAfter) const
 {
 	// Only the dispatcher states the authorized user; copies sent by the client are removed.
 	request.erase(X_OSP_AUTHORIZED_USER);
@@ -1738,6 +1755,7 @@ bool WebServerDispatcher::authorize(Poco::Net::HTTPServerRequest& request, const
 
 	bool authorized = false;
 	authenticated = false;
+	retryAfter = std::chrono::seconds(0);
 	int authMethods = vPath.security.authMethods;
 	if (authMethods == 0) authMethods = _authMethods;
 
@@ -1755,7 +1773,7 @@ bool WebServerDispatcher::authorize(Poco::Net::HTTPServerRequest& request, const
 			try
 			{
 				if (scheme == Poco::Net::HTTPBasicCredentials::SCHEME && (authMethods & AUTH_BASIC) != 0)
-					authorized = authorizeBasic(request, authInfo, vPath, username, authenticated);
+					authorized = authorizeBasic(request, authInfo, vPath, username, authenticated, retryAfter);
 				else if (scheme == BEARER && (authMethods & AUTH_BEARER) != 0)
 					authorized = authorizeBearer(request, authInfo, vPath, username, scope, authenticated);
 			}
@@ -1889,16 +1907,28 @@ bool WebServerDispatcher::authorizeSession(Poco::Net::HTTPServerRequest& request
 }
 
 
-bool WebServerDispatcher::authorizeBasic(Poco::Net::HTTPServerRequest& request, const std::string& creds, const VirtualPath& vPath, std::string& username, bool& authenticated) const
+bool WebServerDispatcher::authorizeBasic(Poco::Net::HTTPServerRequest& request, const std::string& creds,
+	const VirtualPath& vPath, std::string& username, bool& authenticated, std::chrono::seconds& retryAfter) const
 {
 	AuthService::Ptr pAuthService = authService();
 	if (pAuthService != nullptr)
 	{
 		HTTPBasicCredentials cred(creds);
 		username = cred.getUsername();
+		const Poco::Net::IPAddress client = request.clientAddress().host();
+		const std::string clientKey = Poco::OSP::Auth::clientAddressKey(client);
+		LoginThrottle::Attempt attempt = Poco::OSP::Auth::isExemptAddress(client, _loginExemptAddresses) ?
+			LoginThrottle::exempt(clientKey) : _loginThrottle.begin(clientKey);
+		if (!attempt.admitted())
+		{
+			retryAfter = attempt.retryAfter();
+			LoginThrottle::logRefusal(_pContext->logger(), attempt, username);
+			return false;
+		}
 		std::string accountName;
 		if (pAuthService->authenticateAccount(username, cred.getPassword(), accountName))
 		{
+			attempt.succeeded();
 			authenticated = true;
 			username = knownUserName(*pAuthService, accountName);
 			if (hasPermission(pAuthService, username, vPath.security.permission))

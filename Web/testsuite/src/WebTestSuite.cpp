@@ -18,6 +18,7 @@
 #include "WebFilterExtensionPointTest.h"
 #include "AbstractWebServerBundleActivatorTest.h"
 #include "ClientAddressKeyTest.h"
+#include "WebBundleActivatorTest.h"
 #include "CppUnit/Test.h"
 #include "CppUnit/TestSuite.h"
 
@@ -35,6 +36,7 @@ CppUnit::Test* WebTestSuite::suite()
 	pSuite->addTest(WebFilterExtensionPointTest::suite());
 	pSuite->addTest(AbstractWebServerBundleActivatorTest::suite());
 	pSuite->addTest(ClientAddressKeyTest::suite());
+	pSuite->addTest(WebBundleActivatorTest::suite());
 
 	return pSuite;
 }

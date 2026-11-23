@@ -7,6 +7,9 @@ file(GLOB_RECURSE HDRS_G "src/*.h")
 POCO_HEADERS_AUTO(TEST_SRCS ${HDRS_G})
 
 poco_add_executable(OSPWeb-testrunner ${TEST_SRCS})
+# The tests of the bundle activator load the bundle library.
+add_dependencies(OSPWeb-testrunner osp.web)
+target_compile_definitions(OSPWeb-testrunner PRIVATE "WEB_BUNDLE_LIBRARY=\"$<TARGET_FILE:osp.web>\"")
 if(ENABLE_TEST_DEPRECATED)
 	target_compile_definitions(OSPWeb-testrunner PRIVATE POCO_TEST_DEPRECATED)
 endif()

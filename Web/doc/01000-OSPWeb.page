@@ -395,6 +395,33 @@ whether the user has the necessary permission.
 To protect user names and passwords, HTTP Basic authentication works best when used over an encrypted (HTTPS) connection.
 The <[secure]> attribute can be used to specify that a certain resource is only available over an encrypted connection.
 
+!! Limit of Password Checks per Client Address
+
+The web server limits the HTTP Basic password checks per client address, over HTTP and HTTPS together. A check is
+counted when it begins and refunded when the credentials are valid, also if the user then does not have the required
+permission. A successful check does not clear the failed checks before it. When <[osp.web.login.maxAttempts]> checks
+of a client address are counted in a window of <[osp.web.login.cooldownSeconds]> seconds, which starts at the first
+counted check, the requests for protected resources with HTTP Basic credentials from that address are answered with
+429 Too Many Requests until the window ends, and their passwords are not checked. The response has a
+<[Retry-After]> header with the seconds until the window ends and no <[WWW-Authenticate]> challenge; its body is in
+HTML or JSON like the other error responses, with the message <[message.toomany]> of the bundle properties.
+
+An IPv4 address, also in the form of an IPv4-mapped IPv6 address, is counted on its own; IPv6 addresses are counted
+per /64 prefix. Requests that authenticate with a bearer token, and requests in a session that carry no HTTP Basic
+credentials, are neither counted nor refused. The addresses and /64 prefixes in <[osp.web.login.exemptAddresses]> are
+not limited.
+
+The first refused check of a client address in a window is logged as a warning:
+
+    Too many failed password checks from 192.0.2.7: checks are refused for 42 s.
+
+Each refused check is logged at debug level, with the user name.
+
+NOTE: The client address is the address of the connection; the <*X-Forwarded-For*> header is not used. Behind a
+reverse proxy, all clients have the address of the proxy and share one limit. Then list the address of the proxy in
+<[osp.web.login.exemptAddresses]> and limit the password checks in the proxy, or keep the limit for all clients
+together.
+
 !! Session-Based Authentication
 
 For session-based authentication, the name of the application (which in turn determines the
@@ -549,6 +576,15 @@ The web server can be configured by setting the following properties in the glob
   - <[osp.web.authServiceName]>: The name of the OSP authentication/authorization service to use. Defaults to "osp.auth".
   - <[osp.web.authMethods]>: Specify a comma-separated list of enabled authentication methods (<[basic]>, <[session]>, <[bearer]>).
     If not specified, all methods will be enabled.
+  - <[osp.web.login.maxAttempts]>: The number of HTTP Basic password checks per client address in a window of
+    <[osp.web.login.cooldownSeconds]> (see Limit of Password Checks per Client Address). Defaults to 10; 0 turns the
+    limit off.
+  - <[osp.web.login.cooldownSeconds]>: The length of the window in seconds, from 1 to 86400 while
+    <[osp.web.login.maxAttempts]> is greater than 0. Defaults to 60.
+  - <[osp.web.login.exemptAddresses]>: The client addresses whose password checks are not limited, separated by
+    commas or spaces: IPv4 addresses in dotted-decimal form, IPv6 addresses, link-local IPv6 addresses with a scope
+    id (<[fe80::1%eth0]>, which then match only on that interface), and IPv6 /64 prefixes (<[2001:db8:1:2::/64]>).
+    Defaults to none.
   - <[osp.web.redirectOn401]>: The location of the <[redirectOn401]> attribute for the mappings that do not
     specify one. Defaults to empty (no redirect).
   - <[osp.web.tokenValidatorName]>: The name of the token validation service to use. Defaults to none (empty).

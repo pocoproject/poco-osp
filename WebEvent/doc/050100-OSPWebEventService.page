@@ -373,8 +373,10 @@ every request handler that declares a permission:
 The global osp.web.authMethods setting limits which of these methods apply.
 An upgrade request without credentials, or with credentials the server does not
 accept, is answered with 401 Unauthorized; a request of a user who does not have
-the permission is answered with 403 Forbidden. In both cases no WebSocket
-connection is established.
+the permission is answered with 403 Forbidden. While the web server refuses the
+password checks of the client address (see osp.web.login.maxAttempts in the OSP
+Web documentation), a request with HTTP Basic credentials is answered with 429
+Too Many Requests. In these cases no WebSocket connection is established.
 
 A browser does not tell a page why its WebSocket could not be opened: a refused
 upgrade request fires the error and close events (close code 1006), as a network

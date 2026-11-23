@@ -108,6 +108,9 @@ entries.
 - Web: a request URI, Referer, Location or Content-Location in the access log, the full request log and the other log
   messages of the web server and BundleAdmin has the values of its query parameters, its user info and its fragment
   replaced with `***`; the names of the query parameters are kept.
+- Web: the limit of the HTTP Basic password checks per client address (see New features) is on by default; behind a
+  reverse proxy, all clients have the address of the proxy and share one limit. `WebServerDispatcher::authorize()` and
+  `authorizeBasic()` take the further parameter `retryAfter`.
 - WebServer: the web server and the secure web server leave RFC 2047 encoded words in request header fields undecoded;
   `osp.web.server.autoDecodeHeaders`, or the bundle property `autoDecodeHeaders`, turns on the RFC 2047 decoding of
   request header fields by `Poco::Net::MessageHeader` (see `MessageHeader::setAutoDecode()` for the fields it decodes).
@@ -198,6 +201,11 @@ entries.
 - Web: in the attributes of a web server extension that accept property references (see the Web manual), a reference
   to a property whose name starts with `osp.` is resolved in the application configuration, then in the bundle properties;
   other references are resolved in the bundle properties only.
+- Web: the HTTP Basic password checks are limited per client address, over HTTP and HTTPS together: after
+  `osp.web.login.maxAttempts` failed checks (default 10; 0 turns the limit off) in `osp.web.login.cooldownSeconds`
+  seconds (default 60), a request for a protected resource with HTTP Basic credentials from that address is answered
+  with 429 and `Retry-After` until the window ends, without a password check. `osp.web.login.exemptAddresses` lists
+  the addresses and IPv6 /64 prefixes that are not limited. Bearer tokens and sessions are not counted.
 - WebEvent: the event `WebEventService::initialDataRequested` lets an application answer a new subscription with the
   current value of the subject, sent to the subscribing socket only; the request names the user and the scope of the
   subscribing connection.

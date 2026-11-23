@@ -65,6 +65,15 @@ public:
 	void testUnavailableAnswerHasBundleMessage();
 	void testAuthorizationResponses();
 	void testBasicCredentialsAreAuthorizedUnderAccountName();
+	void testRefusedPasswordCheckAnswers429();
+	void testRefusedPasswordCheckIsNotRedirected();
+	void testRefusedPasswordChecksAreLoggedAtDebugLevel();
+	void testSessionsAreNotCountedByLoginThrottle();
+	void testBearerTokensAreNotCountedByLoginThrottle();
+	void testSuccessfulPasswordCheckIsRefunded();
+	void testExemptClientAddressIsNotLimited();
+	void testLoginThrottleCountsPerClientAddress();
+	void testHTTPAndHTTPSShareLoginThrottle();
 	void testSessionCSRFProtection();
 	void testSessionUserWithoutPermissionIsForbidden();
 	void testSessionUserWithoutPermissionForHomePageIsNotAuthorized();

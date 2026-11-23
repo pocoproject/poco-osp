@@ -15,6 +15,7 @@
 #include "Poco/OSP/PreferencesService.h"
 #include "Poco/OSP/ExtensionPointService.h"
 #include "Poco/OSP/ServiceListener.h"
+#include "Poco/OSP/Auth/ClientAddressKey.h"
 #include "Poco/OSP/Web/MediaTypeMapper.h"
 #include "Poco/OSP/Web/WebServerDispatcher.h"
 #include "Poco/OSP/Web/WebSessionManager.h"
@@ -29,6 +30,7 @@
 #include "Poco/ClassLibrary.h"
 #include <memory>
 #include <istream>
+#include <utility>
 
 
 using Poco::OSP::BundleActivator;
@@ -39,6 +41,8 @@ using Poco::OSP::ServiceRef;
 using Poco::OSP::PreferencesService;
 using Poco::OSP::Properties;
 using Poco::OSP::ExtensionPointService;
+using Poco::OSP::Auth::LoginThrottleConfig;
+using Poco::OSP::Auth::loginThrottleSettings;
 using Poco::OSP::Web::MediaTypeMapper;
 using Poco::OSP::Web::WebServerDispatcher;
 using Poco::OSP::Web::WebSessionManager;
@@ -69,7 +73,6 @@ public:
 		{
 			pMediaTypeMapper->load(*pStream);
 		}
-		_pMediaTypeMapperSvc = pContext->registry().registerService(MediaTypeMapper::SERVICE_NAME, pMediaTypeMapper, Properties());
 		ServiceRef::Ptr pPrefsSvcRef = pContext->registry().findByName("osp.core.preferences"s);
 
 		std::string authServiceName(pContext->thisBundle()->properties().getString("authServiceName"s, ""s));
@@ -94,6 +97,7 @@ public:
 		std::string frameOptions(pContext->thisBundle()->properties().getString("frameOptions"s, ""s));
 		bool addAuthHeader(pContext->thisBundle()->properties().getBool("addAuthHeader"s, true));
 		bool addSignature(pContext->thisBundle()->properties().getBool("addSignature"s, true));
+		LoginThrottleConfig loginThrottle(loginThrottleSettings(pContext->thisBundle()->properties(), "login."s));
 		bool logFullRequest = false;
 		int authMethods = 0;
 		bool corsEnable = true;
@@ -129,6 +133,7 @@ public:
 			authMethods = WebServerDispatcher::parseAuthMethods(pPrefsSvc->configuration()->getString("osp.web.authMethods"s, ""s));
 			corsEnable = pPrefsSvc->configuration()->getBool("osp.web.cors.enable"s, true);
 			corsAllowedOrigin = pPrefsSvc->configuration()->getString("osp.web.cors.allowedOrigin"s, ""s);
+			loginThrottle = loginThrottleSettings(*pPrefsSvc->configuration(), "osp.web.login."s, loginThrottle);
 		}
 
 		Poco::StringTokenizer tok(compressedMediaTypesString, ",", Poco::StringTokenizer::TOK_TRIM | Poco::StringTokenizer::TOK_IGNORE_EMPTY);
@@ -160,6 +165,7 @@ public:
 		config.authServiceName = authServiceName;
 		config.tokenValidatorName = tokenValidatorName;
 		config.corsAllowedOrigin = corsAllowedOrigin;
+		config.loginThrottle = std::move(loginThrottle);
 		if (compressResponse) config.options |= WebServerDispatcher::CONF_OPT_COMPRESS_RESPONSES;
 		config.compressedMediaTypes = compressedMediaTypes;
 		config.customResponseHeaders = customResponseHeaders;
@@ -171,6 +177,9 @@ public:
 		if (corsEnable) config.options |= WebServerDispatcher::CONF_OPT_ENABLE_CORS;
 		if (authMethods) config.authMethods = authMethods;
 
+		// Registered after the settings are read, so that a start that fails on a setting leaves no service behind.
+		_pMediaTypeMapperSvc = pContext->registry().registerService(MediaTypeMapper::SERVICE_NAME, pMediaTypeMapper,
+			Properties());
 		Poco::AutoPtr<WebServerDispatcher> pWebServerDispatcher = new WebServerDispatcher(config);
 		_pWebServerDispatcherSvc = pContext->registry().registerService(WebServerDispatcher::SERVICE_NAME, pWebServerDispatcher, Properties());
 

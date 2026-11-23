@@ -29,6 +29,8 @@
 #include "Poco/OSP/Service.h"
 #include "Poco/OSP/ServiceListener.h"
 #include "Poco/OSP/Auth/AuthService.h"
+#include "Poco/OSP/Auth/ClientAddressKey.h"
+#include "Poco/OSP/Auth/LoginThrottle.h"
 #include "Poco/Net/HTTPServerRequest.h"
 #include "Poco/Net/HTTPRequestHandlerFactory.h"
 #include "Poco/Net/HTTPResponse.h"
@@ -42,6 +44,7 @@
 #include "Poco/String.h"
 #include "Poco/FileStream.h"
 #include "Poco/File.h"
+#include <chrono>
 #include <vector>
 #include <map>
 #include <memory>
@@ -229,6 +232,8 @@ public:
 		int options = 0;
 		int authMethods = AUTH_ALL;
 		std::string corsAllowedOrigin;
+		Poco::OSP::Auth::LoginThrottleConfig loginThrottle;
+			/// The limit of the HTTP Basic password checks per client address.
 	};
 
 	struct OSPWeb_API PathLess
@@ -268,6 +273,9 @@ public:
 
 	explicit WebServerDispatcher(const Config& config);
 		/// Creates the WebServerDispatcher.
+		///
+		/// Throws a Poco::InvalidArgumentException if the settings of config.loginThrottle
+		/// are not valid (see Poco::OSP::Auth::LoginThrottle).
 
 	~WebServerDispatcher() override;
 		/// Destroys the WebServerDispatcher.
@@ -310,6 +318,10 @@ public:
 		/// While the auth service is not available, a request for a path that requires
 		/// a permission is answered with 503 Service Unavailable. For the permission "**",
 		/// only a request with credentials, or in a session that names a user, gets this answer.
+		///
+		/// A request with HTTP Basic credentials whose password check the login throttle
+		/// (see Config::loginThrottle) refuses is answered with 429 Too Many Requests and a
+		/// Retry-After header, without a challenge.
 
 	[[nodiscard]] Poco::ThreadPool& threadPool();
 		/// Returns the thread pool for use by Poco::Net::HTTPServer.
@@ -487,7 +499,7 @@ protected:
 		/// origin; any other value is a comma-separated list of allowed origins.
 
 	[[nodiscard]] bool authorize(Poco::Net::HTTPServerRequest& request, const VirtualPath& vPath, std::string& username,
-		std::string& scope, bool& authenticated) const;
+		std::string& scope, bool& authenticated, std::chrono::seconds& retryAfter) const;
 		/// Authorizes the request.
 		///
 		/// Sets username to the user that the request names (see the access log) and
@@ -500,6 +512,10 @@ protected:
 		/// the return value is false because that identity lacks the required permission.
 		/// This lets the caller distinguish "not logged in" from "logged in but
 		/// forbidden" and react accordingly.
+		///
+		/// Sets retryAfter to the time until the login throttle admits password checks of
+		/// the client again if it has refused the check of the HTTP Basic credentials
+		/// (see authorizeBasic()), and to 0 otherwise.
 
 	[[nodiscard]] bool authorizeSession(Poco::Net::HTTPServerRequest& request, const VirtualPath& vPath,
 		std::string& username, bool& authenticated) const;
@@ -510,13 +526,20 @@ protected:
 		/// but not if the request fails the CSRF check, or if the auth service
 		/// reports the user as not enabled (see AuthService::userEnabled()).
 
-	[[nodiscard]] bool authorizeBasic(Poco::Net::HTTPServerRequest& request, const std::string& creds, const VirtualPath& vPath, std::string& username, bool& authenticated) const;
+	[[nodiscard]] bool authorizeBasic(Poco::Net::HTTPServerRequest& request, const std::string& creds,
+		const VirtualPath& vPath, std::string& username, bool& authenticated, std::chrono::seconds& retryAfter) const;
 		/// Authorizes the request using a HTTP Basic Authentication.
 		///
 		/// Sets authenticated to true if the credentials are valid, regardless of
 		/// whether the permission check succeeds. If the credentials are valid,
 		/// username is the account name that AuthService::authenticateAccount()
 		/// returns.
+		///
+		/// The password check is counted by the login throttle under the key of the
+		/// client address (see Poco::OSP::Auth::clientAddressKey()), unless the address
+		/// is exempt, and refunded if the credentials are valid. If the login throttle
+		/// refuses the check, the auth service is not called, retryAfter is set to the
+		/// time until the throttle admits checks of the client again, and false is returned.
 
 	[[nodiscard]] bool authorizeBearer(Poco::Net::HTTPServerRequest& request, const std::string& token, const VirtualPath& vPath, std::string& username, std::string& scope, bool& authenticated) const;
 		/// Authorizes the request using bearer token-based authentication.
@@ -684,6 +707,8 @@ private:
 	bool _addSignature;
 	bool _logFullRequest;
 	int _authMethods;
+	Poco::OSP::Auth::ExemptAddresses _loginExemptAddresses;
+	mutable Poco::OSP::Auth::LoginThrottle _loginThrottle;
 	std::set<std::string> _compressedMediaTypes;
 	Poco::Net::NameValueCollection _customResponseHeaders;
 	Poco::OSP::Auth::AuthService::Ptr _pAuthService;

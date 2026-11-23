@@ -27,6 +27,7 @@
 #include "Poco/OSP/BundleEvent.h"
 #include "Poco/OSP/ServiceRegistry.h"
 #include "Poco/OSP/Auth/AuthService.h"
+#include "Poco/OSP/Auth/ClientAddressKey.h"
 #include "Poco/OSP/Auth/RequestIdentity.h"
 #include "Poco/OSP/Properties.h"
 #include "Poco/OSP/ServiceRef.h"
@@ -53,6 +54,7 @@
 #include "Poco/AutoPtr.h"
 #include "Poco/SharedPtr.h"
 #include "Poco/Exception.h"
+#include "Poco/NumberParser.h"
 #include "Poco/Ascii.h"
 #include "Poco/Types.h"
 #include "Poco/Timespan.h"
@@ -111,6 +113,7 @@ namespace
 		"message.forbidden = Listing the contents of directory $1 is not allowed.\n"
 		"message.internal  = The request failed with an exception (reference: $1).\n"
 		"message.unavailable = Authentication for $1 is not available.\n"
+		"message.toomany = Too many failed password checks from this client address. Retry after $2 s.\n"
 		"web.static.resource = persist\n");
 
 	const Poco::Timespan CLIENT_TIMEOUT(10, 0);
@@ -173,6 +176,32 @@ namespace
 			accountName = "alice";
 			return true;
 		}
+	};
+
+	class CountingAuthService: public TestAuthService
+		/// Counts the password checks.
+	{
+	public:
+		CountingAuthService() = default;
+		CountingAuthService(const CountingAuthService&) = delete;
+		CountingAuthService(CountingAuthService&&) = delete;
+		CountingAuthService& operator = (const CountingAuthService&) = delete;
+		CountingAuthService& operator = (CountingAuthService&&) = delete;
+		~CountingAuthService() override = default;
+
+		[[nodiscard]] bool authenticate(const std::string& userName, const std::string& credentials) const override
+		{
+			++_checks;
+			return TestAuthService::authenticate(userName, credentials);
+		}
+
+		[[nodiscard]] int checks() const
+		{
+			return _checks;
+		}
+
+	private:
+		mutable std::atomic<int> _checks{0};
 	};
 
 	class TestTokenValidator: public TokenValidator
@@ -557,6 +586,30 @@ namespace
 		response.getCookies(cookies);
 		for (const auto& cookie: cookies) session.cookies.add(cookie.getName(), cookie.getValue());
 		return session;
+	}
+
+	[[nodiscard]] HTTPResponse::HTTPStatus basicStatus(TestServer& server, const std::string& uri,
+		const std::string& password)
+		/// Returns the status of the answer to a GET request for uri with the HTTP Basic credentials
+		/// of the user "alice" with the given password.
+	{
+		HTTPRequest request(HTTPRequest::HTTP_GET, uri);
+		Poco::Net::HTTPBasicCredentials("alice"s, password).authenticate(request);
+		HTTPResponse response;
+		server.send(request, response);
+		return response.getStatus();
+	}
+
+	[[nodiscard]] HTTPResponse::HTTPStatus basicStatus(WebServerDispatcher& dispatcher,
+		const std::string& clientAddress, const std::string& password, bool secure = false)
+		/// Returns the status of the answer to a GET request for /protected from clientAddress, over
+		/// HTTPS if secure is true, with the HTTP Basic credentials of the user "alice" with the given password.
+	{
+		ServerRequestStub request(clientAddress, secure);
+		request.setURI("/protected"s);
+		Poco::Net::HTTPBasicCredentials("alice"s, password).authenticate(request);
+		dispatcher.handleRequest(request, request.response(), secure);
+		return request.response().getStatus();
 	}
 
 	[[nodiscard]] bool hasControlCharacter(const std::string& text)
@@ -1697,6 +1750,275 @@ void WebServerDispatcherTest::testBasicCredentialsAreAuthorizedUnderAccountName(
 	const std::string body = server.send(request, response);
 	assertTrue (response.getStatus() == HTTPResponse::HTTP_OK);
 	assertEqual ("alice|-"s, body);
+}
+
+
+void WebServerDispatcherTest::testRefusedPasswordCheckAnswers429()
+{
+	Poco::AutoPtr<CountingAuthService> pAuthService = new CountingAuthService;
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, pAuthService, Properties());
+	WebServerDispatcher::Config config(_pFixture->dispatcherConfig());
+	config.loginThrottle.throttle.maxAttempts = 2;
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(config);
+	pDispatcher->addVirtualPath(handlerPath("/protected"s, "read"s, _pFixture->bundles.bundle()));
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/secured"s, "www"s,
+		WebServerDispatcher::PathSecurity(WebServerDispatcher::SM_OWNER, ""s, "read"s), _pFixture->bundles.bundle()));
+	TestServer server(*pDispatcher);
+	LogCapture capture(_pFixture->bundles.context()->logger().name());
+
+	assertTrue (basicStatus(server, "/protected"s, "wrong"s) == HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (basicStatus(server, "/protected"s, "wrong"s) == HTTPResponse::HTTP_UNAUTHORIZED);
+
+	HTTPRequest request(HTTPRequest::HTTP_GET, "/protected"s);
+	Poco::Net::HTTPBasicCredentials("alice"s, "wrong"s).authenticate(request);
+	HTTPResponse response;
+	const std::string body = server.send(request, response);
+	assertTrue (response.getStatus() == HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+	const std::string retryAfter = response.get("Retry-After"s, ""s);
+	const int retryAfterSeconds = Poco::NumberParser::parse(retryAfter);
+	assertTrue (retryAfterSeconds >= 1 && retryAfterSeconds <= 60);
+	assertFalse (response.has("WWW-Authenticate"s));
+	assertEqual ("application/json"s, response.getContentType());
+	assertTrue (body.find("\"code\": 429"s) != std::string::npos);
+	assertTrue (body.find("Retry after "s + retryAfter + " s."s) != std::string::npos);
+
+	// The correct password is refused as well, without a check; a directory mapping answers in HTML.
+	HTTPRequest resourceRequest(HTTPRequest::HTTP_GET, "/secured/hello.txt"s);
+	Poco::Net::HTTPBasicCredentials("alice"s, "secret"s).authenticate(resourceRequest);
+	HTTPResponse resourceResponse;
+	const std::string resourceBody = server.send(resourceRequest, resourceResponse);
+	assertTrue (resourceResponse.getStatus() == HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+	assertTrue (resourceResponse.has("Retry-After"s));
+	assertFalse (resourceResponse.has("WWW-Authenticate"s));
+	assertEqual ("text/html"s, resourceResponse.getContentType());
+	assertTrue (resourceBody.find("Too many failed password checks from this client address."s) != std::string::npos);
+	assertEqual (2, pAuthService->checks());
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(0);
+	std::vector<std::string> warnings;
+	for (const auto& message: messages)
+	{
+		if (message.getPriority() == Poco::Message::PRIO_WARNING &&
+			message.getText().starts_with("Too many failed password checks"s))
+		{
+			warnings.push_back(message.getText());
+		}
+	}
+	// One warning per window, logged at the first refusal, which answered with retryAfter.
+	assertEqual (1, static_cast<int>(warnings.size()));
+	assertEqual ("Too many failed password checks from 127.0.0.1: checks are refused for "s + retryAfter + " s."s,
+		warnings[0]);
+}
+
+
+void WebServerDispatcherTest::testRefusedPasswordCheckIsNotRedirected()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	WebServerDispatcher::Config config(_pFixture->dispatcherConfig());
+	config.loginThrottle.throttle.maxAttempts = 1;
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(config);
+	WebServerDispatcher::VirtualPath redirecting("/redirecting"s, "www"s,
+		WebServerDispatcher::PathSecurity(WebServerDispatcher::SM_OWNER, ""s, "read"s), _pFixture->bundles.bundle());
+	redirecting.redirectOn401 = "/login"s;
+	pDispatcher->addVirtualPath(redirecting);
+	TestServer server(*pDispatcher);
+	const auto get = [&server](const std::string& password, HTTPResponse& response)
+	{
+		HTTPRequest request(HTTPRequest::HTTP_GET, "/redirecting/hello.txt"s);
+		Poco::Net::HTTPBasicCredentials("alice"s, password).authenticate(request);
+		server.send(request, response);
+	};
+
+	HTTPResponse failedResponse;
+	get("wrong"s, failedResponse);
+	assertTrue (failedResponse.getStatus() == HTTPResponse::HTTP_FOUND);
+	assertTrue (failedResponse.has("Location"s));
+
+	// The login page would not help: the password is not checked until Retry-After has passed.
+	HTTPResponse refusedResponse;
+	get("secret"s, refusedResponse);
+	assertTrue (refusedResponse.getStatus() == HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+	assertTrue (refusedResponse.has("Retry-After"s));
+	assertFalse (refusedResponse.has("Location"s));
+}
+
+
+void WebServerDispatcherTest::testRefusedPasswordChecksAreLoggedAtDebugLevel()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	WebServerDispatcher::Config config(_pFixture->dispatcherConfig());
+	config.loginThrottle.throttle.maxAttempts = 1;
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(config);
+	pDispatcher->addVirtualPath(handlerPath("/protected"s, "read"s, _pFixture->bundles.bundle()));
+	TestServer server(*pDispatcher);
+	LogCapture capture(_pFixture->bundles.context()->logger().name());
+	_pFixture->bundles.context()->logger().setLevel(Poco::Message::PRIO_DEBUG);
+
+	assertTrue (basicStatus(server, "/protected"s, "wrong"s) == HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (basicStatus(server, "/protected"s, "wrong"s) == HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+	assertTrue (basicStatus(server, "/protected"s, "secret"s) == HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+	HTTPRequest request(HTTPRequest::HTTP_GET, "/protected"s);
+	Poco::Net::HTTPBasicCredentials("mallory\r\nFAKE"s, "wrong"s).authenticate(request);
+	HTTPResponse response;
+	server.send(request, response);
+	assertTrue (response.getStatus() == HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(0);
+	const auto isRefusal = [](const Poco::Message& message, const std::string& prefix)
+	{
+		return message.getPriority() == Poco::Message::PRIO_DEBUG && message.getText().starts_with(prefix);
+	};
+	assertEqual (2, std::ranges::count_if(messages, [&isRefusal](const Poco::Message& message)
+		{ return isRefusal(message, "Password check of user alice from 127.0.0.1 refused for "s); }));
+	const auto itEscaped = std::ranges::find_if(messages, [&isRefusal](const Poco::Message& message)
+		{ return isRefusal(message, "Password check of user mallory\\r\\nFAKE from 127.0.0.1 refused for "s); });
+	assertTrue (itEscaped != messages.end());
+	assertTrue (itEscaped->getText().find_first_of("\r\n"s) == std::string::npos);
+}
+
+
+void WebServerDispatcherTest::testSessionsAreNotCountedByLoginThrottle()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	WebSessionManager::Ptr pSessionManager = new WebSessionManager(_pFixture->bundles.context());
+	_pFixture->bundles.registry().registerService(WebSessionManager::SERVICE_NAME, pSessionManager, Properties());
+	WebServerDispatcher::Config config(_pFixture->dispatcherConfig());
+	config.loginThrottle.throttle.maxAttempts = 1;
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(config);
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/login"s,
+		new LoginHandlerFactory(pSessionManager, _pFixture->bundles.context()), WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle()));
+	WebServerDispatcher::VirtualPath api(handlerPath("/protected"s, "read"s, _pFixture->bundles.bundle()));
+	api.security.session = "app";
+	pDispatcher->addVirtualPath(api);
+	TestServer server(*pDispatcher);
+	const Session session = loginSession(server, "/login"s);
+	const auto sessionStatus = [&server, &session]()
+	{
+		HTTPRequest request(HTTPRequest::HTTP_GET, "/protected"s);
+		request.setCookies(session.cookies);
+		HTTPResponse response;
+		server.send(request, response);
+		return response.getStatus();
+	};
+
+	for (int i = 0; i < 3; ++i)
+	{
+		assertTrue (sessionStatus() == HTTPResponse::HTTP_OK);
+	}
+
+	assertTrue (basicStatus(server, "/protected"s, "wrong"s) == HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (basicStatus(server, "/protected"s, "secret"s) == HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+	// Refused password checks do not refuse requests in a session.
+	assertTrue (sessionStatus() == HTTPResponse::HTTP_OK);
+}
+
+
+void WebServerDispatcherTest::testBearerTokensAreNotCountedByLoginThrottle()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	_pFixture->bundles.registry().registerService(TOKEN_VALIDATOR_NAME, new TestTokenValidator, Properties());
+	WebServerDispatcher::Config config(_pFixture->dispatcherConfig());
+	config.loginThrottle.throttle.maxAttempts = 1;
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(config);
+	pDispatcher->addVirtualPath(handlerPath("/protected"s, "read"s, _pFixture->bundles.bundle()));
+	TestServer server(*pDispatcher);
+	const auto bearerStatus = [&server](const std::string& token)
+	{
+		HTTPRequest request(HTTPRequest::HTTP_GET, "/protected"s);
+		request.setCredentials("Bearer"s, token);
+		HTTPResponse response;
+		server.send(request, response);
+		return response.getStatus();
+	};
+
+	for (int i = 0; i < 3; ++i)
+	{
+		assertTrue (bearerStatus("mallory-token"s) == HTTPResponse::HTTP_UNAUTHORIZED);
+	}
+	assertTrue (basicStatus(server, "/protected"s, "secret"s) == HTTPResponse::HTTP_OK);
+
+	assertTrue (basicStatus(server, "/protected"s, "wrong"s) == HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (basicStatus(server, "/protected"s, "secret"s) == HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+	// Refused password checks do not refuse bearer tokens.
+	assertTrue (bearerStatus("alice-token"s) == HTTPResponse::HTTP_OK);
+}
+
+
+void WebServerDispatcherTest::testSuccessfulPasswordCheckIsRefunded()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	WebServerDispatcher::Config config(_pFixture->dispatcherConfig());
+	config.loginThrottle.throttle.maxAttempts = 2;
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(config);
+	pDispatcher->addVirtualPath(handlerPath("/protected"s, "read"s, _pFixture->bundles.bundle()));
+	pDispatcher->addVirtualPath(handlerPath("/admin"s, "admin"s, _pFixture->bundles.bundle()));
+	TestServer server(*pDispatcher);
+
+	for (int i = 0; i < 3; ++i)
+	{
+		assertTrue (basicStatus(server, "/protected"s, "secret"s) == HTTPResponse::HTTP_OK);
+		// Valid credentials without the permission are refunded as well.
+		assertTrue (basicStatus(server, "/admin"s, "secret"s) == HTTPResponse::HTTP_FORBIDDEN);
+	}
+
+	// A success does not clear the failed checks before it.
+	assertTrue (basicStatus(server, "/protected"s, "wrong"s) == HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (basicStatus(server, "/protected"s, "secret"s) == HTTPResponse::HTTP_OK);
+	assertTrue (basicStatus(server, "/protected"s, "wrong"s) == HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (basicStatus(server, "/protected"s, "secret"s) == HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+}
+
+
+void WebServerDispatcherTest::testExemptClientAddressIsNotLimited()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	WebServerDispatcher::Config config(_pFixture->dispatcherConfig());
+	config.loginThrottle.throttle.maxAttempts = 1;
+	config.loginThrottle.exemptAddresses = Poco::OSP::Auth::parseExemptAddresses("192.0.2.3"s, "exemptAddresses"s);
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(config);
+	pDispatcher->addVirtualPath(handlerPath("/protected"s, "read"s, _pFixture->bundles.bundle()));
+
+	for (int i = 0; i < 3; ++i)
+	{
+		assertTrue (basicStatus(*pDispatcher, "192.0.2.3:50000"s, "wrong"s) == HTTPResponse::HTTP_UNAUTHORIZED);
+	}
+	assertTrue (basicStatus(*pDispatcher, "192.0.2.3:50000"s, "secret"s) == HTTPResponse::HTTP_OK);
+
+	// A client that is not on the list is still limited.
+	assertTrue (basicStatus(*pDispatcher, "192.0.2.4:50000"s, "wrong"s) == HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (basicStatus(*pDispatcher, "192.0.2.4:50000"s, "secret"s) == HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+}
+
+
+void WebServerDispatcherTest::testLoginThrottleCountsPerClientAddress()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	WebServerDispatcher::Config config(_pFixture->dispatcherConfig());
+	config.loginThrottle.throttle.maxAttempts = 1;
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(config);
+	pDispatcher->addVirtualPath(handlerPath("/protected"s, "read"s, _pFixture->bundles.bundle()));
+
+	assertTrue (basicStatus(*pDispatcher, "192.0.2.1:50000"s, "wrong"s) == HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (basicStatus(*pDispatcher, "192.0.2.1:50001"s, "wrong"s) == HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+	// Each client address has its own count.
+	assertTrue (basicStatus(*pDispatcher, "192.0.2.2:50000"s, "wrong"s) == HTTPResponse::HTTP_UNAUTHORIZED);
+	// The IPv4-mapped IPv6 form of an address shares the count of the IPv4 address.
+	assertTrue (basicStatus(*pDispatcher, "[::ffff:192.0.2.1]:50000"s, "wrong"s) ==
+		HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+}
+
+
+void WebServerDispatcherTest::testHTTPAndHTTPSShareLoginThrottle()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	WebServerDispatcher::Config config(_pFixture->dispatcherConfig());
+	config.loginThrottle.throttle.maxAttempts = 1;
+	WebServerDispatcher::Ptr pDispatcher = new WebServerDispatcher(config);
+	pDispatcher->addVirtualPath(handlerPath("/protected"s, "read"s, _pFixture->bundles.bundle()));
+
+	assertTrue (basicStatus(*pDispatcher, "127.0.0.1:50000"s, "wrong"s) == HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (basicStatus(*pDispatcher, "127.0.0.1:50000"s, "secret"s, true) == HTTPResponse::HTTP_TOO_MANY_REQUESTS);
 }
 
 
@@ -3143,6 +3465,15 @@ CppUnit::Test* WebServerDispatcherTest::suite()
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testUnavailableAnswerHasBundleMessage);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testAuthorizationResponses);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testBasicCredentialsAreAuthorizedUnderAccountName);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRefusedPasswordCheckAnswers429);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRefusedPasswordCheckIsNotRedirected);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRefusedPasswordChecksAreLoggedAtDebugLevel);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testSessionsAreNotCountedByLoginThrottle);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testBearerTokensAreNotCountedByLoginThrottle);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testSuccessfulPasswordCheckIsRefunded);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testExemptClientAddressIsNotLimited);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testLoginThrottleCountsPerClientAddress);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testHTTPAndHTTPSShareLoginThrottle);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testSessionCSRFProtection);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testSessionUserWithoutPermissionIsForbidden);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testSessionUserWithoutPermissionForHomePageIsNotAuthorized);
