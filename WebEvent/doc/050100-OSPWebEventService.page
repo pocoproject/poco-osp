@@ -105,6 +105,16 @@ sequence - typically a JSON or XML document.
     pWebEventService->notify("sample.event", "Some event data");
 ----
 
+A newer notify() of a subject replaces a frame of that subject that still waits
+for a subscriber, which suits the states of one value. For a subject whose
+notifications are the parts of a sequence, such as the batches of samples of a
+measurement, use Poco::OSP::WebEvent::WebEventService::notifyEach() instead: it
+queues every notification, so that a subscriber that keeps up receives every
+part, in order (see Delivery Semantics and Flow Control).
+
+    pWebEventService->notifyEach("sample.samples", batch);
+----
+
 To receive notifications on a specific subject, use the 
 Poco::OSP::WebEvent::WebEventService::subjectNotified() member function, specifying
 the subject name. The function will return a reference to a 
@@ -549,15 +559,19 @@ about eleven seconds: the send timeout of ten seconds, checked once a second.
 
 Delivery to a subscriber that cannot keep up is lossy:
 
-  - While a frame for a subject is still queued for a subscriber, a newer notification
-    for the same subject replaces the queued frame (latest value wins). Frames are
-    always delivered in the order the notifications were made.
+  - While a frame of notify() for a subject is still queued for a subscriber, a newer
+    notify() for the same subject replaces the queued frame (latest value wins). Frames
+    are always delivered in the order the notifications were made.
+  - A frame of notifyEach() is queued behind the frames that wait for the subscriber,
+    also behind one of the same subject. No later notification replaces it, and it
+    replaces none.
   - A subscriber with overlapping subscriptions (e.g., to a subject and one of its
     ancestors) receives a single frame per notification.
   - The number of queued frames per subscriber is limited by the
     osp.web.event.maxPendingFrames configuration property. When the limit is
-    exceeded, the oldest queued notification frame for that subscriber is dropped
-    and a warning is logged. The keepalive PING and the PONG that answers the
+    exceeded, the oldest queued frame of notifyEach() for that subscriber is dropped,
+    or, while none is queued, the oldest queued notification frame, and a warning is
+    logged. The keepalive PING and the PONG that answers the
     client's latest PING are never dropped; at most one of each is queued.
   - A subscriber to which a frame has not been sent completely within ten seconds
     is disconnected and removed, within about another second. The limit applies
@@ -615,7 +629,8 @@ at most 64. Defaults to two times the number of processor cores.
 
 The maximum number of outbound frames queued per subscriber.
 When a subscriber cannot keep up and the limit is exceeded, the oldest queued
-notification frame for that subscriber is dropped. The keepalive PING and the
+frame of notifyEach() for that subscriber is dropped, or, while none is queued, the
+oldest queued notification frame. The keepalive PING and the
 PONG that answers the client's latest PING, at most one of each, count against
 the limit but are never dropped, so with a limit of 1 two frames can be queued.
 Specify 0 for unlimited queueing (which can exhaust memory if clients stall).

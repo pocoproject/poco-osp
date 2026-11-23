@@ -153,7 +153,7 @@ entries.
   names more in one `SUBSCRIBE` message, or sends nothing, not even a PONG, for twice `osp.web.event.pingInterval`
   (default 60 s).
 - WebEvent: delivery to a subscriber that falls behind is lossy: beyond `osp.web.event.maxPendingFrames` queued frames,
-  the oldest notification frame is dropped.
+  the oldest frame of `notifyEach()` is dropped, or, while none is queued, the oldest notification frame.
 - Shell: `CommandProcessor::COMMAND_LOGIN`, `COMMAND_HELP` and `COMMAND_QUIT` are removed; the `ShellConnection` and
   `ShellConnectionFactory` constructors take a `ShellConnection::Config` and a `SessionTracker`.
 - Shell: before a login, only `login`, `help` and `quit` run; every other command, also one registered without a
@@ -239,6 +239,11 @@ entries.
   upgrade request, so `notifyUser()` and the subject authorizer work without one; a resolver replaces that user. A
   connection authenticated with a bearer token records the token's scope (`SubscriberInfo::scope`); `notifyUser()` does
   not reach a connection with a scope.
+- WebEvent: `WebEventService::notifyEach()` notifies a subject whose notifications are the parts of a sequence, such as
+  batches of samples: the frame is queued behind the frames that wait for a subscriber, and no later notification of
+  the subject replaces it, so a subscriber receives every part; one that falls behind beyond
+  `osp.web.event.maxPendingFrames` loses the oldest parts first. The default implementation of the interface calls
+  `notify()`.
 - Shell: the failed password checks of the shell, over TCP and SSH, are limited per client address with
   `com.appinf.osp.shell.login.maxAttempts` (default 10), `com.appinf.osp.shell.login.cooldownSeconds` (default 60) and
   `com.appinf.osp.shell.login.exemptAddresses` (bundle properties `login.*`). A refused `login` command is answered

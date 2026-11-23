@@ -67,7 +67,11 @@ public:
 	void testUnsentPingDoesNotReap();
 	void testSnapshotReturnsEmptyWhenStopped();
 	void testSendQueueCoalescing();
+	void testNotifyEachKeepsEveryFrame();
 	void testSendQueueBounded();
+	void testSendQueueDropsSequencePartsBeforeAState();
+	void testSendQueueDropsNewPartBeforeStates();
+	void testDefaultNotifyEachCallsNotify();
 	void testKeepaliveSurvivesFullSendQueue();
 	void testClientPingsQueueOnePong();
 	void testPendingSendsAfterDisconnect();

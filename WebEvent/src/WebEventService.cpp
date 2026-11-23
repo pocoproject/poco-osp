@@ -27,6 +27,12 @@ WebEventService::WebEventService() = default;
 WebEventService::~WebEventService() = default;
 
 
+void WebEventService::notifyEach(const std::string& subjectName, const std::string& data)
+{
+	notify(subjectName, data);
+}
+
+
 const std::type_info& WebEventService::type() const
 {
 	return typeid(WebEventService);

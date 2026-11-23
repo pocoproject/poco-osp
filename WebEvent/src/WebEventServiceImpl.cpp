@@ -241,21 +241,24 @@ private:
 class NotifyNotification: public TaskNotification
 {
 public:
-	NotifyNotification(WebEventServiceImpl& service, const std::string& subjectName, const std::string& data):
+	NotifyNotification(WebEventServiceImpl& service, const std::string& subjectName, const std::string& data,
+		bool sequence):
 		TaskNotification(service),
 		_subjectName(subjectName),
-		_data(data)
+		_data(data),
+		_sequence(sequence)
 	{
 	}
 
 	void execute() override
 	{
-		_service.notifyImpl(_subjectName, _data);
+		_service.notifyImpl(_subjectName, _data, _sequence);
 	}
 
 private:
 	std::string _subjectName;
 	std::string _data;
+	bool _sequence;
 };
 
 
@@ -600,7 +603,14 @@ Poco::BasicEvent<const WebEventService::NotificationEvent>& WebEventServiceImpl:
 void WebEventServiceImpl::notify(const std::string& subjectName, const std::string& data)
 {
 	if (_stopped) return;
-	enqueueMain(new NotifyNotification(*this, subjectName, data));
+	enqueueMain(new NotifyNotification(*this, subjectName, data, false));
+}
+
+
+void WebEventServiceImpl::notifyEach(const std::string& subjectName, const std::string& data)
+{
+	if (_stopped) return;
+	enqueueMain(new NotifyNotification(*this, subjectName, data, true));
 }
 
 
@@ -977,7 +987,8 @@ WebEventService::SubscriberInfoVec WebEventServiceImpl::listSubscribers()
 }
 
 
-void WebEventServiceImpl::enqueueSend(Subscriber::Ptr pSubscriber, const std::string& subject, std::shared_ptr<const std::string> pFrame, int flags)
+void WebEventServiceImpl::enqueueSend(Subscriber::Ptr pSubscriber, const std::string& subject,
+	std::shared_ptr<const std::string> pFrame, int flags, bool sequence)
 {
 	bool enqueueToken = false;
 	bool warn = false;
@@ -1015,7 +1026,7 @@ void WebEventServiceImpl::enqueueSend(Subscriber::Ptr pSubscriber, const std::st
 		}
 		else
 		{
-			pSubscriber->pending.push_back(Subscriber::PendingFrame{subject, std::move(pFrame), flags});
+			pSubscriber->pending.push_back(Subscriber::PendingFrame{subject, std::move(pFrame), flags, sequence});
 			if (!subject.empty())
 			{
 				pSubscriber->bySubject[subject] = std::prev(pSubscriber->pending.end());
@@ -1023,15 +1034,25 @@ void WebEventServiceImpl::enqueueSend(Subscriber::Ptr pSubscriber, const std::st
 			auto itDropped = pSubscriber->pending.end();
 			if (_maxPendingFrames > 0 && pSubscriber->pending.size() > static_cast<std::size_t>(_maxPendingFrames))
 			{
-				// The oldest data frame goes; control opcodes start at CLOSE. A dropped
+				// The oldest part of a sequence goes first: a state is the only frame of its
+				// subject and is not notified again, and a lost part shows as a gap in its
+				// sequence. Without one, the oldest data frame goes; control opcodes start at CLOSE. A dropped
 				// keepalive PING would stay pending for good, and the subscriber would be
 				// neither pinged nor removed again. At most one PING and one PONG are queued.
 				itDropped = std::find_if(pSubscriber->pending.begin(), pSubscriber->pending.end(),
 					[](const Subscriber::PendingFrame& frame)
 					{
-						return (frame.flags & Poco::Net::WebSocket::FRAME_OP_BITMASK)
-							< Poco::Net::WebSocket::FRAME_OP_CLOSE;
+						return frame.sequence;
 					});
+				if (itDropped == pSubscriber->pending.end())
+				{
+					itDropped = std::find_if(pSubscriber->pending.begin(), pSubscriber->pending.end(),
+						[](const Subscriber::PendingFrame& frame)
+						{
+							return (frame.flags & Poco::Net::WebSocket::FRAME_OP_BITMASK)
+								< Poco::Net::WebSocket::FRAME_OP_CLOSE;
+						});
+				}
 			}
 			if (itDropped != pSubscriber->pending.end())
 			{
@@ -1105,14 +1126,17 @@ void WebEventServiceImpl::shutdown(Subscriber::Ptr pSubscriber, Poco::UInt16 sta
 }
 
 
-void WebEventServiceImpl::notifyImpl(const std::string& subjectName, const std::string& data)
+void WebEventServiceImpl::notifyImpl(const std::string& subjectName, const std::string& data, bool sequence)
 {
 	// The frames are queued before any delegate runs, so that what a
 	// delegate does cannot keep the notification from the subscribers.
 	auto pFrame = makeNotifyFrame(subjectName, data);
+	// The subject is the coalescing key of a state. A part of a sequence is
+	// queued without one: it replaces nothing, and nothing replaces it.
+	const std::string key = sequence ? std::string() : subjectName;
 	for (auto& pSubscriber: collectSubscribers(subjectName))
 	{
-		enqueueSend(pSubscriber, subjectName, pFrame);
+		enqueueSend(pSubscriber, key, pFrame, Poco::Net::WebSocket::FRAME_TEXT, sequence);
 	}
 
 	NotificationEvent ev(subjectName, data);

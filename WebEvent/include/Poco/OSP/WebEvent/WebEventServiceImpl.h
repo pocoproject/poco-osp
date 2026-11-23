@@ -111,9 +111,11 @@ public:
 
 		int maxPendingFrames = DEFAULT_MAX_PENDING_FRAMES;
 			/// The largest number of outbound frames queued per subscriber;
-			/// 0 means unlimited. Beyond it, the oldest queued notification
-			/// is dropped. The keepalive PING and the PONG to the client's
-			/// latest PING count against it but are never dropped.
+			/// 0 means unlimited. Beyond it, the oldest queued part of a
+			/// sequence (notifyEach()) is dropped, or, while none is queued,
+			/// the oldest queued notification. The keepalive PING and the PONG
+			/// to the client's latest PING count against it but are never
+			/// dropped.
 
 		std::chrono::seconds pingInterval{60};
 			/// Every interval, subscribers that have not sent anything for at
@@ -175,6 +177,7 @@ public:
 	// WebEventService
 	Poco::BasicEvent<const NotificationEvent>& subjectNotified(const std::string& subject) override;
 	void notify(const std::string& subjectName, const std::string& data) override;
+	void notifyEach(const std::string& subjectName, const std::string& data) override;
 	void notifyUser(const std::string& username, const std::string& subjectName, const std::string& data) override;
 	void setUserResolver(UserResolver resolver) override;
 	void setSubjectAuthorizer(SubjectAuthorizer authorizer) override;
@@ -225,10 +228,13 @@ protected:
 			std::string subject;
 				/// Published subject, used as coalescing key; empty for
 				/// control frames and system.pong replies, which it does not coalesce.
+				/// Empty also for parts of a sequence.
 			std::shared_ptr<const std::string> pFrame;
 				/// Complete NOTIFY frame, shared across subscribers.
 			int flags = Poco::Net::WebSocket::FRAME_TEXT;
 				/// WebSocket frame flags; keepalive PINGs use a control opcode.
+			bool sequence = false;
+				/// A part of a sequence (notifyEach()).
 		};
 		using PendingList = std::list<PendingFrame>;
 
@@ -361,13 +367,19 @@ private:
 		/// warning level if the authorizer throws.
 	void subscribe(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::set<std::string>& subjectNames);
 	void unsubscribe(Poco::SharedPtr<Poco::Net::WebSocket> pWS, const std::set<std::string>& subjectNames);
-	void enqueueSend(Subscriber::Ptr pSubscriber, const std::string& subject, std::shared_ptr<const std::string> pFrame, int flags = Poco::Net::WebSocket::FRAME_TEXT);
+	void enqueueSend(Subscriber::Ptr pSubscriber, const std::string& subject, std::shared_ptr<const std::string> pFrame,
+		int flags = Poco::Net::WebSocket::FRAME_TEXT, bool sequence = false);
+		/// Queues the frame for the subscriber. The subject is the coalescing
+		/// key: the frame replaces a queued frame of that subject; with an empty
+		/// subject it replaces nothing, except that a PONG replaces a queued
+		/// PONG. With sequence, the frame is a part of a sequence (notifyEach()),
+		/// which is dropped first when the queue is over its limit.
 	void receive(Subscriber::Ptr pSubscriber);
 	void receiveNext(Subscriber::Ptr pSubscriber);
 		/// Hands the subscriber's socket back to the main thread after a worker
 		/// has handled a frame, telling whether the next frame is already waiting.
 
-	void notifyImpl(const std::string& subjectName, const std::string& data);
+	void notifyImpl(const std::string& subjectName, const std::string& data, bool sequence);
 	void notifyUserImpl(const std::string& username, const std::string& subjectName, const std::string& data);
 	[[nodiscard]] std::vector<Subscriber::Ptr> collectSubscribers(const std::string& subjectName,
 		const std::string& username = std::string());

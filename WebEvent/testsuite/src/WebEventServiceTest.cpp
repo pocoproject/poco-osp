@@ -14,6 +14,7 @@
 #include "Poco/OSP/BundleContext.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
+#include "Poco/BasicEvent.h"
 #include "Poco/Delegate.h"
 #include "Poco/SharedPtr.h"
 #include "Poco/AutoPtr.h"
@@ -743,6 +744,59 @@ struct ThrowingNotificationHandler
 	}
 
 	std::atomic<bool> throwStd{true};
+};
+
+
+class NotifyRecordingService: public WebEventService
+	/// Implements the pure virtual functions of WebEventService with nothing
+	/// but a record of the calls of notify(), for the default implementations
+	/// of the interface.
+{
+public:
+	NotifyRecordingService() = default;
+	~NotifyRecordingService() override = default;
+
+	Poco::BasicEvent<const NotificationEvent>& subjectNotified(const std::string&) override
+	{
+		return _subjectNotified;
+	}
+
+	void notify(const std::string& subjectName, const std::string& data) override
+	{
+		_notifyCalls.emplace_back(subjectName, data);
+	}
+
+	void notifyUser(const std::string&, const std::string&, const std::string&) override
+	{
+	}
+
+	void setUserResolver(UserResolver) override
+	{
+	}
+
+	void setSubjectAuthorizer(SubjectAuthorizer) override
+	{
+	}
+
+	[[nodiscard]] int subscriberCount(const std::string&) override
+	{
+		return 0;
+	}
+
+	SubscriberInfoVec listSubscribers() override
+	{
+		return {};
+	}
+
+	[[nodiscard]] const std::vector<NotificationEvent>& notifyCalls() const
+		/// The subjects and data of the calls of notify(), in call order.
+	{
+		return _notifyCalls;
+	}
+
+private:
+	Poco::BasicEvent<const NotificationEvent> _subjectNotified;
+	std::vector<NotificationEvent> _notifyCalls;
 };
 
 
@@ -2985,6 +3039,59 @@ void WebEventServiceTest::testSendQueueCoalescing()
 }
 
 
+void WebEventServiceTest::testNotifyEachKeepsEveryFrame()
+{
+	const std::string subject("com.example.parent.child.leaf");
+
+	_pService->notificationSent += delegate(this, &WebEventServiceTest::onNotificationSent);
+	_notificationHandlerAdded = true;
+	_pService->subscriptionRequestReceived += delegate(this, &WebEventServiceTest::onSubscriptionReceived);
+	_subscriptionHandlerAdded = true;
+
+	TestableWebEventServiceImpl& testable = testableService(_pService);
+
+	Poco::Net::WebSocket ws = connectWebSocket(_port);
+	ws.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(ws, subject);
+	assertTrue(_childSubscriptionEvent.tryWait(2000));
+
+	// Park the single worker so the frames pile up in the subscriber's queue.
+	ThreadBlock block(testable);
+	assertTrue(block.parked());
+
+	_pService->notifyEach(subject, "b1");
+	_pService->notify(subject, "v1");
+	_pService->notifyEach(subject, "b2");
+	_pService->notify(subject, "v2");
+	_pService->notifyEach(subject, "b3");
+	assertTrue(testable.waitForMainThread());
+	assertEqual(5, _notificationCount.load());
+
+	block.release();
+
+	// No part of the sequence is replaced, and none replaces a state: v2
+	// replaces v1 only, and is queued behind b2.
+	for (const std::string expected: {"b1", "b2", "v2", "b3"})
+	{
+		WebEventService::NotificationEvent notification = receiveNotification(ws);
+		assertEquals(subject, notification.first);
+		assertEquals(expected, notification.second);
+	}
+	// Nothing else: the next frame is a later notification.
+	_pService->notify(subject, "marker");
+	WebEventService::NotificationEvent marker = receiveNotification(ws);
+	assertEquals(std::string("marker"), marker.second);
+
+	try
+	{
+		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	stopService();
+}
+
+
 void WebEventServiceTest::testSendQueueBounded()
 {
 	const std::string parentSubject("com.example.bound");
@@ -3043,6 +3150,137 @@ void WebEventServiceTest::testSendQueueBounded()
 	}
 	catch (...) {}
 	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testSendQueueDropsSequencePartsBeforeAState()
+{
+	const std::string parentSubject("com.example.bound");
+	const std::string stateSubject(parentSubject + ".state");
+	const std::string sequenceSubject(parentSubject + ".samples");
+	const int maxPendingFrames = 4;
+	const int partCount = 10;
+
+	SubscriptionWaiter waiter;
+	LocalService local(1, maxPendingFrames);
+	local.pService->subscriptionRequestReceived += delegate(&waiter, &SubscriptionWaiter::onSubscription);
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	ws.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(ws, parentSubject);
+	assertTrue(waiter.event.tryWait(2000));
+
+	ThreadBlock block(*local.pService);
+	assertTrue(block.parked());
+
+	// The state is the oldest frame when the parts exceed the limit, and
+	// the oldest parts go instead of it.
+	local.pService->notify(stateSubject, "on");
+	for (int i = 0; i < partCount; ++i)
+	{
+		local.pService->notifyEach(sequenceSubject, Poco::format("b%d", i));
+	}
+	assertTrue(local.pService->waitForMainThread());
+
+	TestableWebEventServiceImpl::SubscriberStats stats;
+	assertTrue(local.pService->firstSubscriberStats(stats));
+	assertTrue(stats.found);
+	assertEqual(maxPendingFrames, static_cast<int>(stats.pending));
+	assertEqual(partCount + 1 - maxPendingFrames, static_cast<int>(stats.dropped));
+
+	block.release();
+
+	WebEventService::NotificationEvent notification = receiveNotification(ws);
+	assertEquals(stateSubject, notification.first);
+	assertEquals(std::string("on"), notification.second);
+	for (int i = partCount + 1 - maxPendingFrames; i < partCount; ++i)
+	{
+		notification = receiveNotification(ws);
+		assertEquals(sequenceSubject, notification.first);
+		assertEquals(Poco::format("b%d", i), notification.second);
+	}
+	// Nothing else: the next frame is a later notification.
+	local.pService->notify(parentSubject + ".marker", "marker");
+	WebEventService::NotificationEvent marker = receiveNotification(ws);
+	assertEquals(parentSubject + ".marker", marker.first);
+
+	local.pService->subscriptionRequestReceived -= delegate(&waiter, &SubscriptionWaiter::onSubscription);
+
+	try
+	{
+		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testSendQueueDropsNewPartBeforeStates()
+{
+	const std::string parentSubject("com.example.bound");
+	const int maxPendingFrames = 2;
+
+	SubscriptionWaiter waiter;
+	LocalService local(1, maxPendingFrames);
+	local.pService->subscriptionRequestReceived += delegate(&waiter, &SubscriptionWaiter::onSubscription);
+
+	Poco::Net::WebSocket ws = connectWebSocket(local.port);
+	ws.setReceiveTimeout(Poco::Timespan(5, 0));
+	sendSubscribe(ws, parentSubject);
+	assertTrue(waiter.event.tryWait(2000));
+
+	ThreadBlock block(*local.pService);
+	assertTrue(block.parked());
+
+	// With only states queued, the part that exceeds the limit is the oldest
+	// part of a sequence, and it goes rather than a state.
+	local.pService->notify(parentSubject + ".a", "1");
+	local.pService->notify(parentSubject + ".b", "2");
+	local.pService->notifyEach(parentSubject + ".c", "p");
+	assertTrue(local.pService->waitForMainThread());
+
+	TestableWebEventServiceImpl::SubscriberStats stats;
+	assertTrue(local.pService->firstSubscriberStats(stats));
+	assertTrue(stats.found);
+	assertEqual(maxPendingFrames, static_cast<int>(stats.pending));
+	assertEqual(1, static_cast<int>(stats.dropped));
+
+	block.release();
+
+	WebEventService::NotificationEvent notification = receiveNotification(ws);
+	assertEquals(parentSubject + ".a", notification.first);
+	assertEquals(std::string("1"), notification.second);
+	notification = receiveNotification(ws);
+	assertEquals(parentSubject + ".b", notification.first);
+	assertEquals(std::string("2"), notification.second);
+	// Nothing else: the next frame is a later notification.
+	local.pService->notify(parentSubject + ".marker", "marker");
+	WebEventService::NotificationEvent marker = receiveNotification(ws);
+	assertEquals(parentSubject + ".marker", marker.first);
+
+	local.pService->subscriptionRequestReceived -= delegate(&waiter, &SubscriptionWaiter::onSubscription);
+
+	try
+	{
+		ws.shutdown(Poco::Net::WebSocket::WS_NORMAL_CLOSE, "");
+		ws.close();
+	}
+	catch (...) {}
+	assertEqual(1, local.stop());
+}
+
+
+void WebEventServiceTest::testDefaultNotifyEachCallsNotify()
+{
+	Poco::AutoPtr<NotifyRecordingService> pService = new NotifyRecordingService;
+	WebEventService& service = *pService;
+
+	service.notifyEach("a.b", "x");
+
+	assertEqual(1, static_cast<int>(pService->notifyCalls().size()));
+	assertEquals(std::string("a.b"), pService->notifyCalls()[0].first);
+	assertEquals(std::string("x"), pService->notifyCalls()[0].second);
 }
 
 
@@ -4803,7 +5041,11 @@ CppUnit::Test* WebEventServiceTest::suite()
 	CppUnit_addTest(pSuite, WebEventServiceTest, testUnsentPingDoesNotReap);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testSnapshotReturnsEmptyWhenStopped);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testSendQueueCoalescing);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testNotifyEachKeepsEveryFrame);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testSendQueueBounded);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testSendQueueDropsSequencePartsBeforeAState);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testSendQueueDropsNewPartBeforeStates);
+	CppUnit_addTest(pSuite, WebEventServiceTest, testDefaultNotifyEachCallsNotify);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testKeepaliveSurvivesFullSendQueue);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testClientPingsQueueOnePong);
 	CppUnit_addTest(pSuite, WebEventServiceTest, testPendingSendsAfterDisconnect);

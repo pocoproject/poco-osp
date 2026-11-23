@@ -234,9 +234,9 @@ public:
 		/// writes to the subject member.
 		///
 		/// A notification made afterwards reaches the socket after this
-		/// data, and replaces it while it is still queued (see notify()).
-		/// Server-side events (notificationSent, subjectNotified) are not
-		/// fired.
+		/// data; one of notify() replaces it while it is still queued (see
+		/// notify()). Server-side events (notificationSent, subjectNotified)
+		/// are not fired.
 		///
 		/// If a delegate throws, the exception is logged, the delegates
 		/// registered after it are not called, and the subscription stands.
@@ -261,7 +261,7 @@ public:
 
 	Poco::BasicEvent<const NotificationEvent> notificationSent;
 		/// Fired when a notification has been sent, either by calling
-		/// notify(), or by a client sending a NOTIFY message to
+		/// notify() or notifyEach(), or by a client sending a NOTIFY message to
 		/// the server while client notifications are enabled.
 		///
 		/// This event is fired for all subjects. It's the
@@ -274,7 +274,7 @@ public:
 
 	virtual Poco::BasicEvent<const NotificationEvent>& subjectNotified(const std::string& subject) = 0;
 		/// Fired when a notification has been sent for the given
-		/// subject, either by calling notify(), or by a client sending a
+		/// subject, either by calling notify() or notifyEach(), or by a client sending a
 		/// NOTIFY message to the server while client notifications are
 		/// enabled.
 		///
@@ -293,12 +293,14 @@ public:
 		///
 		/// Delivery to a subscriber that cannot keep up is lossy: while a frame for
 		/// the given subject is still queued for a subscriber, a newer notification
-		/// for the same subject replaces it (latest value wins), and a subscriber
-		/// with overlapping subscriptions (e.g., to a subject and one of its
-		/// ancestors) receives a single frame per notification. The number of
-		/// queued frames per subscriber is bounded (see the
+		/// for the same subject replaces it (latest value wins); a frame of
+		/// notifyEach() is neither replaced by nor replaces a frame of notify().
+		/// A subscriber with overlapping subscriptions (e.g., to a subject and one
+		/// of its ancestors) receives a single frame per notification. The number
+		/// of queued frames per subscriber is bounded (see the
 		/// osp.web.event.maxPendingFrames configuration property); when the limit
-		/// is exceeded, the oldest queued frame is dropped. Server-side events
+		/// is exceeded, the oldest queued frame of notifyEach() is dropped, or,
+		/// while none is queued, the oldest queued frame. Server-side events
 		/// (notificationSent, subjectNotified) are never affected and fire for
 		/// every notification.
 
@@ -414,6 +416,21 @@ public:
 		/// Must not be called from a delegate of one of this service's
 		/// events: the event thread would wait for itself until the
 		/// timeout of five seconds and then throw the TimeoutException.
+
+	// Declared after the other functions, so that their vtable slots do not move.
+	virtual void notifyEach(const std::string& subjectName, const std::string& data);
+		/// As notify(), for a subject whose notifications are the parts of a
+		/// sequence, such as the batches of samples of a measurement, and not
+		/// the states of one value: the frame is queued behind the frames that
+		/// wait for a subscriber, also behind one of the same subject, and no
+		/// later notification replaces it. A subscriber receives every
+		/// notification, in the order they were made, unless it falls behind
+		/// by more than osp.web.event.maxPendingFrames frames: then the oldest
+		/// queued parts of sequences are dropped, and a frame of notify() only
+		/// while no part of a sequence is queued. A sequence whose receiver
+		/// must notice a lost part carries a count in its data.
+		///
+		/// The default implementation calls notify().
 
 	// Service
 	[[nodiscard]] const std::type_info& type() const override;
