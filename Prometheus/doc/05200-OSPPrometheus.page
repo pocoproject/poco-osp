@@ -61,10 +61,52 @@ credentials, 403 Forbidden for a user without the permission, and
 503 Service Unavailable while the auth service is not available. Default is
 empty: every client can read the metrics.
 
+The password checks are limited per client address (see
+prometheus.login.maxAttempts): while a client address is refused, the answer
+is 429 Too Many Requests with a Retry-After header that gives the seconds until
+the client may try again, and the password is not checked.
+
 
 !! osp.web.authServiceName
 
 The name of the auth service that checks the credentials. Default is "osp.auth".
+
+
+!! prometheus.login.maxAttempts
+
+The number of password checks of one client address that are counted in a
+window of prometheus.login.cooldownSeconds. The window starts at the first
+counted check. A check is counted when it begins and refunded when the
+credentials are valid, also if the user does not have the permission. When
+this number of checks is counted, further checks from the client address are
+refused until the window ends. Default is 10. With 0, the checks are not
+limited.
+
+The client address is the address of the connection: an IPv4 address, or for
+IPv6 its /64 prefix. Behind a reverse proxy, all clients have the address of
+the proxy and share its limit; add the address of the proxy to
+prometheus.login.exemptAddresses if it limits the requests itself.
+
+When a client address is refused for the first time in a window, a warning
+is logged; every refused check is logged at debug level.
+
+With prometheus.enable set to true and an invalid value of one of the
+prometheus.login settings, the bundle does not start.
+
+
+!! prometheus.login.cooldownSeconds
+
+The length of the window in seconds, from 1 to 86400. Default is 60. A value
+outside this range is invalid while prometheus.login.maxAttempts is greater
+than 0.
+
+
+!! prometheus.login.exemptAddresses
+
+The client addresses whose password checks are not limited, separated by
+commas or spaces: IPv4 addresses, IPv6 addresses, link-local IPv6 addresses
+with a scope id (fe80::1%eth0, which matches only a client on that interface)
+and IPv6 /64 prefixes (2001:db8:1:2::/64). Default is empty.
 
 
 !! prometheus.server.maxQueued

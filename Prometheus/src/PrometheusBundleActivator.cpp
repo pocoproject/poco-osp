@@ -16,6 +16,7 @@
 #include "Poco/OSP/ServiceFinder.h"
 #include "Poco/OSP/ServiceRef.h"
 #include "Poco/OSP/ServiceListener.h"
+#include "Poco/OSP/Auth/ClientAddressKey.h"
 #include "Poco/OSP/Web/WebServerService.h"
 #include "Poco/OSP/Web/WebServerDispatcher.h"
 #include "Poco/Net/HTTPServer.h"
@@ -117,6 +118,8 @@ public:
 				Poco::format("prometheus.log.interval must be between 1 and %d"s, MAX_LOG_INTERVAL),
 				Poco::NumberFormatter::format(logMetricsInterval));
 		}
+		const Poco::OSP::Auth::LoginThrottleConfig loginThrottle =
+			Poco::OSP::Auth::loginThrottleSettings(*pPrefs->configuration(), "prometheus.login."s);
 
 		// The framework does not call stop() when start() fails.
 		try
@@ -137,7 +140,10 @@ public:
 				pParams->setKeepAlive(pPrefs->configuration()->getBool("prometheus.server.keepAlive"s, false));
 				pParams->setKeepAliveTimeout(Poco::Timespan(pPrefs->configuration()->getInt("prometheus.server.keepAliveTime"s, 10), 0));
 				pParams->setMaxKeepAliveRequests(pPrefs->configuration()->getInt("prometheus.server.maxKeepAlive"s, 10));
-				_pMetricsServer = std::make_unique<Poco::Net::HTTPServer>(new MetricsRequestHandlerFactory(pContext, path, authServiceName, permission), socket, pParams);
+				_pMetricsServer = std::make_unique<Poco::Net::HTTPServer>(
+					new MetricsRequestHandlerFactory(pContext, path, authServiceName, permission, loginThrottle),
+					socket,
+					pParams);
 				_pMetricsServer->start();
 			}
 

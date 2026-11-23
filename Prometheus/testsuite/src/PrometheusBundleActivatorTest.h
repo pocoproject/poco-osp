@@ -34,6 +34,13 @@ public:
 	void testMetricsAcceptOtherNameOfAccount();
 	void testMetricsWithoutPermission();
 	void testMissingAuthServiceIsLoggedOnce();
+	void testRefusedPasswordCheckAnswersTooManyRequests();
+	void testPasswordIsNotCheckedWhileRefused();
+	void testValidCredentialsAreNotCounted();
+	void testRequestsWithoutPasswordCheckAreNotCounted();
+	void testExemptAddressIsNotLimited();
+	void testRefusalsAreLogged();
+	void testInvalidLoginSettingFailsStart();
 	void testThreadPoolMetricsHaveOneHeader();
 	void testThreadPoolOfUnregisteredDispatcherIsNotExported();
 	void testLogIntervalOutsideRangeIsRejected();

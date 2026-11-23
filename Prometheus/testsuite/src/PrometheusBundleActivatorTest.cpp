@@ -34,8 +34,10 @@
 #include "Poco/AutoPtr.h"
 #include "Poco/ClassLoader.h"
 #include "Poco/Exception.h"
+#include "Poco/Logger.h"
 #include "Poco/Message.h"
 #include "Poco/NullStream.h"
+#include "Poco/NumberParser.h"
 #include "Poco/Path.h"
 #include "Poco/StreamCopier.h"
 #include "Poco/String.h"
@@ -47,10 +49,12 @@
 #include "CppUnit/TestCase.h"
 #include "CppUnit/Test.h"
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 
@@ -77,7 +81,7 @@ namespace
 	class TestAuthService: public Poco::OSP::Auth::AuthService
 		/// Knows the users "alice", with the permission "metrics", and "bob",
 		/// both with the password "secret". Alice can also log in as "alice@example.com",
-		/// through authenticateAccount() only.
+		/// through authenticateAccount() only. Counts the calls of authenticateAccount().
 	{
 	public:
 		TestAuthService() = default;
@@ -97,6 +101,7 @@ namespace
 		[[nodiscard]] bool authenticateAccount(const std::string& userName, const std::string& credentials,
 			std::string& accountName) const override
 		{
+			++_passwordChecks;
 			const std::string name = userName == "alice@example.com" ? "alice"s : userName;
 			if (!authenticate(name, credentials)) return false;
 			accountName = name;
@@ -118,11 +123,21 @@ namespace
 		{
 			return userName == "alice" || userName == "bob";
 		}
+
+		[[nodiscard]] int passwordChecks() const
+			/// Returns the number of calls of authenticateAccount().
+		{
+			return _passwordChecks;
+		}
+
+	private:
+		mutable std::atomic<int> _passwordChecks{0};
 	};
 
-	Poco::Net::HTTPResponse::HTTPStatus getMetrics(Poco::UInt16 port, const std::string& username, const std::string& password)
+	[[nodiscard]] Poco::Net::HTTPResponse requestMetrics(
+		Poco::UInt16 port, const std::string& username, const std::string& password)
 		/// Requests the metrics, with Basic credentials if username is not empty,
-		/// and returns the status of the response.
+		/// and returns the response.
 	{
 		Poco::Net::HTTPClientSession session("127.0.0.1"s, port);
 		session.setTimeout(TIMEOUT);
@@ -132,7 +147,15 @@ namespace
 		Poco::Net::HTTPResponse response;
 		Poco::NullOutputStream discard;
 		Poco::StreamCopier::copyStream(session.receiveResponse(response), discard);
-		return response.getStatus();
+		return response;
+	}
+
+	[[nodiscard]] Poco::Net::HTTPResponse::HTTPStatus getMetrics(
+		Poco::UInt16 port, const std::string& username, const std::string& password)
+		/// Requests the metrics, with Basic credentials if username is not empty,
+		/// and returns the status of the response.
+	{
+		return requestMetrics(port, username, password).getStatus();
 	}
 
 	[[nodiscard]] int countLines(const std::string& text, const std::string& start)
@@ -382,6 +405,188 @@ void PrometheusBundleActivatorTest::testMissingAuthServiceIsLoggedOnce()
 }
 
 
+void PrometheusBundleActivatorTest::testRefusedPasswordCheckAnswersTooManyRequests()
+{
+	// Not the default of 60 s, so that the Retry-After shows that the setting reaches the limit.
+	constexpr int COOLDOWN_SECONDS = 7;
+	const Poco::UInt16 port = unusedPort();
+	_pFixture->pSettings->setInt("prometheus.port"s, port);
+	_pFixture->pSettings->setString("prometheus.permission"s, "metrics"s);
+	_pFixture->pSettings->setInt("prometheus.login.maxAttempts"s, 2);
+	_pFixture->pSettings->setInt("prometheus.login.cooldownSeconds"s, COOLDOWN_SECONDS);
+	Poco::OSP::ServiceRef::Ptr pRef =
+		_pFixture->bundles.registry().registerService("osp.auth"s, new TestAuthService, Poco::OSP::Properties());
+	_pFixture->start();
+
+	assertTrue (getMetrics(port, "alice"s, "wrong"s) == Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (getMetrics(port, "alice"s, "wrong"s) == Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED);
+	const Poco::Net::HTTPResponse response = requestMetrics(port, "alice"s, "wrong"s);
+
+	assertTrue (response.getStatus() == Poco::Net::HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+	const int retryAfter = Poco::NumberParser::parse(response.get("Retry-After"s, ""s));
+	assertTrue (retryAfter >= 1 && retryAfter <= COOLDOWN_SECONDS);
+	assertTrue (!response.has("WWW-Authenticate"s));
+	_pFixture->stop();
+	_pFixture->bundles.registry().unregisterService(pRef);
+}
+
+
+void PrometheusBundleActivatorTest::testPasswordIsNotCheckedWhileRefused()
+{
+	const Poco::UInt16 port = unusedPort();
+	_pFixture->pSettings->setInt("prometheus.port"s, port);
+	_pFixture->pSettings->setString("prometheus.permission"s, "metrics"s);
+	_pFixture->pSettings->setInt("prometheus.login.maxAttempts"s, 1);
+	Poco::AutoPtr<TestAuthService> pAuthService = new TestAuthService;
+	Poco::OSP::ServiceRef::Ptr pRef =
+		_pFixture->bundles.registry().registerService("osp.auth"s, pAuthService, Poco::OSP::Properties());
+	_pFixture->start();
+
+	assertTrue (getMetrics(port, "alice"s, "wrong"s) == Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (getMetrics(port, "alice"s, "secret"s) == Poco::Net::HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+
+	assertEqual (1, pAuthService->passwordChecks());
+	_pFixture->stop();
+	_pFixture->bundles.registry().unregisterService(pRef);
+}
+
+
+void PrometheusBundleActivatorTest::testValidCredentialsAreNotCounted()
+{
+	const Poco::UInt16 port = unusedPort();
+	_pFixture->pSettings->setInt("prometheus.port"s, port);
+	_pFixture->pSettings->setString("prometheus.permission"s, "metrics"s);
+	_pFixture->pSettings->setInt("prometheus.login.maxAttempts"s, 2);
+	Poco::OSP::ServiceRef::Ptr pRef =
+		_pFixture->bundles.registry().registerService("osp.auth"s, new TestAuthService, Poco::OSP::Properties());
+	_pFixture->start();
+
+	for (int i = 0; i < 3; ++i)
+	{
+		assertTrue (getMetrics(port, "alice"s, "secret"s) == Poco::Net::HTTPResponse::HTTP_OK);
+	}
+	// Bob has valid credentials, but not the permission.
+	for (int i = 0; i < 3; ++i)
+	{
+		assertTrue (getMetrics(port, "bob"s, "secret"s) == Poco::Net::HTTPResponse::HTTP_FORBIDDEN);
+	}
+	assertTrue (getMetrics(port, "alice"s, "wrong"s) == Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (getMetrics(port, "alice"s, "wrong"s) == Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (getMetrics(port, "alice"s, "wrong"s) == Poco::Net::HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+	_pFixture->stop();
+	_pFixture->bundles.registry().unregisterService(pRef);
+}
+
+
+void PrometheusBundleActivatorTest::testRequestsWithoutPasswordCheckAreNotCounted()
+{
+	const Poco::UInt16 port = unusedPort();
+	_pFixture->pSettings->setInt("prometheus.port"s, port);
+	_pFixture->pSettings->setString("prometheus.permission"s, "metrics"s);
+	_pFixture->pSettings->setInt("prometheus.login.maxAttempts"s, 1);
+	_pFixture->start();
+
+	// While the auth service is missing, no password is checked.
+	for (int i = 0; i < 2; ++i)
+	{
+		assertTrue (getMetrics(port, "alice"s, "wrong"s) == Poco::Net::HTTPResponse::HTTP_SERVICE_UNAVAILABLE);
+	}
+	Poco::AutoPtr<TestAuthService> pAuthService = new TestAuthService;
+	Poco::OSP::ServiceRef::Ptr pRef =
+		_pFixture->bundles.registry().registerService("osp.auth"s, pAuthService, Poco::OSP::Properties());
+	// A client that answers the challenge first sends a request without credentials.
+	for (int i = 0; i < 2; ++i)
+	{
+		const Poco::Net::HTTPResponse response = requestMetrics(port, ""s, ""s);
+		assertTrue (response.getStatus() == Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED);
+		assertTrue (response.has("WWW-Authenticate"s));
+	}
+	assertTrue (getMetrics(port, "alice"s, "wrong"s) == Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED);
+	assertEqual (1, pAuthService->passwordChecks());
+	assertTrue (getMetrics(port, "alice"s, "wrong"s) == Poco::Net::HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+	_pFixture->stop();
+	_pFixture->bundles.registry().unregisterService(pRef);
+}
+
+
+void PrometheusBundleActivatorTest::testExemptAddressIsNotLimited()
+{
+	const Poco::UInt16 port = unusedPort();
+	_pFixture->pSettings->setInt("prometheus.port"s, port);
+	_pFixture->pSettings->setString("prometheus.permission"s, "metrics"s);
+	_pFixture->pSettings->setInt("prometheus.login.maxAttempts"s, 1);
+	_pFixture->pSettings->setString("prometheus.login.exemptAddresses"s, "192.0.2.1, 127.0.0.1"s);
+	Poco::OSP::ServiceRef::Ptr pRef =
+		_pFixture->bundles.registry().registerService("osp.auth"s, new TestAuthService, Poco::OSP::Properties());
+	_pFixture->start();
+
+	assertTrue (getMetrics(port, "alice"s, "wrong"s) == Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (getMetrics(port, "alice"s, "wrong"s) == Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (getMetrics(port, "alice"s, "secret"s) == Poco::Net::HTTPResponse::HTTP_OK);
+	_pFixture->stop();
+	_pFixture->bundles.registry().unregisterService(pRef);
+}
+
+
+void PrometheusBundleActivatorTest::testRefusalsAreLogged()
+{
+	const Poco::UInt16 port = unusedPort();
+	_pFixture->pSettings->setInt("prometheus.port"s, port);
+	_pFixture->pSettings->setString("prometheus.permission"s, "metrics"s);
+	_pFixture->pSettings->setInt("prometheus.login.maxAttempts"s, 1);
+	Poco::OSP::ServiceRef::Ptr pRef =
+		_pFixture->bundles.registry().registerService("osp.auth"s, new TestAuthService, Poco::OSP::Properties());
+	_pFixture->start();
+	LogCapture capture(_pFixture->bundles.context()->logger().name());
+	_pFixture->bundles.context()->logger().setLevel(Poco::Message::PRIO_DEBUG);
+
+	assertTrue (getMetrics(port, "alice"s, "wrong"s) == Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (getMetrics(port, "eve\nalice"s, "wrong"s) == Poco::Net::HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+	assertTrue (getMetrics(port, "eve\nalice"s, "wrong"s) == Poco::Net::HTTPResponse::HTTP_TOO_MANY_REQUESTS);
+
+	// The server logs before it sends the response, so every message is there.
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(3);
+	assertEqual (3, static_cast<int>(messages.size()));
+	assertTrue (messages[0].getPriority() == Poco::Message::PRIO_WARNING);
+	assertTrue (Poco::startsWith(messages[0].getText(),
+		"Too many failed password checks from 127.0.0.1: checks are refused for "s));
+	assertTrue (Poco::endsWith(messages[0].getText(), " s."s));
+	for (const auto& message: {messages[1], messages[2]})
+	{
+		assertTrue (message.getPriority() == Poco::Message::PRIO_DEBUG);
+		assertTrue (Poco::startsWith(message.getText(),
+			"Password check of user eve\\nalice from 127.0.0.1 refused for "s));
+		assertTrue (Poco::endsWith(message.getText(), " s."s));
+	}
+	_pFixture->stop();
+	_pFixture->bundles.registry().unregisterService(pRef);
+}
+
+
+void PrometheusBundleActivatorTest::testInvalidLoginSettingFailsStart()
+{
+	const std::vector<std::pair<std::string, std::string>> settings{
+		{"prometheus.login.maxAttempts"s, "-1"s},
+		{"prometheus.login.maxAttempts"s, "ten"s},
+		{"prometheus.login.cooldownSeconds"s, "0"s},
+		{"prometheus.login.exemptAddresses"s, "localhost"s}};
+	for (const auto& [key, value]: settings)
+	{
+		_pFixture->pSettings->setString(key, value);
+		try
+		{
+			_pFixture->start();
+			fail("the setting " + key + " is invalid");
+		}
+		catch (const Poco::InvalidArgumentException& exc)
+		{
+			assertTrue (exc.displayText().find(key) != std::string::npos);
+		}
+		_pFixture->pSettings->remove(key);
+	}
+}
+
+
 void PrometheusBundleActivatorTest::testThreadPoolMetricsHaveOneHeader()
 {
 	_pFixture->start();
@@ -497,6 +702,13 @@ CppUnit::Test* PrometheusBundleActivatorTest::suite()
 	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testMetricsAcceptOtherNameOfAccount);
 	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testMetricsWithoutPermission);
 	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testMissingAuthServiceIsLoggedOnce);
+	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testRefusedPasswordCheckAnswersTooManyRequests);
+	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testPasswordIsNotCheckedWhileRefused);
+	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testValidCredentialsAreNotCounted);
+	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testRequestsWithoutPasswordCheckAreNotCounted);
+	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testExemptAddressIsNotLimited);
+	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testRefusalsAreLogged);
+	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testInvalidLoginSettingFailsStart);
 	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testThreadPoolMetricsHaveOneHeader);
 	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testThreadPoolOfUnregisteredDispatcherIsNotExported);
 	CppUnit_addTest(pSuite, PrometheusBundleActivatorTest, testLogIntervalOutsideRangeIsRejected);

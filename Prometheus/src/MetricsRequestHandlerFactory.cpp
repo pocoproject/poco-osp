@@ -10,6 +10,8 @@
 
 #include "MetricsRequestHandlerFactory.h"
 #include "Poco/OSP/Auth/AuthService.h"
+#include "Poco/OSP/Auth/ClientAddressKey.h"
+#include "Poco/OSP/Auth/LoginThrottle.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/OSP/ServiceRef.h"
 #include "Poco/OSP/ServiceRegistry.h"
@@ -20,8 +22,11 @@
 #include "Poco/Net/HTTPResponse.h"
 #include "Poco/Net/HTTPServerRequest.h"
 #include "Poco/Net/HTTPServerResponse.h"
+#include "Poco/Net/IPAddress.h"
 #include "Poco/Exception.h"
+#include "Poco/NumberFormatter.h"
 #include "Poco/String.h"
+#include <chrono>
 #include <string>
 
 
@@ -39,8 +44,9 @@ namespace
 	public:
 		StatusRequestHandler() = delete;
 
-		explicit StatusRequestHandler(Poco::Net::HTTPResponse::HTTPStatus status):
-			_status(status)
+		explicit StatusRequestHandler(Poco::Net::HTTPResponse::HTTPStatus status, std::chrono::seconds retryAfter = {}):
+			_status(status),
+			_retryAfter(retryAfter)
 		{
 		}
 
@@ -58,21 +64,33 @@ namespace
 			{
 				response.requireAuthentication("metrics"s);
 			}
+			if (_status == Poco::Net::HTTPResponse::HTTP_TOO_MANY_REQUESTS)
+			{
+				response.set("Retry-After"s, Poco::NumberFormatter::format(_retryAfter.count()));
+			}
 			response.setContentLength(0);
 			response.send();
 		}
 
 	private:
 		const Poco::Net::HTTPResponse::HTTPStatus _status;
+		const std::chrono::seconds _retryAfter;
 	};
 }
 
 
-MetricsRequestHandlerFactory::MetricsRequestHandlerFactory(Poco::OSP::BundleContext::Ptr pContext, const std::string& path, const std::string& authServiceName, const std::string& permission):
+MetricsRequestHandlerFactory::MetricsRequestHandlerFactory(
+	Poco::OSP::BundleContext::Ptr pContext,
+	const std::string& path,
+	const std::string& authServiceName,
+	const std::string& permission,
+	const Poco::OSP::Auth::LoginThrottleConfig& loginThrottle):
 	_pContext(pContext),
 	_path(path),
 	_authServiceName(authServiceName),
-	_permission(permission)
+	_permission(permission),
+	_exemptAddresses(loginThrottle.exemptAddresses),
+	_loginThrottle(loginThrottle.throttle)
 {
 }
 
@@ -84,14 +102,17 @@ Poco::Net::HTTPRequestHandler* MetricsRequestHandlerFactory::createRequestHandle
 {
 	if (request.getURI() != _path) return new StatusRequestHandler(Poco::Net::HTTPResponse::HTTP_NOT_FOUND);
 
-	const Poco::Net::HTTPResponse::HTTPStatus status = authorize(request);
-	if (status != Poco::Net::HTTPResponse::HTTP_OK) return new StatusRequestHandler(status);
+	std::chrono::seconds retryAfter{0};
+	const Poco::Net::HTTPResponse::HTTPStatus status = authorize(request, retryAfter);
+	if (status != Poco::Net::HTTPResponse::HTTP_OK) return new StatusRequestHandler(status, retryAfter);
 
 	return new Poco::Prometheus::MetricsRequestHandler(Poco::Prometheus::Registry::defaultRegistry());
 }
 
 
-Poco::Net::HTTPResponse::HTTPStatus MetricsRequestHandlerFactory::authorize(const Poco::Net::HTTPServerRequest& request) const
+Poco::Net::HTTPResponse::HTTPStatus MetricsRequestHandlerFactory::authorize(
+	const Poco::Net::HTTPServerRequest& request,
+	std::chrono::seconds& retryAfter)
 {
 	if (_permission.empty()) return Poco::Net::HTTPResponse::HTTP_OK;
 
@@ -125,11 +146,24 @@ Poco::Net::HTTPResponse::HTTPStatus MetricsRequestHandlerFactory::authorize(cons
 		// The request has no Basic credentials, or they are malformed.
 		return Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED;
 	}
+	const Poco::Net::IPAddress client = request.clientAddress().host();
+	const std::string key = Poco::OSP::Auth::clientAddressKey(client);
+	Poco::OSP::Auth::LoginThrottle::Attempt attempt = Poco::OSP::Auth::isExemptAddress(client, _exemptAddresses) ?
+		Poco::OSP::Auth::LoginThrottle::exempt(key) : _loginThrottle.begin(key);
+	if (!attempt.admitted())
+	{
+		Poco::secureClear(password);
+		retryAfter = attempt.retryAfter();
+		Poco::OSP::Auth::LoginThrottle::logRefusal(_pContext->logger(), attempt, username);
+		return Poco::Net::HTTPResponse::HTTP_TOO_MANY_REQUESTS;
+	}
 	// The user may log in under another name of the account; permissions belong to the account.
 	std::string accountName;
 	const bool authenticated = pAuthService->authenticateAccount(username, password, accountName);
 	Poco::secureClear(password);
 	if (!authenticated) return Poco::Net::HTTPResponse::HTTP_UNAUTHORIZED;
+	// Valid credentials refund the check also when the account lacks the permission.
+	attempt.succeeded();
 	if (!pAuthService->authorize(accountName, _permission)) return Poco::Net::HTTPResponse::HTTP_FORBIDDEN;
 	return Poco::Net::HTTPResponse::HTTP_OK;
 }

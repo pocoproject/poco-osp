@@ -178,6 +178,8 @@ entries.
   `osp_web_request_duration_seconds`.
 - Prometheus: the web server metrics have the label `server` instead of `host`, `port` and `protocol`.
 - Prometheus: the `osp_web_buffer_pool_*` gauges and the jemalloc metrics are removed.
+- Prometheus: with `prometheus.permission` set, the limit of the password checks per client address (see New
+  features) is on by default.
 - RemotingNG: the TCP and REST bundles require the bundle `poco.remotingng`, which contains the POCO RemotingNG library.
 - JS: the OSP JS library and the JavaScript bundles (`com.appinf.osp.js`, `com.appinf.osp.js.*`) are not part of POCO
   OSP.
@@ -225,6 +227,9 @@ entries.
   `com.appinf.osp.shell.login.maxAttempts` (default 10), `com.appinf.osp.shell.login.cooldownSeconds` (default 60) and
   `com.appinf.osp.shell.login.exemptAddresses` (bundle properties `login.*`). A refused `login` command is answered
   with 403 and the seconds to wait, and the connection is closed; a refused SSH password login is rejected.
+- Prometheus: the failed password checks of the metrics endpoint are limited per client address with
+  `prometheus.login.maxAttempts` (default 10), `prometheus.login.cooldownSeconds` (default 60) and
+  `prometheus.login.exemptAddresses`; a refused request is answered with 429 and `Retry-After`.
 
 ### New components
 
