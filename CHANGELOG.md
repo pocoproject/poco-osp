@@ -189,6 +189,12 @@ entries.
   with bundle properties expanded. The bndlspec element `<description>` gives it, written as one line, whitespace
   collapsed. A backslash in `<name>`, `<vendor>`, `<copyright>` and `<description>` is written to the manifest as two
   backslashes, so that OSP reads the text unchanged.
+- OSP: `Poco::OSP::Auth::LoginThrottle` limits the password checks per key: at most `maxAttempts` checks are counted
+  in a window of `cooldown`, which starts at the first counted check; a check is counted when it begins and refunded
+  when it succeeds. The header `Poco/OSP/Auth/ClientAddressKey.h`, for code that links Poco::Net, gives the key of a
+  client address (an IPv4 address, or the /64 prefix of an IPv6 address), the matching of exempt addresses, and
+  `loginThrottleSettings()`, which reads the settings `maxAttempts`, `cooldownSeconds` and `exemptAddresses` under a
+  prefix.
 - Web: in the attributes of a web server extension that accept property references (see the Web manual), a reference
   to a property whose name starts with `osp.` is resolved in the application configuration, then in the bundle properties;
   other references are resolved in the bundle properties only.

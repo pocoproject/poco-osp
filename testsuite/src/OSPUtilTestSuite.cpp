@@ -15,6 +15,7 @@
 #include "BundleStreamFactoryTest.h"
 #include "PreferencesTest.h"
 #include "LanguageTagTest.h"
+#include "LoginThrottleTest.h"
 
 
 CppUnit::Test* OSPUtilTestSuite::suite()
@@ -27,6 +28,7 @@ CppUnit::Test* OSPUtilTestSuite::suite()
 	pSuite->addTest(BundleStreamFactoryTest::suite());
 	pSuite->addTest(PreferencesTest::suite());
 	pSuite->addTest(LanguageTagTest::suite());
+	pSuite->addTest(LoginThrottleTest::suite());
 
 	return pSuite;
 }

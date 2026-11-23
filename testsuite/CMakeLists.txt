@@ -27,7 +27,9 @@ set_tests_properties(OSP-without-test-bundles PROPERTIES
 	PASS_REGULAR_EXPRESSION "POCO_OSP_TEST_BUNDLES must name the directory of the test bundles"
 )
 
-target_link_libraries(OSP-testrunner PRIVATE Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::Foundation Poco::CppUnit)
+target_link_libraries(OSP-testrunner
+	PRIVATE OSPTestSupport Poco::OSP Poco::Zip Poco::Util Poco::XML Poco::Foundation Poco::CppUnit
+)
 
 poco_osp_bundle_module(TestBundle src/TestBundle.cpp)
 
