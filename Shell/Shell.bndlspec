@@ -3,7 +3,7 @@
   <manifest>
     <name>${bundle.name}</name>
     <symbolicName>com.appinf.osp.shell</symbolicName>
-    <version>2.0.0</version>
+    <version>2.1.0</version>
     <vendor>${bundle.vendor}</vendor>
     <copyright>${bundle.copyright}</copyright>
     <lazyStart>false</lazyStart>

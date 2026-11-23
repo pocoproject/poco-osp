@@ -21,6 +21,8 @@
 #include "Poco/OSP/Shell/LoginCommandFactory.h"
 #include "Poco/OSP/Shell/QuitCommandFactory.h"
 #include "Poco/OSP/Shell/HelpCommandFactory.h"
+#include "Poco/OSP/Auth/ClientAddressKey.h"
+#include "Poco/OSP/Auth/LoginThrottle.h"
 #include "Poco/Net/SocketAddress.h"
 #include "Poco/Net/ServerSocket.h"
 #include "Poco/AutoPtr.h"
@@ -82,6 +84,8 @@ public:
 			static_cast<int>(DEFAULT_SESSION_TIMEOUT.count()));
 		int stopTimeout              = pContext->thisBundle()->properties().getInt("stopTimeout",
 			static_cast<int>(DEFAULT_STOP_TIMEOUT.count()));
+		Poco::OSP::Auth::LoginThrottleConfig loginThrottleConfig =
+			Poco::OSP::Auth::loginThrottleSettings(pContext->thisBundle()->properties(), "login.");
 		if (pPrefsSvcRef != nullptr)
 		{
 			Poco::AutoPtr<PreferencesService> pPrefsSvc = pPrefsSvcRef->castedInstance<PreferencesService>();
@@ -92,6 +96,8 @@ public:
 			sessionTimeout  = pPrefsSvc->configuration()->getInt("com.appinf.osp.shell.sessionTimeout",
 				sessionTimeout);
 			stopTimeout     = pPrefsSvc->configuration()->getInt("com.appinf.osp.shell.stopTimeout", stopTimeout);
+			loginThrottleConfig = Poco::OSP::Auth::loginThrottleSettings(
+				*pPrefsSvc->configuration(), "com.appinf.osp.shell.login.", loginThrottleConfig);
 		}
 		checkSetting("port", port, 1, MAX_PORT);
 		checkSetting("maxConnections", maxConnections, 1, std::numeric_limits<int>::max());
@@ -101,6 +107,7 @@ public:
 
 		_pCommandProcessor = std::make_unique<CommandProcessor>(pContext);
 		_pLoginFailures = std::make_unique<LoginFailures>();
+		_pLoginThrottle = std::make_unique<Poco::OSP::Auth::LoginThrottle>(loginThrottleConfig.throttle);
 		SharedPtr<CommandFactory> pHelpCommandFactory = new HelpCommandFactory(*_pCommandProcessor);
 		pHelpCommandFactory->init(pContext);
 		std::set<std::string> helpAliases;
@@ -155,7 +162,8 @@ public:
 
 					// SSHShellConnection checks the passwords with the authentication service.
 					const ShellConnection::Config config{
-						*_pCommandProcessor, authServiceName, *_pLoginFailures, std::chrono::seconds(sessionTimeout)};
+						*_pCommandProcessor, authServiceName, *_pLoginFailures, std::chrono::seconds(sessionTimeout),
+						_pLoginThrottle.get(), loginThrottleConfig.exemptAddresses};
 					_pSSHSessions = std::make_unique<SessionTracker>();
 					SessionTracker& sessions = *_pSSHSessions;
 					_pSSHServer.reset(new Poco::SSH::SSHServer(sshConfig,
@@ -176,7 +184,8 @@ public:
 					Poco::Net::SocketAddress addr(interfc, static_cast<Poco::UInt16>(port));
 					Poco::Net::ServerSocket serverSocket(addr);
 					const ShellConnection::Config config{
-						*_pCommandProcessor, authServiceName, *_pLoginFailures, std::chrono::seconds(sessionTimeout)};
+						*_pCommandProcessor, authServiceName, *_pLoginFailures, std::chrono::seconds(sessionTimeout),
+						_pLoginThrottle.get(), loginThrottleConfig.exemptAddresses};
 					_pShellServer = std::make_unique<ShellServer>(serverSocket, maxConnections, config);
 					_pShellServer->start();
 				}
@@ -243,6 +252,7 @@ public:
 			// the library it comes from loaded.
 			[[maybe_unused]] const CommandProcessor* pKeptProcessor = _pCommandProcessor.release();
 			[[maybe_unused]] const LoginFailures* pKeptLoginFailures = _pLoginFailures.release();
+			[[maybe_unused]] const Poco::OSP::Auth::LoginThrottle* pKeptLoginThrottle = _pLoginThrottle.release();
 #if !defined(POCO_OSP_STATIC)
 			// The kept objects run code of this library, which the bundle loader
 			// unloads when it unloads the bundle. A SharedLibrary leaves its
@@ -296,6 +306,7 @@ private:
 	AutoPtr<CommandExtensionPoint>    _pCommandExtensionPoint;
 	std::unique_ptr<CommandProcessor> _pCommandProcessor;
 	std::unique_ptr<LoginFailures>    _pLoginFailures;
+	std::unique_ptr<Poco::OSP::Auth::LoginThrottle> _pLoginThrottle;
 	std::unique_ptr<ShellServer>      _pShellServer;
 	std::chrono::seconds              _stopTimeout{DEFAULT_STOP_TIMEOUT};
 #if defined(OSP_SHELL_ENABLE_SSH)

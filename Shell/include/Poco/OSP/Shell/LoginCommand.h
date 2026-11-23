@@ -33,6 +33,10 @@ class OSPShell_API LoginCommand: public AbstractCommand
 	/// name and a password, and passes them to the
 	/// login() member function of Session.
 	///
+	/// If the LoginThrottle of the session refuses the login, the
+	/// command writes the key of the client address and the seconds
+	/// until a login may be tried again.
+	///
 	/// The arguments are not processed as options, also if
 	/// they start with '-': only a single --help or -h argument
 	/// shows the help, and a leading -- argument is skipped.

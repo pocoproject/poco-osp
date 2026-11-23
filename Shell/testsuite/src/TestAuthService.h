@@ -16,6 +16,7 @@
 
 #include "Poco/OSP/Auth/AuthService.h"
 #include "Poco/AutoPtr.h"
+#include <atomic>
 #include <string>
 
 
@@ -30,7 +31,8 @@ class TestAuthService: public Poco::OSP::Auth::AuthService
 	/// under the name "Admin@example.com", which authenticate() refuses, and
 	/// returns the account name "admin" for it. The users "dash", "--" and
 	/// "quote" have no permission; their user names or passwords start with
-	/// '-' or contain quotes and backslashes.
+	/// '-' or contain quotes and backslashes. The user UTF8_USER, whose name
+	/// has a letter outside ASCII, has the password "utf8" and no permission.
 {
 public:
 	using Ptr = Poco::AutoPtr<TestAuthService>;
@@ -52,6 +54,9 @@ public:
 		const std::string& permission) const override;
 	[[nodiscard]] bool userExists(const std::string& userName) const override;
 
+	[[nodiscard]] int passwordChecks() const;
+		/// Returns the number of calls of authenticateAccount().
+
 	static const std::string ADMIN;
 	static const std::string ADMIN_PASSWORD;
 	static const std::string ADMIN_OTHER_NAME;
@@ -63,6 +68,8 @@ public:
 	static const std::string DOUBLE_DASH_PASSWORD;
 	static const std::string QUOTE_USER;
 	static const std::string QUOTE_PASSWORD;
+	static const std::string UTF8_USER;
+	static const std::string UTF8_PASSWORD;
 	static const std::string FAILING_USER;
 	static const std::string STD_FAILING_USER;
 	static const std::string ADMIN_PERMISSION;
@@ -73,6 +80,9 @@ public:
 protected:
 	~TestAuthService() override = default;
 		/// Reference counted: destroyed through release() only.
+
+private:
+	mutable std::atomic<int> _passwordChecks{0};
 };
 
 

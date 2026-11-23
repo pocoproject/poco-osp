@@ -40,6 +40,7 @@
 #include <fcntl.h>
 #include <sys/socket.h>
 #endif
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -79,8 +80,9 @@ namespace
 		{
 			if (std::chrono::steady_clock::now() >= deadline) return false;
 			const int length = ssh_channel_read_timeout(channel, buffer.data(), READ_BUFFER_SIZE, 0, READ_TIMEOUT_MS);
-			if (length == SSH_ERROR || ssh_channel_is_eof(channel) != 0) return false;
+			// The last data before the end of the channel may arrive with the end.
 			if (length > 0) received.append(buffer.data(), static_cast<std::size_t>(length));
+			else if (length == SSH_ERROR || ssh_channel_is_eof(channel) != 0) return false;
 		}
 		return true;
 	}
@@ -164,7 +166,8 @@ SSHShellConnectionTest::~SSHShellConnectionTest() = default;
 void SSHShellConnectionTest::setUp()
 {
 	_pFixture = std::make_unique<ShellFixture>(AUTH_SERVICE_NAME);
-	_pFixture->registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Poco::OSP::Properties());
+	_pAuthService = new TestAuthService;
+	_pFixture->registry().registerService(AUTH_SERVICE_NAME, _pAuthService, Poco::OSP::Properties());
 }
 
 
@@ -179,6 +182,7 @@ void SSHShellConnectionTest::tearDown()
 		_pServer.reset();
 	}
 	_pFixture.reset();
+	_pAuthService.reset();
 }
 
 
@@ -287,6 +291,65 @@ void SSHShellConnectionTest::testPasswordLoginAuthorizesCommandsUnderAccountName
 	writeLine(channel, "whoami"s);
 	assertTrue (readUntil(channel, "["s + TestAuthService::ADMIN + "]"s));
 	ssh_channel_free(channel);
+}
+
+
+void SSHShellConnectionTest::testPasswordLoginLogsEscapedUserName()
+{
+	LogCapture capture(_pFixture->shellContext()->logger().name());
+	SSHClient client;
+	client.connect("127.0.0.1"s, startServer(ShellFixture::DEFAULT_SESSION_TIMEOUT));
+	assertTrue (client.authenticatePassword(TestAuthService::UTF8_USER, TestAuthService::UTF8_PASSWORD));
+	ssh_channel channel = client.openShellChannel();
+	assertTrue (channel != nullptr);
+	assertTrue (readUntil(channel, "osp> "s));
+	ssh_channel_free(channel);
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(0);
+	const bool logged = std::ranges::any_of(messages, [](const Poco::Message& msg)
+	{
+		return msg.getText().starts_with("User u\\u017E logged in to the shell over SSH from 127.0.0.1:"s);
+	});
+	assertTrue (logged);
+}
+
+
+void SSHShellConnectionTest::testThrottledPasswordLoginIsRefused()
+{
+	_pFixture->limitLogins(1);
+	LogCapture capture(_pFixture->shellContext()->logger().name());
+	SSHClient client;
+	client.connect("127.0.0.1"s, startServer(ShellFixture::DEFAULT_SESSION_TIMEOUT));
+	assertFalse (client.authenticatePassword(TestAuthService::ADMIN, "wrong"s));
+	assertFalse (client.authenticatePassword(TestAuthService::ADMIN, TestAuthService::ADMIN_PASSWORD));
+	assertEqual (1, _pAuthService->passwordChecks());
+
+	// Only the password check is answered after a delay and logged as a rejected login.
+	const std::vector<Poco::Message> logged = warnings(capture.channel());
+	assertEqual (static_cast<std::size_t>(2), logged.size());
+	assertTrue (logged[0].getText().starts_with("Shell login from 127.0.0.1:"s));
+	assertEqual ("Too many failed password checks from 127.0.0.1: checks are refused for "s +
+		std::to_string(ShellFixture::LOGIN_COOLDOWN.count()) + " s."s, logged[1].getText());
+}
+
+
+void SSHShellConnectionTest::testThrottledLoginCommandEndsSession()
+{
+	_pFixture->limitLogins(1);
+	SSHClient client;
+	client.connect("127.0.0.1"s, startServer(ShellFixture::DEFAULT_SESSION_TIMEOUT));
+	// The check of an accepted password is not counted.
+	assertTrue (client.authenticatePassword(TestAuthService::GUEST, TestAuthService::GUEST_PASSWORD));
+	ssh_channel channel = client.openShellChannel();
+	assertTrue (channel != nullptr);
+	assertTrue (readUntil(channel, "osp> "s));
+	writeLine(channel, "login admin wrong"s);
+	assertTrue (readUntil(channel, "403 DENIED"s));
+	writeLine(channel, "login admin secret"s);
+	assertTrue (readUntil(channel, "Too many failed logins from 127.0.0.1; retry after "s +
+		std::to_string(ShellFixture::LOGIN_COOLDOWN.count()) + " s."s));
+	assertTrue (waitForEnd(channel));
+	ssh_channel_free(channel);
+	assertEqual (2, _pAuthService->passwordChecks());
 }
 
 
@@ -565,6 +628,9 @@ CppUnit::Test* SSHShellConnectionTest::suite()
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testPasswordLoginsFailedByAuthServiceAreLoggedAndClose);
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testLoginCommandIsThrottled);
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testPasswordLoginAuthorizesCommandsUnderAccountName);
+	CppUnit_addTest(pSuite, SSHShellConnectionTest, testPasswordLoginLogsEscapedUserName);
+	CppUnit_addTest(pSuite, SSHShellConnectionTest, testThrottledPasswordLoginIsRefused);
+	CppUnit_addTest(pSuite, SSHShellConnectionTest, testThrottledLoginCommandEndsSession);
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testUserNameThatIsNoFileNameEndsSession);
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testIdleSessionIsClosed);
 	CppUnit_addTest(pSuite, SSHShellConnectionTest, testLongCommandLineEndsSession);

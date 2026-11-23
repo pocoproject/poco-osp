@@ -14,6 +14,7 @@
 #define SSHShellConnectionTest_INCLUDED
 
 
+#include "TestAuthService.h"
 #include "CppUnit/TestCase.h"
 #include "Poco/OSP/Shell/SessionTracker.h"
 #include "Poco/SSH/SSHServer.h"
@@ -46,6 +47,9 @@ public:
 	void testPasswordLoginsFailedByAuthServiceAreLoggedAndClose();
 	void testLoginCommandIsThrottled();
 	void testPasswordLoginAuthorizesCommandsUnderAccountName();
+	void testPasswordLoginLogsEscapedUserName();
+	void testThrottledPasswordLoginIsRefused();
+	void testThrottledLoginCommandEndsSession();
 	void testUserNameThatIsNoFileNameEndsSession();
 	void testIdleSessionIsClosed();
 	void testLongCommandLineEndsSession();
@@ -70,6 +74,7 @@ private:
 		/// Starts an SSH server with shell sessions on 127.0.0.1 and returns its port.
 
 	std::unique_ptr<ShellFixture> _pFixture;
+	TestAuthService::Ptr _pAuthService;
 	Poco::TemporaryFile _hostKeyDirectory;
 	Poco::OSP::Shell::SessionTracker _sessions;
 	std::unique_ptr<Poco::SSH::SSHServer> _pServer;

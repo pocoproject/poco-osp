@@ -14,6 +14,7 @@
 #define SessionTest_INCLUDED
 
 
+#include "TestAuthService.h"
 #include "CppUnit/TestCase.h"
 #include <memory>
 #include <string>
@@ -48,11 +49,17 @@ public:
 	void testServiceOfOtherTypeRejectsLogin();
 	void testAuthServiceExceptionDeniesPermission();
 	void testServiceOfOtherTypeDeniesPermission();
+	void testPermissionWarningEscapesUserName();
+	void testThrottledLoginIsRefusedWithoutPasswordCheck();
+	void testSuccessfulLoginRefundsThrottledCheck();
+	void testThrottledLoginsAreLogged();
+	void testLoginWithoutAuthServiceIsNotThrottled();
 
 	static CppUnit::Test* suite();
 
 private:
 	std::unique_ptr<ShellFixture> _pFixture;
+	TestAuthService::Ptr _pAuthService;
 };
 
 

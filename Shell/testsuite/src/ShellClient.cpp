@@ -49,8 +49,8 @@ namespace
 }
 
 
-ShellClient::ShellClient(Poco::UInt16 port):
-	_socket(Poco::Net::SocketAddress("127.0.0.1", port))
+ShellClient::ShellClient(Poco::UInt16 port, const std::string& host):
+	_socket(Poco::Net::SocketAddress(host, port))
 {
 	_socket.setReceiveTimeout(Poco::Timespan(RECEIVE_TIMEOUT));
 }

@@ -14,6 +14,7 @@
 #define ShellConnectionTest_INCLUDED
 
 
+#include "TestAuthService.h"
 #include "CppUnit/TestCase.h"
 #include "Poco/Message.h"
 #include <memory>
@@ -49,6 +50,10 @@ public:
 	void testLoginsFailedByStdExceptionAreDelayedAndCloseConnection();
 	void testPermissionFailedByAuthServiceIsDenied();
 	void testAcceptedLoginIsLogged();
+	void testAcceptedLoginLogsEscapedUserName();
+	void testThrottledLoginIsAnsweredAndClosesConnection();
+	void testThrottledIPv6LoginNamesPrefix();
+	void testExemptAddressIsNotThrottled();
 	void testIdleSessionIsClosed();
 	void testSessionWithoutCompleteCommandLineIsClosed();
 	void testLongCommandLineEndsSession();
@@ -63,6 +68,7 @@ private:
 		/// messages that the shell has logged.
 
 	std::unique_ptr<ShellFixture> _pFixture;
+	TestAuthService::Ptr _pAuthService;
 };
 
 

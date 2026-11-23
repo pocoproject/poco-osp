@@ -22,7 +22,9 @@
 #include "Poco/OSP/Shell/Command.h"
 #include "Poco/OSP/Shell/CommandProcessor.h"
 #include "Poco/OSP/Shell/LoginFailures.h"
+#include "Poco/OSP/Shell/Session.h"
 #include "Poco/OSP/Shell/SessionTracker.h"
+#include "Poco/OSP/Auth/ClientAddressKey.h"
 #include "Poco/Net/SocketAddress.h"
 #include "Poco/Net/SocketDefs.h"
 #include "Poco/Net/StreamSocket.h"
@@ -54,6 +56,12 @@ void handleRejectedLogin(const ShellConnection::Config& config, SessionTracker& 
 	/// Logs a rejected login from the given client address, the given number
 	/// of rejected logins in its connection, and waits for the delay before
 	/// the rejection is answered, or until the sessions are stopped.
+
+void limitLogins(Session& session, const ShellConnection::Config& config,
+	const Poco::Net::SocketAddress& clientAddress);
+	/// Makes the session count its password checks in the LoginThrottle of the
+	/// config under the key of the given client address, unless the config has
+	/// no LoginThrottle or the address is one of its exempt addresses.
 
 void logIdleSessionClosed(const ShellConnection::Config& config, const Poco::Net::SocketAddress& clientAddress);
 	/// Logs that the session from the given client address is closed because
@@ -120,6 +128,17 @@ inline void handleRejectedLogin(const ShellConnection::Config& config, SessionTr
 	msg += '.';
 	config.commandProcessor.context()->logger().warning(msg);
 	sessions.waitForStop(delay);
+}
+
+
+inline void limitLogins(Session& session, const ShellConnection::Config& config,
+	const Poco::Net::SocketAddress& clientAddress)
+{
+	if (config.pLoginThrottle != nullptr &&
+		!Poco::OSP::Auth::isExemptAddress(clientAddress.host(), config.exemptAddresses))
+	{
+		session.limitLogins(*config.pLoginThrottle, Poco::OSP::Auth::clientAddressKey(clientAddress.host()));
+	}
 }
 
 

@@ -27,6 +27,9 @@ const std::string TestAuthService::DOUBLE_DASH_USER("--");
 const std::string TestAuthService::DOUBLE_DASH_PASSWORD("dashes");
 const std::string TestAuthService::QUOTE_USER("quote");
 const std::string TestAuthService::QUOTE_PASSWORD("a\\b\"c'd\\");
+// "\xc5\xbe" is the UTF-8 encoding of a letter outside ASCII.
+const std::string TestAuthService::UTF8_USER("u\xc5\xbe");
+const std::string TestAuthService::UTF8_PASSWORD("utf8");
 const std::string TestAuthService::FAILING_USER("failing");
 const std::string TestAuthService::STD_FAILING_USER("failingStd");
 const std::string TestAuthService::ADMIN_PERMISSION("bundleAdmin");
@@ -46,7 +49,8 @@ namespace
 			{TestAuthService::GUEST, TestAuthService::GUEST_PASSWORD},
 			{TestAuthService::DASH_USER, TestAuthService::DASH_PASSWORD},
 			{TestAuthService::DOUBLE_DASH_USER, TestAuthService::DOUBLE_DASH_PASSWORD},
-			{TestAuthService::QUOTE_USER, TestAuthService::QUOTE_PASSWORD}};
+			{TestAuthService::QUOTE_USER, TestAuthService::QUOTE_PASSWORD},
+			{TestAuthService::UTF8_USER, TestAuthService::UTF8_PASSWORD}};
 		return table;
 	}
 }
@@ -65,6 +69,7 @@ bool TestAuthService::authenticate(const std::string& userName, const std::strin
 bool TestAuthService::authenticateAccount(const std::string& userName, const std::string& credentials,
 	std::string& accountName) const
 {
+	++_passwordChecks;
 	if (userName == ADMIN_OTHER_NAME && credentials == ADMIN_PASSWORD)
 	{
 		accountName = ADMIN;
@@ -93,4 +98,10 @@ bool TestAuthService::authorize(const std::string& userName, const std::string& 
 bool TestAuthService::userExists(const std::string& userName) const
 {
 	return passwords().contains(userName);
+}
+
+
+int TestAuthService::passwordChecks() const
+{
+	return _passwordChecks;
 }

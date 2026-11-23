@@ -29,6 +29,7 @@
 #include "Poco/Delegate.h"
 #include "Poco/Exception.h"
 #include "Poco/Timespan.h"
+#include "Poco/UTF8String.h"
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -148,6 +149,7 @@ void ShellConnection::run()
 	try
 	{
 		Session session(_config.commandProcessor.context(), _config.authServiceName);
+		limitLogins(session, _config, peerAddress);
 		Poco::Net::SocketOutputStream ostr(this->socket());
 		ResponseStream responseStream(ostr);
 		
@@ -170,7 +172,11 @@ void ShellConnection::run()
 				const std::string previousUser = session.user();
 				responseStream.setStatus(STATUS_INTERMEDIATE);
 				int exitCode = _config.commandProcessor.execute(session, commandLine, responseStream);
-				if (session.failedLogins() > failedLogins)
+				if (session.loginRefusedFor().has_value())
+				{
+					keepOpen = false;
+				}
+				else if (session.failedLogins() > failedLogins)
 				{
 					handleRejectedLogin(_config, _sessions, peerAddress, session.failedLogins());
 					keepOpen = session.failedLogins() < MAX_FAILED_LOGINS;
@@ -178,7 +184,8 @@ void ShellConnection::run()
 				else if (session.authenticated() && (!wasAuthenticated || session.user() != previousUser))
 				{
 					_config.commandProcessor.context()->logger().information(
-						"User " + session.user() + " logged in to the shell from " + peerAddress.toString() + ".");
+						"User " + Poco::UTF8::escape(session.user()) + " logged in to the shell from " +
+						peerAddress.toString() + ".");
 				}
 				std::string response;
 				int status = statusFor(exitCode, response);

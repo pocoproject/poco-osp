@@ -48,6 +48,20 @@ logins and the <[login]> command in the same way, and closes idle sessions after
 same <[sessionTimeout]>. It also closes a connection on which no shell session starts
 within the <[openSSH.server.loginGraceTime]> (see below).
 
+The OSP Shell Service also limits the password checks per client address: at most
+<[login.maxAttempts]> checks in a window of <[login.cooldownSeconds]> seconds, which
+starts at the first check (see below). An IPv6 client address counts by its /64 prefix.
+The check of a valid password does not count. When the limit is reached, a login from
+the address is refused without checking the password until the window ends: the
+<[login]> command is answered with the client address (for IPv6 its /64 prefix) and the
+seconds to wait, and the connection is closed; the SSH server rejects the password
+login. A refused login is answered at once, without the delay, and is not logged as a
+rejected login. A refused SSH password login counts towards
+<[openSSH.server.maxAuthAttempts]> like a rejected one. The first refused login of an
+address in a window is logged as a warning. The client address is the address of the
+connection: clients behind a proxy or a port forwarding have its address and share one
+limit; <[login.exemptAddresses]> lists the addresses that are not limited.
+
 In the following example, the authentication service knows a user named "admin".
 
     user@host> ospsh
@@ -336,7 +350,8 @@ The <[ospsh]> command accepts the following command-line options:
 77 if the login at the start is rejected, 69 if the server has closed the connection, and 78 if
 the port in the configuration is not between 1 and 65535. The server
 closes a session in which no command arrives within the <[sessionTimeout]>, in which a command
-line is longer than 4096 characters, after three rejected logins, and when the shell stops.
+line is longer than 4096 characters, after three rejected logins, after a login that the limit
+of password checks refuses, and when the shell stops.
 
 
 !!! Adding Custom Commands to the OSP Command Shell Service
@@ -473,6 +488,15 @@ The following settings can be customized:
   - <[authServiceName]>: The name of the authentication/authorization service
     to use. Defaults to <[osp.auth]>. If no service with this name is available,
     every login is rejected. An empty name disables authentication and authorization.
+  - <[login.maxAttempts]>: The number of password checks per client address in a window
+    of <[login.cooldownSeconds]>, 0 or greater. Defaults to 10. A value of 0 turns the
+    limit off.
+  - <[login.cooldownSeconds]>: The length of the window in seconds, from 1 to 86400
+    while <[login.maxAttempts]> is greater than 0. Defaults to 60.
+  - <[login.exemptAddresses]>: The client addresses whose password checks are not limited,
+    separated by commas or spaces: IPv4 addresses, IPv6 addresses, link-local IPv6
+    addresses with a scope id (<[fe80::1%eth0]>), which match only on that interface, and
+    IPv6 /64 prefixes (<[2001:db8:1:2::/64]>). Empty by default.
 
 The settings stored in the bundle can be overridden by specifying the following settings
 in the OSP application's global configuration file:
@@ -483,15 +507,19 @@ in the OSP application's global configuration file:
   - <[com.appinf.osp.shell.sessionTimeout]>
   - <[com.appinf.osp.shell.stopTimeout]>
   - <[com.appinf.osp.shell.authServiceName]>
+  - <[com.appinf.osp.shell.login.maxAttempts]>
+  - <[com.appinf.osp.shell.login.cooldownSeconds]>
+  - <[com.appinf.osp.shell.login.exemptAddresses]>
 
-A value outside its range fails the start of the shell bundle, also for the
-settings of the SSH server below.
+A value that is not an integer or is outside its range fails the start of the shell
+bundle, also for the settings of the SSH server below, and so does an entry of
+<[login.exemptAddresses]> that the list above does not allow.
 
 !! The SSH Server
 
 In a build with SSH support, the following settings in the OSP application's global
 configuration file control the SSH server of the shell. The SSH sessions use the
-<[sessionTimeout]>, <[stopTimeout]> and <[authServiceName]> settings of the shell.
+<[sessionTimeout]>, <[stopTimeout]>, <[authServiceName]> and <[login.*]> settings of the shell.
 
   - <[openSSH.server.enabled]>: Starts the SSH server instead of the TCP shell
     service. Defaults to false.

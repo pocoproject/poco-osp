@@ -16,8 +16,10 @@
 #include "Poco/OSP/ServiceRegistry.h"
 #include "Poco/OSP/ServiceRef.h"
 #include "Poco/OSP/Auth/AuthService.h"
+#include "Poco/OSP/Auth/LoginThrottle.h"
 #include "Poco/Exception.h"
 #include "Poco/Logger.h"
+#include "Poco/UTF8String.h"
 #include <exception>
 #include <string>
 #include <utility>
@@ -45,7 +47,7 @@ namespace
 		msg += " could not check the permission ";
 		msg += permission;
 		msg += " of the shell user ";
-		msg += userName;
+		msg += Poco::UTF8::escape(userName);
 		msg += ", so the permission is denied: ";
 		msg += reason;
 		logger.warning(msg);
@@ -65,6 +67,7 @@ Session::~Session() = default;
 
 bool Session::login(const std::string& userName, const std::string& credentials)
 {
+	_loginRefusedFor.reset();
 	std::string accountName(userName);
 	if (_authServiceName.empty())
 	{
@@ -77,7 +80,7 @@ bool Session::login(const std::string& userName, const std::string& credentials)
 		{
 			Poco::OSP::Auth::AuthService::Ptr pAuthService = authService();
 			_authenticated = pAuthService != nullptr
-				&& pAuthService->authenticateAccount(userName, credentials, accountName);
+				&& checkPassword(*pAuthService, userName, credentials, accountName);
 		}
 		catch (Poco::Exception& exc)
 		{
@@ -95,9 +98,16 @@ bool Session::login(const std::string& userName, const std::string& credentials)
 	else
 	{
 		_userName.clear();
-		++_failedLogins;
+		if (!_loginRefusedFor.has_value()) ++_failedLogins;
 	}
 	return _authenticated;
+}
+
+
+void Session::limitLogins(Poco::OSP::Auth::LoginThrottle& loginThrottle, const std::string& clientKey)
+{
+	_pLoginThrottle = &loginThrottle;
+	_clientKey = clientKey;
 }
 
 
@@ -142,6 +152,25 @@ Poco::OSP::Auth::AuthService::Ptr Session::authService() const
 	msg += " is not available: shell logins and commands that require a permission are denied.";
 	_pContext->logger().warning(msg);
 	return nullptr;
+}
+
+
+bool Session::checkPassword(const Poco::OSP::Auth::AuthService& service, const std::string& userName,
+	const std::string& credentials, std::string& accountName)
+{
+	Poco::OSP::Auth::LoginThrottle::Attempt attempt = _pLoginThrottle != nullptr
+		? _pLoginThrottle->begin(_clientKey)
+		: Poco::OSP::Auth::LoginThrottle::exempt(_clientKey);
+	if (!attempt.admitted())
+	{
+		_loginRefusedFor = attempt.retryAfter();
+		Poco::OSP::Auth::LoginThrottle::logRefusal(_pContext->logger(), attempt, userName);
+		return false;
+	}
+
+	const bool valid = service.authenticateAccount(userName, credentials, accountName);
+	if (valid) attempt.succeeded();
+	return valid;
 }
 
 

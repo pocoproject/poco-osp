@@ -21,7 +21,7 @@
 
 
 class ShellClient
-	/// A connection to a shell server on 127.0.0.1.
+	/// A connection to a shell server on 127.0.0.1 or another host address.
 	///
 	/// A receive that waits longer than 30 seconds throws a Poco::TimeoutException,
 	/// so that a server that does not answer fails the test instead of blocking it.
@@ -40,8 +40,8 @@ public:
 
 	ShellClient() = delete;
 
-	explicit ShellClient(Poco::UInt16 port);
-		/// Connects to the shell server at 127.0.0.1 and the given port.
+	explicit ShellClient(Poco::UInt16 port, const std::string& host = "127.0.0.1");
+		/// Connects to the shell server at the given host address and port.
 
 	~ShellClient();
 		/// Closes the connection.

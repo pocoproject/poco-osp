@@ -36,8 +36,12 @@ public:
 	void testStopReturnsAfterTimeoutAndKeepsObjectsOfSession();
 	void testStartAfterFailedStartSucceeds();
 	void testOutOfRangeSettingFailsStart();
+	void testInvalidLoginSettingFailsStart();
+	void testLoginSettingsLimitLogins();
+	void testExemptAddressIsNotThrottled();
 #if defined(OSP_SHELL_ENABLE_SSH)
 	void testSSHStopReturnsAfterTimeoutAndKeepsObjectsOfSession();
+	void testSSHLoginSettingsLimitLogins();
 #endif
 
 	static CppUnit::Test* suite();

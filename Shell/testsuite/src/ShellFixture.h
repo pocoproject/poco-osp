@@ -20,6 +20,8 @@
 #include "Poco/OSP/Shell/LoginFailures.h"
 #include "Poco/OSP/Shell/ShellConnection.h"
 #include "Poco/OSP/Shell/ShellServer.h"
+#include "Poco/OSP/Auth/ClientAddressKey.h"
+#include "Poco/OSP/Auth/LoginThrottle.h"
 #include "Poco/OSP/Bundle.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/OSP/BundleContextFactory.h"
@@ -131,13 +133,23 @@ public:
 		/// Registers the extension point service, which the activator needs, so
 		/// it can be called once per fixture.
 
+	void limitLogins(int maxAttempts, const Poco::OSP::Auth::ExemptAddresses& exemptAddresses = {});
+		/// Makes the sessions of the configs that connectionConfig() returns
+		/// afterwards count their password checks in a LoginThrottle with the
+		/// given limit and LOGIN_COOLDOWN, except for the given addresses. The
+		/// clock of the LoginThrottle does not advance, so a refusal always
+		/// names LOGIN_COOLDOWN as the time to wait. Call it before the
+		/// sessions start.
+
 	[[nodiscard]] Poco::OSP::Shell::ShellConnection::Config connectionConfig(std::chrono::seconds sessionTimeout);
 		/// Returns the config for shell sessions with the command processor, the
-		/// authentication service name and the rejected logins of the fixture.
+		/// authentication service name, the rejected logins and the LoginThrottle
+		/// of the fixture.
 
-	[[nodiscard]] Poco::UInt16 startServer(std::chrono::seconds sessionTimeout = DEFAULT_SESSION_TIMEOUT);
-		/// Starts a shell server on 127.0.0.1, with a port that the system
-		/// chooses and the given session timeout, and returns the port.
+	[[nodiscard]] Poco::UInt16 startServer(std::chrono::seconds sessionTimeout = DEFAULT_SESSION_TIMEOUT,
+		const std::string& host = "127.0.0.1");
+		/// Starts a shell server on the given host address, with a port that the
+		/// system chooses and the given session timeout, and returns the port.
 
 	[[nodiscard]] Poco::OSP::Shell::ShellServer& server();
 		/// Returns the shell server that startServer() has started.
@@ -156,10 +168,16 @@ public:
 		/// Returns a port on 127.0.0.1 that is free at the moment, for servers
 		/// that cannot report a port that the system chooses.
 
+	[[nodiscard]] static std::chrono::steady_clock::time_point stoppedClock();
+		/// A clock for a LoginThrottle whose windows never end.
+
 	static constexpr std::chrono::seconds DEFAULT_SESSION_TIMEOUT{600};
 
 	static constexpr std::chrono::milliseconds FIRST_LOGIN_DELAY{50};
 		/// The delay after the first rejected login, short so that the tests run fast.
+
+	static constexpr std::chrono::seconds LOGIN_COOLDOWN{60};
+		/// The cooldown of the LoginThrottle that limitLogins() creates.
 
 	static const std::string BASE_BUNDLE;
 	static const std::string SHELL_BUNDLE;
@@ -197,6 +215,8 @@ private:
 	Poco::AutoPtr<Poco::OSP::Shell::CommandExtensionPoint> _pExtensionPoint;
 	std::unique_ptr<Poco::OSP::Shell::CommandProcessor> _pProcessor;
 	Poco::OSP::Shell::LoginFailures _loginFailures{FIRST_LOGIN_DELAY};
+	std::unique_ptr<Poco::OSP::Auth::LoginThrottle> _pLoginThrottle;
+	Poco::OSP::Auth::ExemptAddresses _exemptAddresses;
 	std::unique_ptr<Poco::OSP::Shell::ShellServer> _pServer;
 };
 

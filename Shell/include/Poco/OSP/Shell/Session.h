@@ -21,6 +21,10 @@
 #include "Poco/OSP/Shell/Shell.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/OSP/Auth/AuthService.h"
+#include "Poco/OSP/Auth/LoginThrottle.h"
+#include <chrono>
+#include <optional>
+#include <string>
 
 
 namespace Poco::OSP::Shell {
@@ -68,6 +72,18 @@ public:
 		///
 		/// A rejected login leaves the session without a user, also if a user
 		/// was logged in before.
+		///
+		/// If the LoginThrottle that limitLogins() has given refuses the password
+		/// check, the login is rejected without checking the credentials, and
+		/// loginRefusedFor() has a value. The first refusal of the client address
+		/// in a window is logged as a warning, every refusal at debug level.
+
+	void limitLogins(Poco::OSP::Auth::LoginThrottle& loginThrottle, const std::string& clientKey);
+		/// Makes login() count its password checks in the given LoginThrottle under
+		/// the given key of the client address (see Poco::OSP::Auth::clientAddressKey()).
+		/// The LoginThrottle must exist as long as the Session.
+		///
+		/// Without this call, the password checks of the session are not limited.
 	
 	[[nodiscard]] bool authorize(const std::string& permission) const;
 		/// Returns true if the user is authenticated and has the
@@ -94,7 +110,16 @@ public:
 		/// if no user is logged in.
 
 	[[nodiscard]] int failedLogins() const;
-		/// Returns the number of logins rejected in this session.
+		/// Returns the number of logins rejected in this session, without the
+		/// logins that the LoginThrottle has refused.
+
+	[[nodiscard]] std::optional<std::chrono::seconds> loginRefusedFor() const;
+		/// Returns, if the LoginThrottle has refused the last login, the whole
+		/// seconds until the client may try again; no value otherwise.
+
+	[[nodiscard]] const std::string& clientKey() const;
+		/// Returns the key of the client address that limitLogins() has given,
+		/// or an empty string.
 
 protected:
 	[[nodiscard]] Poco::OSP::Auth::AuthService::Ptr authService() const;
@@ -104,11 +129,19 @@ protected:
 		/// unregistered is no longer used.
 
 private:
+	[[nodiscard]] bool checkPassword(const Poco::OSP::Auth::AuthService& service, const std::string& userName,
+		const std::string& credentials, std::string& accountName);
+		/// Checks the credentials with the given authentication service, unless
+		/// the LoginThrottle refuses the check, and returns true if they are valid.
+
 	Poco::OSP::BundleContext::Ptr _pContext;
 	std::string _authServiceName;
 	std::string _userName;
 	bool _authenticated = false;
 	int _failedLogins = 0;
+	Poco::OSP::Auth::LoginThrottle* _pLoginThrottle = nullptr;
+	std::string _clientKey;
+	std::optional<std::chrono::seconds> _loginRefusedFor;
 };
 
 
@@ -130,6 +163,18 @@ inline const std::string& Session::user() const
 inline int Session::failedLogins() const
 {
 	return _failedLogins;
+}
+
+
+inline std::optional<std::chrono::seconds> Session::loginRefusedFor() const
+{
+	return _loginRefusedFor;
+}
+
+
+inline const std::string& Session::clientKey() const
+{
+	return _clientKey;
 }
 
 

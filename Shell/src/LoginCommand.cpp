@@ -51,8 +51,13 @@ int LoginCommand::executeImpl(Session& session, const std::vector<std::string>& 
 	{
 		if (session.login(args[0], args[1]))
 			return Command::STATUS_OK;
-		else
-			return Command::STATUS_DENIED;
+
+		if (const auto refusedFor = session.loginRefusedFor(); refusedFor.has_value())
+		{
+			ostr << "Too many failed logins from " << session.clientKey() << "; retry after " << refusedFor->count()
+				<< " s." << '\n';
+		}
+		return Command::STATUS_DENIED;
 	}
 	else 
 	{

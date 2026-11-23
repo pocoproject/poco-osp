@@ -17,15 +17,20 @@
 #include "CppUnit/TestCase.h"
 #include "CppUnit/Test.h"
 #include "Poco/OSP/Shell/Session.h"
+#include "Poco/OSP/Auth/LoginThrottle.h"
 #include "Poco/OSP/Properties.h"
 #include "Poco/OSP/Service.h"
+#include "Poco/Logger.h"
 #include "Poco/Message.h"
+#include <chrono>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 
+using Poco::OSP::Auth::LoginThrottle;
 using Poco::OSP::Shell::Session;
 using namespace std::string_literals;
 
@@ -35,6 +40,8 @@ namespace
 	const std::string AUTH_SERVICE_NAME("osp.shell.test.auth");
 	const std::string MISSING_SERVICE_NAME("osp.shell.test.missing");
 	const std::string OTHER_SERVICE_NAME("osp.shell.test.other");
+	const std::string CLIENT_KEY("192.0.2.7");
+	constexpr std::chrono::seconds COOLDOWN{60};
 
 	class OtherService: public Poco::OSP::Service
 		/// A service that is not an authentication service.
@@ -64,7 +71,8 @@ SessionTest::~SessionTest() = default;
 void SessionTest::setUp()
 {
 	_pFixture = std::make_unique<ShellFixture>(AUTH_SERVICE_NAME);
-	_pFixture->registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Poco::OSP::Properties());
+	_pAuthService = new TestAuthService;
+	_pFixture->registry().registerService(AUTH_SERVICE_NAME, _pAuthService, Poco::OSP::Properties());
 	_pFixture->registry().registerService(OTHER_SERVICE_NAME, new OtherService, Poco::OSP::Properties());
 }
 
@@ -72,6 +80,7 @@ void SessionTest::setUp()
 void SessionTest::tearDown()
 {
 	_pFixture.reset();
+	_pAuthService.reset();
 }
 
 
@@ -280,6 +289,112 @@ void SessionTest::testServiceOfOtherTypeDeniesPermission()
 }
 
 
+void SessionTest::testPermissionWarningEscapesUserName()
+{
+	LogCapture capture(_pFixture->shellContext()->logger().name());
+	Session session(_pFixture->shellContext(), AUTH_SERVICE_NAME);
+	assertTrue (session.login(TestAuthService::UTF8_USER, TestAuthService::UTF8_PASSWORD));
+	assertFalse (session.authorize(TestAuthService::FAILING_PERMISSION));
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(1);
+	assertEqual (static_cast<std::size_t>(1), messages.size());
+	assertTrue (messages[0].getText().find(" of the shell user u\\u017E, "s) != std::string::npos);
+}
+
+
+void SessionTest::testThrottledLoginIsRefusedWithoutPasswordCheck()
+{
+	LoginThrottle throttle(LoginThrottle::Settings{.maxAttempts = 2, .cooldown = COOLDOWN}, ShellFixture::stoppedClock);
+	LoginThrottle unlimited(LoginThrottle::Settings{.maxAttempts = 0, .cooldown = COOLDOWN});
+	Session session(_pFixture->shellContext(), AUTH_SERVICE_NAME);
+	session.limitLogins(throttle, CLIENT_KEY);
+	assertEqual (CLIENT_KEY, session.clientKey());
+	for (int i = 0; i < 2; ++i)
+	{
+		assertFalse (session.login(TestAuthService::ADMIN, "wrong"s));
+		assertFalse (session.loginRefusedFor().has_value());
+	}
+	assertFalse (session.login(TestAuthService::ADMIN, TestAuthService::ADMIN_PASSWORD));
+	assertFalse (session.authenticated());
+	const std::optional<std::chrono::seconds> refusedFor = session.loginRefusedFor();
+	assertTrue (refusedFor.has_value() && *refusedFor == COOLDOWN);
+	assertEqual (2, session.failedLogins());
+	assertEqual (2, _pAuthService->passwordChecks());
+
+	// The limit applies to the client address, not to the session.
+	Session other(_pFixture->shellContext(), AUTH_SERVICE_NAME);
+	other.limitLogins(throttle, CLIENT_KEY);
+	assertFalse (other.login(TestAuthService::ADMIN, TestAuthService::ADMIN_PASSWORD));
+	assertTrue (other.loginRefusedFor().has_value());
+	assertEqual (2, _pAuthService->passwordChecks());
+
+	// A login that is admitted after a refusal reports no refusal.
+	session.limitLogins(unlimited, CLIENT_KEY);
+	assertTrue (session.login(TestAuthService::ADMIN, TestAuthService::ADMIN_PASSWORD));
+	assertFalse (session.loginRefusedFor().has_value());
+}
+
+
+void SessionTest::testSuccessfulLoginRefundsThrottledCheck()
+{
+	LoginThrottle throttle(LoginThrottle::Settings{.maxAttempts = 2, .cooldown = COOLDOWN}, ShellFixture::stoppedClock);
+	Session session(_pFixture->shellContext(), AUTH_SERVICE_NAME);
+	session.limitLogins(throttle, CLIENT_KEY);
+	assertFalse (session.login(TestAuthService::ADMIN, "wrong"s));
+	assertTrue (session.login(TestAuthService::ADMIN, TestAuthService::ADMIN_PASSWORD));
+	assertFalse (session.login(TestAuthService::ADMIN, "wrong"s));
+	assertFalse (session.loginRefusedFor().has_value());
+	assertEqual (3, _pAuthService->passwordChecks());
+
+	assertFalse (session.login(TestAuthService::ADMIN, TestAuthService::ADMIN_PASSWORD));
+	assertTrue (session.loginRefusedFor().has_value());
+}
+
+
+void SessionTest::testThrottledLoginsAreLogged()
+{
+	LogCapture capture(_pFixture->shellContext()->logger().name());
+	_pFixture->shellContext()->logger().setLevel(Poco::Message::PRIO_DEBUG);
+	LoginThrottle throttle(LoginThrottle::Settings{.maxAttempts = 1, .cooldown = COOLDOWN}, ShellFixture::stoppedClock);
+	Session session(_pFixture->shellContext(), AUTH_SERVICE_NAME);
+	session.limitLogins(throttle, CLIENT_KEY);
+	assertFalse (session.login(TestAuthService::ADMIN, "wrong"s));
+	// A user name with a quote and a letter outside ASCII, in UTF-8.
+	for (int i = 0; i < 2; ++i)
+	{
+		assertFalse (session.login("q\"\xc5\xbe"s, "any"s));
+	}
+
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(3);
+	assertEqual (static_cast<std::size_t>(3), messages.size());
+	assertEqual (static_cast<int>(Poco::Message::PRIO_WARNING), static_cast<int>(messages[0].getPriority()));
+	assertEqual ("Too many failed password checks from 192.0.2.7: checks are refused for 60 s."s,
+		messages[0].getText());
+	for (std::size_t i = 1; i < messages.size(); ++i)
+	{
+		assertEqual (static_cast<int>(Poco::Message::PRIO_DEBUG), static_cast<int>(messages[i].getPriority()));
+		assertEqual ("Password check of user q\\\"\\u017E from 192.0.2.7 refused for 60 s."s, messages[i].getText());
+	}
+}
+
+
+void SessionTest::testLoginWithoutAuthServiceIsNotThrottled()
+{
+	LoginThrottle throttle(LoginThrottle::Settings{.maxAttempts = 1, .cooldown = COOLDOWN}, ShellFixture::stoppedClock);
+	Session session(_pFixture->shellContext(), MISSING_SERVICE_NAME);
+	session.limitLogins(throttle, CLIENT_KEY);
+	for (int i = 0; i < 2; ++i)
+	{
+		assertFalse (session.login(TestAuthService::ADMIN, TestAuthService::ADMIN_PASSWORD));
+		assertFalse (session.loginRefusedFor().has_value());
+	}
+	assertEqual (2, session.failedLogins());
+
+	// The rejected logins have not used the limit of the client address.
+	_pFixture->registry().registerService(MISSING_SERVICE_NAME, new TestAuthService, Poco::OSP::Properties());
+	assertTrue (session.login(TestAuthService::ADMIN, TestAuthService::ADMIN_PASSWORD));
+}
+
+
 CppUnit::Test* SessionTest::suite()
 {
 	CppUnit::TestSuite* pSuite = new CppUnit::TestSuite("SessionTest");
@@ -300,6 +415,11 @@ CppUnit::Test* SessionTest::suite()
 	CppUnit_addTest(pSuite, SessionTest, testServiceOfOtherTypeRejectsLogin);
 	CppUnit_addTest(pSuite, SessionTest, testAuthServiceExceptionDeniesPermission);
 	CppUnit_addTest(pSuite, SessionTest, testServiceOfOtherTypeDeniesPermission);
+	CppUnit_addTest(pSuite, SessionTest, testPermissionWarningEscapesUserName);
+	CppUnit_addTest(pSuite, SessionTest, testThrottledLoginIsRefusedWithoutPasswordCheck);
+	CppUnit_addTest(pSuite, SessionTest, testSuccessfulLoginRefundsThrottledCheck);
+	CppUnit_addTest(pSuite, SessionTest, testThrottledLoginsAreLogged);
+	CppUnit_addTest(pSuite, SessionTest, testLoginWithoutAuthServiceIsNotThrottled);
 
 	return pSuite;
 }

@@ -17,6 +17,8 @@
 #include "Poco/OSP/Shell/QuitCommandFactory.h"
 #include "Poco/OSP/Shell/ShellConnection.h"
 #include "Poco/OSP/Shell/ShellServer.h"
+#include "Poco/OSP/Auth/ClientAddressKey.h"
+#include "Poco/OSP/Auth/LoginThrottle.h"
 #include "Poco/OSP/BundleContextFactory.h"
 #include "Poco/OSP/BundleFactory.h"
 #include "Poco/OSP/BundleInstallerService.h"
@@ -252,16 +254,32 @@ Poco::UInt16 ShellFixture::freePort()
 }
 
 
-Poco::OSP::Shell::ShellConnection::Config ShellFixture::connectionConfig(std::chrono::seconds sessionTimeout)
+std::chrono::steady_clock::time_point ShellFixture::stoppedClock()
 {
-	return Poco::OSP::Shell::ShellConnection::Config{*_pProcessor, _authServiceName, _loginFailures, sessionTimeout};
+	return {};
 }
 
 
-Poco::UInt16 ShellFixture::startServer(std::chrono::seconds sessionTimeout)
+void ShellFixture::limitLogins(int maxAttempts, const Poco::OSP::Auth::ExemptAddresses& exemptAddresses)
+{
+	_pLoginThrottle = std::make_unique<Poco::OSP::Auth::LoginThrottle>(
+		Poco::OSP::Auth::LoginThrottle::Settings{.maxAttempts = maxAttempts, .cooldown = LOGIN_COOLDOWN},
+		stoppedClock);
+	_exemptAddresses = exemptAddresses;
+}
+
+
+Poco::OSP::Shell::ShellConnection::Config ShellFixture::connectionConfig(std::chrono::seconds sessionTimeout)
+{
+	return Poco::OSP::Shell::ShellConnection::Config{
+		*_pProcessor, _authServiceName, _loginFailures, sessionTimeout, _pLoginThrottle.get(), _exemptAddresses};
+}
+
+
+Poco::UInt16 ShellFixture::startServer(std::chrono::seconds sessionTimeout, const std::string& host)
 {
 	constexpr int MAX_CONNECTIONS = 4;
-	const Poco::Net::ServerSocket serverSocket(Poco::Net::SocketAddress("127.0.0.1"s, 0));
+	const Poco::Net::ServerSocket serverSocket(Poco::Net::SocketAddress(host, 0));
 	_pServer = std::make_unique<Poco::OSP::Shell::ShellServer>(
 		serverSocket, MAX_CONNECTIONS, connectionConfig(sessionTimeout));
 	_pServer->start();

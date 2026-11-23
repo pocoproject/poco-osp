@@ -11,6 +11,7 @@
 #include "ShellBundleActivatorTest.h"
 #include "ShellClient.h"
 #include "ShellFixture.h"
+#include "TestAuthService.h"
 #include "LogCapture.h"
 #include "CppUnit/TestCaller.h"
 #include "CppUnit/TestSuite.h"
@@ -21,19 +22,20 @@
 #include "Poco/OSP/Bundle.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/OSP/BundleEvents.h"
+#include "Poco/OSP/PreferencesService.h"
 #include "Poco/OSP/Properties.h"
 #include "Poco/Net/NetException.h"
 #include "Poco/Net/ServerSocket.h"
 #include "Poco/Net/SocketAddress.h"
 #if defined(OSP_SHELL_ENABLE_SSH)
-#include "Poco/OSP/PreferencesService.h"
 #include "Poco/SSH/SSHClient.h"
-#include "Poco/Util/MapConfiguration.h"
 #endif
+#include "Poco/Util/MapConfiguration.h"
 #include "Poco/AutoPtr.h"
 #include "Poco/Event.h"
 #include "Poco/Exception.h"
 #include "Poco/Message.h"
+#include "Poco/NumberParser.h"
 #include "Poco/Stopwatch.h"
 #include "Poco/Thread.h"
 #include "Poco/Types.h"
@@ -129,6 +131,19 @@ namespace
 		mutable Poco::Event _released;
 	};
 
+	void registerSettings(ShellFixture& fixture, const std::vector<std::pair<std::string, std::string>>& settings)
+		/// Registers a preferences service whose global configuration has the given settings.
+	{
+		Poco::AutoPtr<Poco::Util::MapConfiguration> pConfig = new Poco::Util::MapConfiguration;
+		for (const auto& [key, value]: settings)
+		{
+			pConfig->setString(key, value);
+		}
+		fixture.registry().registerService(Poco::OSP::PreferencesService::SERVICE_NAME,
+			new Poco::OSP::PreferencesService(fixture.shellContext()->persistentDirectory(), pConfig.get()),
+			Poco::OSP::Properties());
+	}
+
 	bool contains(const std::vector<Poco::Message>& messages, Poco::Message::Priority priority,
 		const std::string& prefix)
 	{
@@ -204,8 +219,8 @@ void ShellBundleActivatorTest::testStopReturnsAfterTimeoutAndKeepsObjectsOfSessi
 #if defined(OSPSHELL_TEST_ASAN)
 		// The shell keeps the objects that a session which has not ended uses
 		// for the rest of the process: the command processor, the rejected
-		// logins and the shell server, which it creates when it starts.
-		// LeakSanitizer would report them as leaks.
+		// logins, the login throttle and the shell server, which it creates
+		// when it starts. LeakSanitizer would report them as leaks.
 		const __lsan::ScopedDisabler keptObjectsAreNoLeaks;
 #endif
 		pBundle = _pFixture->addShellBundle(ACTIVATOR_BUNDLE, properties);
@@ -227,6 +242,9 @@ void ShellBundleActivatorTest::testStopReturnsAfterTimeoutAndKeepsObjectsOfSessi
 	assertTrue (contains(capture.channel().waitForMessages(0), Poco::Message::PRIO_WARNING,
 		"Shell sessions that have not ended within 1000 ms after the shell stopped: 1;"s));
 
+	// A start replaces the objects of the shell, but not those that the session uses.
+	pBundle->start();
+
 	// The session ends when the login returns, with the objects that the shell
 	// has kept. The test waits until its connection is destroyed, which is the
 	// last time the session uses the framework: the connection is then no longer
@@ -239,8 +257,11 @@ void ShellBundleActivatorTest::testStopReturnsAfterTimeoutAndKeepsObjectsOfSessi
 		Poco::Thread::sleep(POLL_INTERVAL_MS);
 	}
 	assertTrue (events.bundleStopping.empty());
-	assertTrue (contains(capture.channel().waitForMessages(0), Poco::Message::PRIO_INFORMATION,
-		"Closing connection from 127.0.0.1:"s));
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(0);
+	assertTrue (contains(messages, Poco::Message::PRIO_INFORMATION,
+		"User admin logged in to the shell from 127.0.0.1:"s));
+	assertTrue (contains(messages, Poco::Message::PRIO_INFORMATION, "Closing connection from 127.0.0.1:"s));
+	pBundle->stop();
 }
 
 
@@ -338,6 +359,99 @@ void ShellBundleActivatorTest::testOutOfRangeSettingFailsStart()
 }
 
 
+void ShellBundleActivatorTest::testInvalidLoginSettingFailsStart()
+{
+	const std::string validSettings = "interface = 127.0.0.1\nport = "s
+		+ std::to_string(ShellFixture::freePort()) + "\n"s;
+	const std::vector<std::pair<std::string, std::string>> settings{
+		{"maxAttempts"s, "-1"s}, {"maxAttempts"s, "many"s}, {"cooldownSeconds"s, "0"s},
+		{"exemptAddresses"s, "host.example"s}};
+	for (const auto& [name, value]: settings)
+	{
+		// In the bundle properties, and in the global configuration.
+		for (const bool global: {false, true})
+		{
+			ShellFixture fixture(AUTH_SERVICE_NAME);
+			const std::string key = (global ? "com.appinf.osp.shell.login."s : "login."s) + name;
+			if (global) registerSettings(fixture, {{key, value}});
+			Poco::OSP::Bundle::Ptr pBundle;
+			try
+			{
+				pBundle = fixture.addShellBundle(ACTIVATOR_BUNDLE,
+					global ? validSettings : validSettings + key + " = "s + value + "\n"s);
+			}
+			catch (Poco::InvalidArgumentException& exc)
+			{
+				assertTrue (exc.message().find(key) != std::string::npos);
+				continue;
+			}
+			pBundle->stop();
+			failmsg(key + " = "s + value + " has not failed the start"s);
+		}
+	}
+}
+
+
+void ShellBundleActivatorTest::testLoginSettingsLimitLogins()
+{
+	_pFixture->registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Poco::OSP::Properties());
+	// The global configuration replaces the cooldown of the bundle properties, 60 seconds.
+	constexpr int COOLDOWN_SECONDS = 600;
+	registerSettings(*_pFixture, {{"com.appinf.osp.shell.login.cooldownSeconds"s, std::to_string(COOLDOWN_SECONDS)}});
+	const Poco::UInt16 port = ShellFixture::freePort();
+	const std::string properties =
+		"interface = 127.0.0.1\n"
+		"port = "s + std::to_string(port) + "\n"s +
+		"authServiceName = "s + AUTH_SERVICE_NAME + "\n"s +
+		"login.maxAttempts = 1\n"s;
+	Poco::OSP::Bundle::Ptr pBundle = _pFixture->addShellBundle(ACTIVATOR_BUNDLE, properties);
+	{
+		ShellClient client(port);
+		assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
+		assertEqual (static_cast<int>(ShellConnection::STATUS_CLIENT_DENIED), client.send("login admin wrong"s).status);
+		const ShellClient::Response refused = client.send("login admin secret"s);
+		assertEqual (static_cast<int>(ShellConnection::STATUS_CLIENT_DENIED), refused.status);
+		const std::string prefix = "Too many failed logins from 127.0.0.1; retry after "s;
+		assertTrue (refused.text.starts_with(prefix));
+		const std::size_t secondsEnd = refused.text.find(' ', prefix.size());
+		const std::string secondsText = refused.text.substr(prefix.size(), secondsEnd - prefix.size());
+		const int seconds = Poco::NumberParser::parse(secondsText);
+		// The rejected login has been answered after a delay of one second.
+		assertTrue (seconds > COOLDOWN_SECONDS - 10 && seconds <= COOLDOWN_SECONDS);
+	}
+	pBundle->stop();
+}
+
+
+void ShellBundleActivatorTest::testExemptAddressIsNotThrottled()
+{
+	// In the bundle properties, and in the global configuration.
+	for (const bool global: {false, true})
+	{
+		ShellFixture fixture(AUTH_SERVICE_NAME);
+		fixture.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Poco::OSP::Properties());
+		const std::string key = (global ? "com.appinf.osp.shell."s : ""s) + "login.exemptAddresses"s;
+		if (global) registerSettings(fixture, {{key, "127.0.0.1"s}});
+		const Poco::UInt16 port = ShellFixture::freePort();
+		const std::string properties =
+			"interface = 127.0.0.1\n"
+			"port = "s + std::to_string(port) + "\n"s +
+			"authServiceName = "s + AUTH_SERVICE_NAME + "\n"s +
+			"login.maxAttempts = 1\n"s +
+			(global ? ""s : key + " = 127.0.0.1\n"s);
+		Poco::OSP::Bundle::Ptr pBundle = fixture.addShellBundle(ACTIVATOR_BUNDLE, properties);
+		{
+			ShellClient client(port);
+			assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
+			assertEqual (static_cast<int>(ShellConnection::STATUS_CLIENT_DENIED),
+				client.send("login admin wrong"s).status);
+			assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.send("login admin secret"s).status);
+		}
+		pBundle->stop();
+	}
+}
+
+
 #if defined(OSP_SHELL_ENABLE_SSH)
 void ShellBundleActivatorTest::testSSHStopReturnsAfterTimeoutAndKeepsObjectsOfSession()
 {
@@ -362,8 +476,8 @@ void ShellBundleActivatorTest::testSSHStopReturnsAfterTimeoutAndKeepsObjectsOfSe
 #if defined(OSPSHELL_TEST_ASAN)
 		// The shell keeps the objects that a session which has not ended uses
 		// for the rest of the process: the command processor, the rejected
-		// logins, the SSH server and its session tracker, which it creates when
-		// it starts. LeakSanitizer would report them as leaks.
+		// logins, the login throttle, the SSH server and its session tracker,
+		// which it creates when it starts. LeakSanitizer would report them as leaks.
 		const __lsan::ScopedDisabler keptObjectsAreNoLeaks;
 #endif
 		pBundle = _pFixture->addShellBundle(ACTIVATOR_BUNDLE, properties);
@@ -406,9 +520,13 @@ void ShellBundleActivatorTest::testSSHStopReturnsAfterTimeoutAndKeepsObjectsOfSe
 	pAuthService->released().set();
 	assertTrue (waitForMessage(serverCapture.channel(), Poco::Message::PRIO_INFORMATION, "SSH server stopped"s));
 	ssh_channel_free(channel);
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(0);
 	const std::string libraryPath = _pFixture->shellContext()->pathForLibrary(ACTIVATOR_BUNDLE);
-	assertTrue (contains(capture.channel().waitForMessages(0), Poco::Message::PRIO_INFORMATION,
+	assertTrue (contains(messages, Poco::Message::PRIO_INFORMATION,
 		"The library "s + libraryPath + " of the shell bundle stays loaded"s));
+	// The login has been checked with the objects that the shell has kept.
+	assertFalse (contains(messages, Poco::Message::PRIO_ERROR,
+		"The authentication service "s + AUTH_SERVICE_NAME + " could not check a shell login"s));
 
 #if !defined(POCO_OS_FAMILY_WINDOWS)
 	// The bundle loader unloads the library of the bundle when it uninstalls
@@ -416,6 +534,37 @@ void ShellBundleActivatorTest::testSSHStopReturnsAfterTimeoutAndKeepsObjectsOfSe
 	pBundle->uninstall();
 	assertTrue (isLoaded(libraryPath));
 #endif
+}
+
+
+void ShellBundleActivatorTest::testSSHLoginSettingsLimitLogins()
+{
+	// Without and with the client address exempt from the limit.
+	for (const bool exempt: {false, true})
+	{
+		ShellFixture fixture(AUTH_SERVICE_NAME);
+		const TestAuthService::Ptr pAuthService = new TestAuthService;
+		fixture.registry().registerService(AUTH_SERVICE_NAME, pAuthService, Poco::OSP::Properties());
+		const Poco::UInt16 port = ShellFixture::freePort();
+		std::vector<std::pair<std::string, std::string>> settings{
+			{"openSSH.server.enabled"s, "true"s}, {"openSSH.server.interface"s, "127.0.0.1"s},
+			{"openSSH.server.port"s, std::to_string(port)}};
+		if (exempt) settings.emplace_back("com.appinf.osp.shell.login.exemptAddresses"s, "127.0.0.1"s);
+		registerSettings(fixture, settings);
+		const std::string properties =
+			"authServiceName = "s + AUTH_SERVICE_NAME + "\n"s +
+			"login.maxAttempts = 1\n"s;
+		Poco::OSP::Bundle::Ptr pBundle = fixture.addShellBundle(ACTIVATOR_BUNDLE, properties);
+		{
+			Poco::SSH::SSHClient client;
+			client.connect("127.0.0.1"s, port);
+			assertFalse (client.authenticatePassword(TestAuthService::ADMIN, "wrong"s));
+			assertEqual (exempt, client.authenticatePassword(TestAuthService::ADMIN, TestAuthService::ADMIN_PASSWORD));
+			// A refused login does not reach the authentication service.
+			assertEqual (exempt ? 2 : 1, pAuthService->passwordChecks());
+		}
+		pBundle->stop();
+	}
 }
 #endif
 
@@ -427,8 +576,12 @@ CppUnit::Test* ShellBundleActivatorTest::suite()
 	CppUnit_addTest(pSuite, ShellBundleActivatorTest, testStopReturnsAfterTimeoutAndKeepsObjectsOfSession);
 	CppUnit_addTest(pSuite, ShellBundleActivatorTest, testStartAfterFailedStartSucceeds);
 	CppUnit_addTest(pSuite, ShellBundleActivatorTest, testOutOfRangeSettingFailsStart);
+	CppUnit_addTest(pSuite, ShellBundleActivatorTest, testInvalidLoginSettingFailsStart);
+	CppUnit_addTest(pSuite, ShellBundleActivatorTest, testLoginSettingsLimitLogins);
+	CppUnit_addTest(pSuite, ShellBundleActivatorTest, testExemptAddressIsNotThrottled);
 #if defined(OSP_SHELL_ENABLE_SSH)
 	CppUnit_addTest(pSuite, ShellBundleActivatorTest, testSSHStopReturnsAfterTimeoutAndKeepsObjectsOfSession);
+	CppUnit_addTest(pSuite, ShellBundleActivatorTest, testSSHLoginSettingsLimitLogins);
 #endif
 
 	return pSuite;

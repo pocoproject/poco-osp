@@ -148,8 +148,10 @@ entries.
   when a command line is longer than 4096 characters.
 - Shell: a rejected login is answered after a delay that grows per client address from 1 s to 16 s, three rejected
   logins close the connection, and `maxConnections` defaults to 4 instead of 1.
-- Shell: the bundle `com.appinf.osp.shell` has the version 2.0.0, so a bundle that requires it with a range that ends at
+- Shell: the bundle `com.appinf.osp.shell` has the version 2.1.0, so a bundle that requires it with a range that ends at
   2.0.0, such as `[1.1.0,2.0.0)`, does not resolve.
+- Shell: the limit of the password checks per client address (see New features) is on by default; clients behind a
+  proxy or a port forwarding have its address and share one limit.
 - BundleAdmin: a request that changes a bundle must be a POST request whose `Origin` or `Referer` header names the
   server, and in a web session it must carry the CSRF token of the session (otherwise 403).
 - BundleSign: `BundleSigner` and `signbundle` sign with SHA256 by default; `BundleVerifier` refuses a SHA1 signature
@@ -219,6 +221,10 @@ entries.
   upgrade request, so `notifyUser()` and the subject authorizer work without one; a resolver replaces that user. A
   connection authenticated with a bearer token records the token's scope (`SubscriberInfo::scope`); `notifyUser()` does
   not reach a connection with a scope.
+- Shell: the failed password checks of the shell, over TCP and SSH, are limited per client address with
+  `com.appinf.osp.shell.login.maxAttempts` (default 10), `com.appinf.osp.shell.login.cooldownSeconds` (default 60) and
+  `com.appinf.osp.shell.login.exemptAddresses` (bundle properties `login.*`). A refused `login` command is answered
+  with 403 and the seconds to wait, and the connection is closed; a refused SSH password login is rejected.
 
 ### New components
 

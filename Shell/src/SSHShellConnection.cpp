@@ -33,6 +33,7 @@
 #include "Poco/NumberFormatter.h"
 #include "Poco/Thread.h"
 #include "Poco/Types.h"
+#include "Poco/UTF8String.h"
 #include <libssh/libssh.h>
 #if !defined(POCO_OS_FAMILY_WINDOWS)
 #include <fcntl.h>
@@ -188,9 +189,10 @@ void SSHShellConnection::handleSession(ssh_channel channel, const std::string& s
 	const std::string& accountName = _pAccountName->empty() ? sshUserName : *_pAccountName;
 	Session session(_shellConfig.commandProcessor.context(), _shellConfig.authServiceName);
 	session.loginWithKey(accountName);
+	limitLogins(session, _shellConfig, _clientAddress);
 	Poco::Logger& logger = _shellConfig.commandProcessor.context()->logger();
-	logger.information(
-		"User " + accountName + " logged in to the shell over SSH from " + _clientAddress.toString() + ".");
+	logger.information("User " + Poco::UTF8::escape(accountName) + " logged in to the shell over SSH from " +
+		_clientAddress.toString() + ".");
 
 	Poco::SSH::SSHChannelStream outStream(channel);
 	ResponseStream responseStream(outStream);
@@ -239,7 +241,11 @@ void SSHShellConnection::handleSession(ssh_channel channel, const std::string& s
 			const int failedLogins = session.failedLogins();
 			responseStream.setStatus(100 /*STATUS_INTERMEDIATE*/);
 			int exitCode = _shellConfig.commandProcessor.execute(session, commandLine, responseStream);
-			if (session.failedLogins() > failedLogins)
+			if (session.loginRefusedFor().has_value())
+			{
+				keepOpen = false;
+			}
+			else if (session.failedLogins() > failedLogins)
 			{
 				handleRejectedLogin(_shellConfig, _sessions, _clientAddress, session.failedLogins());
 				keepOpen = session.failedLogins() < ShellConnection::MAX_FAILED_LOGINS;
@@ -346,13 +352,17 @@ Poco::SSH::SSHServerConfig SSHShellConnection::withLoginChecks(
 		const std::string& user, const std::string& password)
 	{
 		Session session(shellConfig.commandProcessor.context(), shellConfig.authServiceName);
+		limitLogins(session, shellConfig, clientAddress);
 		if (session.login(user, password))
 		{
 			*pAccountName = session.user();
 			return true;
 		}
 
-		handleRejectedLogin(shellConfig, sessions, clientAddress, ++*pRejectedLogins);
+		if (!session.loginRefusedFor().has_value())
+		{
+			handleRejectedLogin(shellConfig, sessions, clientAddress, ++*pRejectedLogins);
+		}
 		return false;
 	};
 	return result;

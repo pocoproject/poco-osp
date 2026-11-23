@@ -22,6 +22,7 @@
 #include "Poco/OSP/Shell/Session.h"
 #include "Poco/OSP/Shell/SessionTracker.h"
 #include "Poco/OSP/Shell/ShellConnection.h"
+#include "Poco/OSP/Auth/ClientAddressKey.h"
 #include "Poco/OSP/Properties.h"
 #include "Poco/Net/ServerSocket.h"
 #include "Poco/Net/Socket.h"
@@ -145,13 +146,15 @@ ShellConnectionTest::~ShellConnectionTest() = default;
 void ShellConnectionTest::setUp()
 {
 	_pFixture = std::make_unique<ShellFixture>(AUTH_SERVICE_NAME);
-	_pFixture->registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Poco::OSP::Properties());
+	_pAuthService = new TestAuthService;
+	_pFixture->registry().registerService(AUTH_SERVICE_NAME, _pAuthService, Poco::OSP::Properties());
 }
 
 
 void ShellConnectionTest::tearDown()
 {
 	_pFixture.reset();
+	_pAuthService.reset();
 }
 
 
@@ -394,6 +397,99 @@ void ShellConnectionTest::testAcceptedLoginIsLogged()
 }
 
 
+void ShellConnectionTest::testAcceptedLoginLogsEscapedUserName()
+{
+	LogCapture capture(_pFixture->shellContext()->logger().name());
+	{
+		ShellClient client(_pFixture->startServer());
+		assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
+		assertEqual (static_cast<int>(ShellConnection::STATUS_OK),
+			client.send("login "s + TestAuthService::UTF8_USER + " "s + TestAuthService::UTF8_PASSWORD).status);
+	}
+	_pFixture->stopServer();
+	const std::vector<Poco::Message> messages = capture.channel().waitForMessages(0);
+	const bool logged = std::ranges::any_of(messages, [](const Poco::Message& msg)
+	{
+		return msg.getText().starts_with("User u\\u017E logged in to the shell from 127.0.0.1:"s);
+	});
+	assertTrue (logged);
+}
+
+
+void ShellConnectionTest::testThrottledLoginIsAnsweredAndClosesConnection()
+{
+	_pFixture->limitLogins(1);
+	LogCapture capture(_pFixture->shellContext()->logger().name());
+	const Poco::UInt16 port = _pFixture->startServer();
+	const std::string refusal = "Too many failed logins from 127.0.0.1; retry after "s +
+		std::to_string(ShellFixture::LOGIN_COOLDOWN.count()) + " s.\n"s;
+	{
+		ShellClient client(port);
+		assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
+		const ShellClient::Response rejected = client.send("login admin wrong"s);
+		assertEqual (static_cast<int>(ShellConnection::STATUS_CLIENT_DENIED), rejected.status);
+		assertTrue (rejected.text.empty());
+		const ShellClient::Response refused = client.send("login admin secret"s);
+		assertEqual (static_cast<int>(ShellConnection::STATUS_CLIENT_DENIED), refused.status);
+		assertEqual (refusal, refused.text);
+		assertEqual ("DENIED"s, refused.final);
+		assertTrue (client.closedByServer());
+	}
+	{
+		// The limit applies to the client address, also over a new connection.
+		ShellClient client(port);
+		assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
+		const ShellClient::Response refused = client.send("login admin secret"s);
+		assertEqual (static_cast<int>(ShellConnection::STATUS_CLIENT_DENIED), refused.status);
+		assertEqual (refusal, refused.text);
+		assertTrue (client.closedByServer());
+	}
+	assertEqual (1, _pAuthService->passwordChecks());
+
+	// Only the password check is answered after a delay and logged as a rejected login.
+	_pFixture->stopServer();
+	const std::vector<Poco::Message> warnings =
+		messagesWithPriority(capture.channel().waitForMessages(0), Poco::Message::PRIO_WARNING);
+	assertEqual (static_cast<std::size_t>(2), warnings.size());
+	assertTrue (warnings[0].getText().starts_with("Shell login from 127.0.0.1:"s));
+	assertEqual ("Too many failed password checks from 127.0.0.1: checks are refused for "s +
+		std::to_string(ShellFixture::LOGIN_COOLDOWN.count()) + " s."s, warnings[1].getText());
+}
+
+
+void ShellConnectionTest::testThrottledIPv6LoginNamesPrefix()
+{
+	_pFixture->limitLogins(1);
+	Poco::UInt16 port = 0;
+	try
+	{
+		port = _pFixture->startServer(ShellFixture::DEFAULT_SESSION_TIMEOUT, "::1"s);
+	}
+	catch (Poco::IOException&)
+	{
+		warnmsg("IPv6 is not available, test skipped.");
+		return;
+	}
+	ShellClient client(port, "::1"s);
+	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
+	assertEqual (static_cast<int>(ShellConnection::STATUS_CLIENT_DENIED), client.send("login admin wrong"s).status);
+	const ShellClient::Response refused = client.send("login admin secret"s);
+	assertEqual (static_cast<int>(ShellConnection::STATUS_CLIENT_DENIED), refused.status);
+	assertEqual ("Too many failed logins from ::/64; retry after "s +
+		std::to_string(ShellFixture::LOGIN_COOLDOWN.count()) + " s.\n"s, refused.text);
+}
+
+
+void ShellConnectionTest::testExemptAddressIsNotThrottled()
+{
+	_pFixture->limitLogins(1, Poco::OSP::Auth::parseExemptAddresses("127.0.0.1"s, "exemptAddresses"s));
+	ShellClient client(_pFixture->startServer());
+	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.receive().status);
+	assertEqual (static_cast<int>(ShellConnection::STATUS_CLIENT_DENIED), client.send("login admin wrong"s).status);
+	assertEqual (static_cast<int>(ShellConnection::STATUS_OK), client.send("login admin secret"s).status);
+}
+
+
 void ShellConnectionTest::testIdleSessionIsClosed()
 {
 	const Poco::UInt16 port = _pFixture->startServer(std::chrono::seconds(1));
@@ -508,6 +604,10 @@ CppUnit::Test* ShellConnectionTest::suite()
 	CppUnit_addTest(pSuite, ShellConnectionTest, testLoginsFailedByStdExceptionAreDelayedAndCloseConnection);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testPermissionFailedByAuthServiceIsDenied);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testAcceptedLoginIsLogged);
+	CppUnit_addTest(pSuite, ShellConnectionTest, testAcceptedLoginLogsEscapedUserName);
+	CppUnit_addTest(pSuite, ShellConnectionTest, testThrottledLoginIsAnsweredAndClosesConnection);
+	CppUnit_addTest(pSuite, ShellConnectionTest, testThrottledIPv6LoginNamesPrefix);
+	CppUnit_addTest(pSuite, ShellConnectionTest, testExemptAddressIsNotThrottled);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testIdleSessionIsClosed);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testSessionWithoutCompleteCommandLineIsClosed);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testLongCommandLineEndsSession);

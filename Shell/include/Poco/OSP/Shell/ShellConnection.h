@@ -21,6 +21,8 @@
 #include "Poco/OSP/Shell/Shell.h"
 #include "Poco/OSP/BundleContext.h"
 #include "Poco/OSP/BundleEvent.h"
+#include "Poco/OSP/Auth/ClientAddressKey.h"
+#include "Poco/OSP/Auth/LoginThrottle.h"
 #include "Poco/Net/TCPServerConnection.h"
 #include <atomic>
 #include <chrono>
@@ -69,6 +71,11 @@ class OSPShell_API ShellConnection: public Poco::Net::TCPServerConnection
 	/// the delay that LoginFailures determines for the address. The connection
 	/// is closed after MAX_FAILED_LOGINS rejected logins.
 	///
+	/// A login that the LoginThrottle of the config refuses is answered at once
+	/// with 403 DENIED, after a line that names the key of the client address
+	/// and the seconds until a login may be tried again, and the connection
+	/// is closed.
+	///
 	/// A session in which no command arrives within the session timeout is closed.
 {
 public:
@@ -98,6 +105,12 @@ public:
 
 		std::chrono::seconds sessionTimeout;
 			/// The time after which a session without a command is closed.
+
+		Poco::OSP::Auth::LoginThrottle* pLoginThrottle = nullptr;
+			/// Limits the password checks per client address; nullptr: the checks are not limited.
+
+		Poco::OSP::Auth::ExemptAddresses exemptAddresses;
+			/// The client addresses whose password checks pLoginThrottle does not count.
 	};
 
 	ShellConnection(const Poco::Net::StreamSocket& s, const Config& config, SessionTracker& sessions);

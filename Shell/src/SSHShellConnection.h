@@ -48,6 +48,10 @@ class SSHShellConnection: public Poco::SSH::SSHSession
 	/// is closed after ShellConnection::MAX_FAILED_LOGINS of them. A session
 	/// in which no command arrives within the session timeout is closed.
 	///
+	/// A password login that the LoginThrottle of the shell config refuses is
+	/// rejected at once, without the delay. A login command that it refuses
+	/// is answered as in ShellConnection, and the session ends.
+	///
 	/// A connection on which no shell session starts within the login grace
 	/// time is closed.
 	///
