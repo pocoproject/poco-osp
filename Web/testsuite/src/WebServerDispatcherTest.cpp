@@ -957,6 +957,70 @@ void WebServerDispatcherTest::testRedirectLocationOn401()
 }
 
 
+void WebServerDispatcherTest::testAsksForPage()
+{
+	// Sec-Fetch-Dest decides, whatever the Accept field says.
+	for (const auto& dest: {"document"s, "iframe"s, "frame"s, "embed"s, "object"s, "DOCUMENT"s})
+	{
+		Poco::Net::NameValueCollection headers;
+		headers.set("Sec-Fetch-Dest"s, dest);
+		assertTrue (WebServerDispatcher::asksForPage(headers));
+		headers.set("Accept"s, "*/*"s);
+		assertTrue (WebServerDispatcher::asksForPage(headers));
+	}
+	for (const auto& dest: {"script"s, "style"s, "image"s, "font"s, "empty"s, "worker"s})
+	{
+		Poco::Net::NameValueCollection headers;
+		headers.set("Sec-Fetch-Dest"s, dest);
+		assertFalse (WebServerDispatcher::asksForPage(headers));
+		headers.set("Accept"s, "text/html,*/*"s);
+		assertFalse (WebServerDispatcher::asksForPage(headers));
+	}
+
+	// Without Sec-Fetch-Dest, Sec-Fetch-Mode decides, whatever the Accept field says.
+	for (const auto& mode: {"navigate"s, "nested-navigate"s, "Navigate"s})
+	{
+		Poco::Net::NameValueCollection headers;
+		headers.set("Sec-Fetch-Mode"s, mode);
+		assertTrue (WebServerDispatcher::asksForPage(headers));
+		headers.set("Accept"s, "*/*"s);
+		assertTrue (WebServerDispatcher::asksForPage(headers));
+	}
+	for (const auto& mode: {"cors"s, "no-cors"s, "same-origin"s})
+	{
+		Poco::Net::NameValueCollection headers;
+		headers.set("Sec-Fetch-Mode"s, mode);
+		assertFalse (WebServerDispatcher::asksForPage(headers));
+		headers.set("Accept"s, "text/html,*/*"s);
+		assertFalse (WebServerDispatcher::asksForPage(headers));
+	}
+
+	// Without either, the Accept field decides.
+	for (const auto& accept: {"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"s, "Text/HTML"s})
+	{
+		Poco::Net::NameValueCollection headers;
+		headers.set("Accept"s, accept);
+		assertTrue (WebServerDispatcher::asksForPage(headers));
+	}
+	for (const auto& accept: {"*/*"s, "text/css,*/*;q=0.1"s, "image/avif,image/webp,*/*"s,
+		"application/json, text/plain, */*"s})
+	{
+		Poco::Net::NameValueCollection headers;
+		headers.set("Accept"s, accept);
+		assertFalse (WebServerDispatcher::asksForPage(headers));
+	}
+
+	// The names of the fields are compared without regard to case.
+	{
+		Poco::Net::NameValueCollection headers;
+		headers.set("sec-fetch-dest"s, "script"s);
+		assertFalse (WebServerDispatcher::asksForPage(headers));
+	}
+
+	assertTrue (WebServerDispatcher::asksForPage(Poco::Net::NameValueCollection()));
+}
+
+
 void WebServerDispatcherTest::testStaticResourceHasExactLength()
 {
 	for (const int options: {0, static_cast<int>(WebServerDispatcher::CONF_OPT_CACHE_RESOURCES)})
@@ -2099,6 +2163,101 @@ void WebServerDispatcherTest::testSessionUserWithoutPermissionIsForbidden()
 	get("/redirecting/hello.txt"s, redirectResponse);
 	assertTrue (redirectResponse.getStatus() == HTTPResponse::HTTP_FOUND);
 	assertEqual ("/"s, redirectResponse.get("Location"s));
+}
+
+
+void WebServerDispatcherTest::testRequestForPartOfPageIsNotRedirected()
+{
+	_pFixture->bundles.registry().registerService(AUTH_SERVICE_NAME, new TestAuthService, Properties());
+	WebSessionManager::Ptr pSessionManager = new WebSessionManager(_pFixture->bundles.context());
+	_pFixture->bundles.registry().registerService(WebSessionManager::SERVICE_NAME, pSessionManager, Properties());
+	WebServerDispatcher::Ptr pDispatcher = _pFixture->createDispatcher();
+	pDispatcher->addVirtualPath(WebServerDispatcher::VirtualPath("/login"s,
+		new LoginHandlerFactory(pSessionManager, _pFixture->bundles.context()), WebServerDispatcher::PathSecurity(),
+		_pFixture->bundles.bundle()));
+	const WebServerDispatcher::PathSecurity adminOnly(WebServerDispatcher::SM_OWNER, ""s, "admin"s);
+	WebServerDispatcher::VirtualPath redirecting("/redirecting"s, "www"s, adminOnly, _pFixture->bundles.bundle());
+	redirecting.security.authMethods = WebServerDispatcher::AUTH_SESSION;
+	redirecting.security.session = "app"s;
+	redirecting.redirectOn401 = "/login"s;
+	WebServerDispatcher::VirtualPath basic("/basic"s, "www"s, adminOnly, _pFixture->bundles.bundle());
+	basic.redirectOn401 = "/login"s;
+	pDispatcher->addVirtualPath(redirecting);
+	pDispatcher->addVirtualPath(basic);
+	TestServer server(*pDispatcher);
+	const Session session = loginSession(server, "/login"s);
+
+	struct Result
+	{
+		HTTPResponse::HTTPStatus status;
+		std::string location;
+		std::string cacheControl;
+		std::string challenge;
+		std::string contentType;
+	};
+	const auto get = [&server](const std::string& uri, const Session* pSession, const std::string& field,
+		const std::string& value)
+	{
+		HTTPRequest request(HTTPRequest::HTTP_GET, uri);
+		if (pSession != nullptr) request.setCookies(pSession->cookies);
+		if (!field.empty()) request.set(field, value);
+		HTTPResponse response;
+		server.send(request, response);
+		return Result{response.getStatus(), response.get("Location"s, ""s), response.get("Cache-Control"s, ""s),
+			response.get("WWW-Authenticate"s, ""s), response.getContentType()};
+	};
+	const std::string uri("/redirecting/hello.txt");
+
+	// A request for a page is redirected to the login page.
+	Result result = get(uri, nullptr, ""s, ""s);
+	assertTrue (result.status == HTTPResponse::HTTP_FOUND);
+	assertEqual (0, result.location.find("/login"s));
+	assertEqual ("no-store"s, result.cacheControl);
+
+	result = get(uri, nullptr, "Sec-Fetch-Dest"s, "document"s);
+	assertTrue (result.status == HTTPResponse::HTTP_FOUND);
+	assertEqual ("no-store"s, result.cacheControl);
+
+	result = get(uri, nullptr, "Accept"s, "text/html,application/xhtml+xml,*/*;q=0.8"s);
+	assertTrue (result.status == HTTPResponse::HTTP_FOUND);
+	assertEqual ("no-store"s, result.cacheControl);
+
+	// A request for a part of a page is answered as on a path without redirectOn401.
+	result = get(uri, nullptr, "Sec-Fetch-Dest"s, "script"s);
+	assertTrue (result.status == HTTPResponse::HTTP_UNAUTHORIZED);
+	assertEqual ("no-store"s, result.cacheControl);
+	assertTrue (result.location.empty());
+	assertTrue (result.challenge.empty());
+
+	result = get(uri, nullptr, "Sec-Fetch-Mode"s, "cors"s);
+	assertTrue (result.status == HTTPResponse::HTTP_UNAUTHORIZED);
+
+	result = get(uri, nullptr, "Accept"s, "application/json, text/plain, */*"s);
+	assertTrue (result.status == HTTPResponse::HTTP_UNAUTHORIZED);
+	assertEqual ("application/json"s, result.contentType);
+
+	// The session of a logged-in user without the permission.
+	result = get(uri, &session, "Sec-Fetch-Dest"s, "script"s);
+	assertTrue (result.status == HTTPResponse::HTTP_FORBIDDEN);
+	assertEqual ("no-store"s, result.cacheControl);
+
+	result = get(uri, &session, "Sec-Fetch-Dest"s, "document"s);
+	assertTrue (result.status == HTTPResponse::HTTP_FOUND);
+	assertEqual ("/"s, result.location);
+	assertEqual ("no-store"s, result.cacheControl);
+
+	// A path that redirects to a login page sends no challenge to a GET request, also without a
+	// session attribute; another request gets the challenge of the path.
+	result = get("/basic/hello.txt"s, nullptr, "Sec-Fetch-Dest"s, "image"s);
+	assertTrue (result.status == HTTPResponse::HTTP_UNAUTHORIZED);
+	assertTrue (result.challenge.empty());
+	assertEqual ("no-store"s, result.cacheControl);
+
+	HTTPRequest post(HTTPRequest::HTTP_POST, "/basic/hello.txt"s);
+	HTTPResponse postResponse;
+	server.send(post, postResponse);
+	assertTrue (postResponse.getStatus() == HTTPResponse::HTTP_UNAUTHORIZED);
+	assertEqual (0, postResponse.get("WWW-Authenticate"s, ""s).find("Basic "s));
 }
 
 
@@ -3434,6 +3593,7 @@ CppUnit::Test* WebServerDispatcherTest::suite()
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testParseRange);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testCanonicalPathWithQuery);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRedirectLocationOn401);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testAsksForPage);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testStaticResourceHasExactLength);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testCachedResourceOutlivesBundleStop);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testStaticResourceResponses);
@@ -3476,6 +3636,7 @@ CppUnit::Test* WebServerDispatcherTest::suite()
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testHTTPAndHTTPSShareLoginThrottle);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testSessionCSRFProtection);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testSessionUserWithoutPermissionIsForbidden);
+	CppUnit_addTest(pSuite, WebServerDispatcherTest, testRequestForPartOfPageIsNotRedirected);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testSessionUserWithoutPermissionForHomePageIsNotAuthorized);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testDisabledUserIsNotAuthenticated);
 	CppUnit_addTest(pSuite, WebServerDispatcherTest, testUnregisteredSessionManagerIsNotUsed);

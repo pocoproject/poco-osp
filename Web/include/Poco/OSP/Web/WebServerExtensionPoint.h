@@ -98,6 +98,10 @@ class OSPWeb_API WebServerExtensionPoint: public ExtensionPoint
 	///                   "redirect" query parameter, unless the request is for that location or
 	///                   already has a "redirect" parameter. This can be used to redirect to the
 	///                   login page.
+	///                   Only a request for a page is redirected (see WebServerDispatcher::asksForPage());
+	///                   a request for a script, a style sheet, an image or data is answered with 401,
+	///                   without a WWW-Authenticate challenge, or 403. Every answer to a GET request
+	///                   that fails authorization carries "Cache-Control: no-store".
 	///                   A user logged in through a session who lacks the permission is redirected
 	///                   to "/" (or gets a 403 response if the request is for "/"); a user
 	///                   authenticated with HTTP Basic credentials or a bearer token gets 403.

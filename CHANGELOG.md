@@ -101,7 +101,10 @@ entries.
 - Web: valid credentials, or the session of a logged-in user, without the permission are answered with 403 instead of
   401 where no redirect applies.
 - Web: on a path with a request handler, a failed authorization is answered with 401 or 403 and a JSON body; only a GET
-  request for a path without a request handler is redirected to `redirectOn401`.
+  request for a page (see `WebServerDispatcher::asksForPage()`) on a path without a request handler is redirected to
+  `redirectOn401`. On a path with `redirectOn401`, a GET request for a script, a style sheet, an image or data is
+  answered with 401 (without a challenge) or 403, and every answer to a GET request that fails authorization carries
+  `Cache-Control: no-store`.
 - Web: on a path that redirects, a GET request in the session of a logged-in user without the permission is redirected
   to `/` instead of the login page; at `/` itself it is answered with 403.
 - Web: the redirect to `redirectOn401` adds the query parameter `redirect` with only the path and query of the request,

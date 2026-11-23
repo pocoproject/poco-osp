@@ -34,6 +34,7 @@ public:
 	void testParseRange();
 	void testCanonicalPathWithQuery();
 	void testRedirectLocationOn401();
+	void testAsksForPage();
 	void testStaticResourceHasExactLength();
 	void testCachedResourceOutlivesBundleStop();
 	void testStaticResourceResponses();
@@ -76,6 +77,7 @@ public:
 	void testHTTPAndHTTPSShareLoginThrottle();
 	void testSessionCSRFProtection();
 	void testSessionUserWithoutPermissionIsForbidden();
+	void testRequestForPartOfPageIsNotRedirected();
 	void testSessionUserWithoutPermissionForHomePageIsNotAuthorized();
 	void testDisabledUserIsNotAuthenticated();
 	void testUnregisteredSessionManagerIsNotUsed();

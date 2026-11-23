@@ -749,7 +749,16 @@ void WebServerDispatcher::handleRequest(Poco::Net::HTTPServerRequest& request, P
 					// Only directory/static mappings redirect a failed GET to a friendly HTML page.
 					// Request-handler (REST) mappings always answer with a 401 so API clients get a
 					// machine-readable error instead of being bounced to the login HTML.
-					const bool redirect = vPath.pFactory == nullptr && !vPath.redirectOn401.empty() && request.getMethod() == Poco::Net::HTTPRequest::HTTP_GET;
+					// A request for a part of a page (asksForPage()) is not redirected either: the
+					// browser would take the login page for the script or the data and could keep it.
+					const bool redirecting = vPath.pFactory == nullptr && !vPath.redirectOn401.empty()
+						&& request.getMethod() == Poco::Net::HTTPRequest::HTTP_GET;
+					const bool redirect = redirecting && asksForPage(request);
+					if (redirecting)
+					{
+						// The answer depends on who asks and for what: no cache may keep it.
+						response.set("Cache-Control"s, "no-store"s);
+					}
 					if (retryAfter > std::chrono::seconds(0))
 					{
 						// No challenge and no redirect: the client's password checks are refused
@@ -793,7 +802,8 @@ void WebServerDispatcher::handleRequest(Poco::Net::HTTPServerRequest& request, P
 					}
 					else
 					{
-						if (vPath.security.session.empty())
+						// A path that redirects to a login page does not make the browser ask for credentials.
+						if (vPath.security.session.empty() && !redirecting)
 						{
 							const std::string realm(vPath.security.realm.empty() ? vPath.path : vPath.security.realm);
 							int authMethods = vPath.security.authMethods;
@@ -2399,6 +2409,26 @@ std::string WebServerDispatcher::redirectLocationOn401(const std::string& loginT
 		redirectUri.addQueryParameter("redirect", target.getPathAndQuery());
 	}
 	return redirectUri.toString();
+}
+
+
+bool WebServerDispatcher::asksForPage(const Poco::Net::NameValueCollection& headers)
+{
+	if (const auto it = headers.find("Sec-Fetch-Dest"s); it != headers.end())
+	{
+		const std::string dest = Poco::toLower(it->second);
+		return dest == "document" || dest == "frame" || dest == "iframe" || dest == "embed" || dest == "object";
+	}
+	if (const auto it = headers.find("Sec-Fetch-Mode"s); it != headers.end())
+	{
+		const std::string mode = Poco::toLower(it->second);
+		return mode == "navigate" || mode == "nested-navigate";
+	}
+	if (const auto it = headers.find("Accept"s); it != headers.end())
+	{
+		return Poco::toLower(it->second).find("text/html"s) != std::string::npos;
+	}
+	return true;
 }
 
 

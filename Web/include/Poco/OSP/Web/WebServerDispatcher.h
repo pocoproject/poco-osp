@@ -34,6 +34,7 @@
 #include "Poco/Net/HTTPServerRequest.h"
 #include "Poco/Net/HTTPRequestHandlerFactory.h"
 #include "Poco/Net/HTTPResponse.h"
+#include "Poco/Net/NameValueCollection.h"
 #include "Poco/RegularExpression.h"
 #include "Poco/Logger.h"
 #include "Poco/SharedPtr.h"
@@ -183,7 +184,7 @@ public:
 		bool                     cache;               /// resource can be cached
 		bool                     exactMatch;          /// request path must match exactly
 		ResponseFormat           responseFormat;      /// error response format (HTML or JSON)
-		std::string              redirectOn401;       /// redirect (302) on a 401 error if request is a GET
+		std::string              redirectOn401;       /// redirect (302) on 401 if a GET asks for a page (asksForPage())
 		Bundle::Ptr              pOwnerBundle;        /// bundle owning path
 	};
 
@@ -363,6 +364,21 @@ public:
 		/// its own redirect= parameter. The parameter value is encoded via
 		/// Poco::URI::addQueryParameter, which percent-encodes '+' so
 		/// HTMLForm decoders do not corrupt it.
+
+	[[nodiscard]] static bool asksForPage(const Poco::Net::NameValueCollection& headers);
+		/// Returns true if a request with these header fields asks for a page
+		/// (a navigation of the browser), and false if it asks for a part of
+		/// one: a script, a style sheet, an image, a font, data.
+		///
+		/// A browser says what a request is for in Sec-Fetch-Dest and
+		/// Sec-Fetch-Mode, but only to an origin it trusts (https, localhost).
+		/// The Sec-Fetch-Dest values "document", "frame", "iframe", "embed" and
+		/// "object" ask for a page, every other value for a part of one.
+		/// Without Sec-Fetch-Dest, the Sec-Fetch-Mode values "navigate" and
+		/// "nested-navigate" ask for a page, every other value for a part.
+		/// Without either, a request whose Accept field contains "text/html"
+		/// asks for a page, and one with another Accept field for a part. A
+		/// request without any of the three fields asks for a page.
 
 	[[nodiscard]] static std::string redactRequestURI(const std::string& uri);
 		/// Returns the request URI as the logs write it, without the values of the

@@ -81,6 +81,10 @@ The following attributes are supported for static resources:
   - <[redirectOn401]>: Specify a location the client is redirected to in case of an
     authentication failure (401 status). This only applies to <[GET]> requests and can
     be used to redirect to a login page rather than showing a generic 401 error.
+    Only a request for a page is redirected (see WebServerDispatcher::asksForPage());
+    a request for a script, a style sheet, an image or data is answered with 401, without a
+    <[WWW-Authenticate]> challenge, or 403. Every answer to a <[GET]> request that fails
+    authorization carries <[Cache-Control: no-store]>.
     The path and query of the request are passed to the location in the <[redirect]> query
     parameter, unless the request is for that location or already has a <[redirect]> parameter.
     A user logged in through a session who lacks the permission is redirected to "/" instead
@@ -367,7 +371,8 @@ a specific request handler.
 A request for a protected resource without valid credentials is answered with 401 Unauthorized
 (or redirected, see <[redirectOn401]>). On a path without a <[session]> attribute, the 401 response carries
 the challenge <[WWW-Authenticate: Bearer realm="<realm>"]> if the path accepts bearer tokens but not HTTP Basic
-credentials, and an HTTP Basic challenge otherwise. A request with valid HTTP Basic credentials or a valid bearer
+credentials, and an HTTP Basic challenge otherwise, unless it answers a <[GET]> request on a path with
+<[redirectOn401]>. A request with valid HTTP Basic credentials or a valid bearer
 token whose user does not have the required permission is answered with 403 Forbidden. So is a request
 in the session of a logged-in user without the permission, unless it is redirected (see <[redirectOn401]>).
 If the auth service (<[osp.web.authServiceName]>) is not available, requests for protected
