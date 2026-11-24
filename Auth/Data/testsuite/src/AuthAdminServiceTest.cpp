@@ -28,6 +28,7 @@
 #include <memory>
 #endif
 #include "Poco/AutoPtr.h"
+#include "Poco/Bugcheck.h"
 #include "Poco/Event.h"
 #include "Poco/NotificationCenter.h"
 #include "Poco/NObserver.h"
@@ -191,6 +192,42 @@ namespace
 	};
 
 
+	[[nodiscard]] std::string userOfOtherBackend(const RoutingPool& pool, const std::string& username)
+		/// Returns a user name that the pool routes to a backend other than the one that serves username.
+	{
+		int n = 1;
+		while (pool.forUser("user"s + std::to_string(n)) == pool.forUser(username)) ++n;
+		return "user"s + std::to_string(n);
+	}
+
+
+	struct TwoBackendPool
+		/// A pool and two users that different backends of the pool serve.
+	{
+		RoutingPool::Ptr pPool;
+		std::string user1;
+		std::string user2;
+	};
+
+
+	[[nodiscard]] TwoBackendPool poolWithRoleOnTwoBackends(
+		const Poco::Util::AbstractConfiguration& properties, const std::string& dbPath)
+		/// Returns a pool of two backends with role1, which has perm1, assigned to two users that different backends
+		/// serve.
+	{
+		RoutingPool::Ptr pPool = new RoutingPool(createBackends(properties, dbPath, 2));
+		const std::string user1 = "user1"s;
+		const std::string user2 = userOfOtherBackend(*pPool, user1);
+		pPool->addUser(user1, "pass1");
+		pPool->addUser(user2, "pass2");
+		pPool->addRole("role1");
+		pPool->grantPermissionsToRole("role1", {"perm1"});
+		pPool->assignRoleToUser(user1, "role1");
+		pPool->assignRoleToUser(user2, "role1");
+		return {pPool, user1, user2};
+	}
+
+
 	class AccountNameAuthAdminService: public AuthAdminServiceImpl
 		/// Accepts the password "secret" for every user name as a login of the
 		/// account "alice", and keeps the user names it is asked for.
@@ -248,6 +285,101 @@ namespace
 
 	private:
 		std::vector<const void*> _senders;
+	};
+
+
+	class AccessChangedRecorder
+		/// Records the user names that the accessChanged event of a service passes
+		/// and, for each, whether the service then authorizes a user for a
+		/// permission, which the handler asks the service.
+	{
+	public:
+		AccessChangedRecorder(AuthAdminService& service, const std::string& username, const std::string& permission):
+			_service(service),
+			_username(username),
+			_permission(permission)
+		{
+			_service.accessChanged += Poco::delegate(this, &AccessChangedRecorder::onAccessChanged);
+		}
+
+		AccessChangedRecorder() = delete;
+		AccessChangedRecorder(const AccessChangedRecorder&) = delete;
+		AccessChangedRecorder(AccessChangedRecorder&&) = delete;
+		AccessChangedRecorder& operator = (const AccessChangedRecorder&) = delete;
+		AccessChangedRecorder& operator = (AccessChangedRecorder&&) = delete;
+
+		~AccessChangedRecorder()
+		{
+			try
+			{
+				_service.accessChanged -= Poco::delegate(this, &AccessChangedRecorder::onAccessChanged);
+			}
+			catch (...)
+			{
+				poco_unexpected();
+			}
+		}
+
+		[[nodiscard]] const std::vector<std::string>& names() const
+		{
+			return _names;
+		}
+
+		[[nodiscard]] const std::vector<bool>& authorized() const
+		{
+			return _authorized;
+		}
+
+	private:
+		void onAccessChanged(const std::string& username)
+		{
+			_names.push_back(username);
+			_authorized.push_back(_service.authorize(_username, _permission));
+		}
+
+		AuthAdminService& _service;
+		std::string _username;
+		std::string _permission;
+		std::vector<std::string> _names;
+		std::vector<bool> _authorized;
+	};
+
+
+	class ThrowingAccessChangedHandler
+		/// Throws a Poco::IllegalStateException for each accessChanged event of a service.
+	{
+	public:
+		explicit ThrowingAccessChangedHandler(AuthAdminService& service):
+			_service(service)
+		{
+			_service.accessChanged += Poco::delegate(this, &ThrowingAccessChangedHandler::onAccessChanged);
+		}
+
+		ThrowingAccessChangedHandler() = delete;
+		ThrowingAccessChangedHandler(const ThrowingAccessChangedHandler&) = delete;
+		ThrowingAccessChangedHandler(ThrowingAccessChangedHandler&&) = delete;
+		ThrowingAccessChangedHandler& operator = (const ThrowingAccessChangedHandler&) = delete;
+		ThrowingAccessChangedHandler& operator = (ThrowingAccessChangedHandler&&) = delete;
+
+		~ThrowingAccessChangedHandler()
+		{
+			try
+			{
+				_service.accessChanged -= Poco::delegate(this, &ThrowingAccessChangedHandler::onAccessChanged);
+			}
+			catch (...)
+			{
+				poco_unexpected();
+			}
+		}
+
+	private:
+		[[noreturn]] void onAccessChanged(const std::string& username)
+		{
+			throw Poco::IllegalStateException("The accessChanged handler fails"s, username);
+		}
+
+		AuthAdminService& _service;
 	};
 
 
@@ -1094,6 +1226,67 @@ void AuthAdminServiceTest::testRemoveRoleRevokesItsPermissions()
 
 	_pAAS->removeRole("role1");
 	assertFalse (_pAAS->authorize("user1", "perm1"));
+}
+
+
+void AuthAdminServiceTest::testAccessChanged()
+{
+	_pAAS->addUser("user1", "pass1");
+	_pAAS->addRole("role1");
+	_pAAS->addRole("external1");
+	AccessChangedRecorder perm1Recorder(*_pAAS, "user1"s, "perm1"s);
+	AccessChangedRecorder perm2Recorder(*_pAAS, "user1"s, "perm2"s);
+
+	_pAAS->grantPermissionsToRole("role1", {"perm1"});
+	_pAAS->assignRoleToUser("user1", "role1");
+	_pAAS->removeRoleFromUser("user1", "role1");
+	_pAAS->replaceRolesForUser("user1", {"role1"});
+	_pAAS->grantPermissionsToUser("user1", {"perm2"});
+	_pAAS->revokePermissionsFromUser("user1", {"perm2"});
+	_pAAS->replacePermissionsForUser("user1", {"perm2"});
+	_pAAS->revokePermissionsFromRole("role1", {"perm1"});
+	_pAAS->replacePermissionsForRole("role1", {"perm1"});
+	_pAAS->setRoleMapping("external1", "role1");
+	_pAAS->removeRoleMapping("external1");
+	_pAAS->removeRole("role1");
+	_pAAS->grantPermissionsToUser("user1", {"perm1"});
+	_pAAS->revokePermission("perm1");
+
+	const std::vector<std::string> expectedNames{""s, "user1"s, "user1"s, "user1"s, "user1"s, "user1"s, "user1"s,
+		""s, ""s, ""s, ""s, ""s, "user1"s, ""s};
+	const std::vector<bool> expectedPerm1{false, true, false, true, true, true, true, false, true, true, true, false,
+		true, false};
+	const std::vector<bool> expectedPerm2{false, false, false, false, true, false, true, true, true, true, true, true,
+		true, true};
+	assertTrue (perm1Recorder.names() == expectedNames);
+	assertTrue (perm1Recorder.authorized() == expectedPerm1);
+	assertTrue (perm2Recorder.authorized() == expectedPerm2);
+
+	try
+	{
+		_pAAS->assignRoleToUser("nobody", "role1");
+		fail("assigning a role to an unknown user must throw");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+	try
+	{
+		_pAAS->setRoleMapping("external1", "nosuchrole");
+		fail("mapping to an unknown role must throw");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+	try
+	{
+		_pAAS->grantPermissionsToRole("nosuchrole", {"perm1"});
+		fail("granting a permission to an unknown role must throw");
+	}
+	catch (Poco::NotFoundException&)
+	{
+	}
+	assertTrue (perm1Recorder.names() == expectedNames);
 }
 
 
@@ -2841,6 +3034,57 @@ void AuthAdminServiceTest::testPoolForwardsValidateUserWithSender()
 }
 
 
+void AuthAdminServiceTest::testPoolForwardsAccessChanged()
+{
+	PooledAuthAdminService::Ptr pPool = new PooledAuthAdminService(createBackends(*_pProperties, _dbPath, 2));
+	pPool->addUser("user1", "pass1");
+	pPool->addRole("role1");
+	AccessChangedRecorder recorder(*pPool, "user1"s, "perm1"s);
+
+	pPool->assignRoleToUser("user1", "role1");
+
+	assertTrue (recorder.names() == std::vector<std::string>{"user1"s});
+}
+
+
+void AuthAdminServiceTest::testPoolClearsCachesBeforeAccessChanged()
+{
+	auto [pPool, user1, user2] = poolWithRoleOnTwoBackends(*_pProperties, _dbPath);
+	assertTrue (pPool->authorize(user1, "perm1"));
+	assertTrue (pPool->authorize(user2, "perm1"));
+	AccessChangedRecorder recorder1(*pPool, user1, "perm1"s);
+	AccessChangedRecorder recorder2(*pPool, user2, "perm1"s);
+
+	pPool->revokePermissionsFromRole("role1", {"perm1"});
+
+	assertTrue (recorder1.names() == std::vector<std::string>{""s});
+	assertTrue (recorder1.authorized() == std::vector<bool>{false});
+	assertTrue (recorder2.authorized() == std::vector<bool>{false});
+}
+
+
+void AuthAdminServiceTest::testPoolClearsCachesWhenAccessChangedHandlerThrows()
+{
+	auto [pPool, user1, user2] = poolWithRoleOnTwoBackends(*_pProperties, _dbPath);
+	assertTrue (pPool->authorize(user1, "perm1"));
+	assertTrue (pPool->authorize(user2, "perm1"));
+	{
+		const ThrowingAccessChangedHandler handler(*pPool);
+		try
+		{
+			pPool->revokePermissionsFromRole("role1", {"perm1"});
+			fail("the exception of the accessChanged handler must be passed on");
+		}
+		catch (Poco::IllegalStateException&)
+		{
+		}
+	}
+
+	assertFalse (pPool->authorize(user1, "perm1"));
+	assertFalse (pPool->authorize(user2, "perm1"));
+}
+
+
 void AuthAdminServiceTest::testNeverLockOutUsersAreNotLockedOut()
 {
 	Poco::Data::Session session("SQLite", _dbPath);
@@ -3750,6 +3994,122 @@ void AuthAdminServiceTest::testLDAPLoginUpdatesRolePermissionsOfOtherUsers()
 }
 
 
+void AuthAdminServiceTest::testLDAPLoginFiresAccessChangedForUser()
+{
+	Directory directory;
+	directory.passwords[userDN("alice")] = "A";
+	directory.permissions = {"read"};
+	directory.roles = {"dev"};
+	auto params = ldapTestParams();
+	params.rolePermissionAttribute.clear();
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath), params,
+		directory);
+	AccessChangedRecorder recorder(*pAAS, "alice"s, "read"s);
+
+	assertTrue (pAAS->verifyCredentials("alice", "A"));
+	assertTrue (pAAS->authenticate("alice", "A"));
+	// Accepted by the remembered check, so nothing is stored.
+	assertTrue (pAAS->authenticate("alice", "A"));
+	directory.passwords[userDN("alice")] = "A2";
+	std::string accountName;
+	assertTrue (pAAS->authenticateAccount("alice", "A2", accountName));
+	assertFalse (pAAS->authenticate("alice", "wrong"));
+
+	assertTrue (recorder.names() == std::vector<std::string>({"alice"s, "alice"s, "alice"s}));
+	assertTrue (recorder.authorized() == std::vector<bool>({true, true, true}));
+}
+
+
+void AuthAdminServiceTest::testLDAPLoginWithRolePermissionsFiresAccessChangedForEveryUser()
+{
+	Directory directory;
+	directory.passwords[userDN("alice")] = "A";
+	directory.passwords[userDN("bob")] = "B";
+	directory.roles = {"dev"};
+	directory.groupPermissions = {{"dev", {"build"}}};
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
+	assertTrue (pAAS->authenticate("bob", "B"));
+	assertFalse (pAAS->authorize("bob", "deploy"));
+	AccessChangedRecorder recorder(*pAAS, "bob"s, "deploy"s);
+
+	directory.groupPermissions = {{"dev", {"deploy"}}};
+	assertTrue (pAAS->authenticate("alice", "A"));
+
+	assertTrue (recorder.names() == std::vector<std::string>{""s});
+	assertTrue (recorder.authorized() == std::vector<bool>{true});
+}
+
+
+void AuthAdminServiceTest::testRolledBackLDAPLoginFiresNoAccessChanged()
+{
+	Directory directory;
+	directory.passwords[userDN("alice")] = "A";
+	UnstorableLDAPAuthAdminService::Ptr pAAS = new UnstorableLDAPAuthAdminService(*_pProperties,
+		backendAuthParams(_dbPath), ldapTestParams(), directory);
+	AccessChangedRecorder recorder(*pAAS, "alice"s, "read"s);
+
+	try
+	{
+		[[maybe_unused]] const bool authenticated = pAAS->authenticate("alice", "A");
+		fail("a database error while storing the LDAP user must be reported");
+	}
+	catch (Poco::Data::DataException&)
+	{
+	}
+
+	assertFalse (pAAS->userExists("alice"));
+	assertTrue (recorder.names().empty());
+}
+
+
+void AuthAdminServiceTest::testThrowingAccessChangedHandlerDoesNotFailLDAPLogin()
+{
+	Directory directory;
+	directory.passwords[userDN("alice")] = "A";
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
+	const ThrowingAccessChangedHandler handler(*pAAS);
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool authenticated = pAAS->authenticate("alice", "A");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertTrue (authenticated);
+	assertEqual (1, _notificationCounter);
+}
+
+
+void AuthAdminServiceTest::testLDAPLoginRefusedByValidationFiresAccessChanged()
+{
+	Directory directory;
+	directory.passwords[userDN("alice")] = "A";
+	directory.passwords[userDN("bob")] = "B";
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
+	AccessChangedRecorder recorder(*pAAS, "alice"s, "read"s);
+	void (*disableUser)(const void*, AuthAdminService::ValidateUserEvent&) =
+		[](const void*, AuthAdminService::ValidateUserEvent& ev)
+	{
+		ev.valid = false;
+	};
+
+	pAAS->validateUser += Poco::delegate(disableUser);
+	const bool authenticated = pAAS->authenticate("alice", "A");
+	std::string accountName;
+	const bool accountAuthenticated = pAAS->authenticateAccount("bob", "B", accountName);
+	pAAS->validateUser -= Poco::delegate(disableUser);
+
+	assertFalse (authenticated);
+	assertFalse (accountAuthenticated);
+	assertTrue (pAAS->userExists("alice"));
+	assertTrue (pAAS->userExists("bob"));
+	assertTrue (recorder.names() == std::vector<std::string>({"alice"s, "bob"s}));
+}
+
+
 void AuthAdminServiceTest::testFailedLDAPLoginCommitKeepsStoredPermissions()
 {
 	// A short busy timeout, so that the commit fails soon while another session reads.
@@ -3765,6 +4125,7 @@ void AuthAdminServiceTest::testFailedLDAPLoginCommitKeepsStoredPermissions()
 	// A new password, so that the login asks the LDAP server and stores the new permissions of the role.
 	directory.passwords[userDN("alice")] = "A2";
 	directory.groupPermissions = {{"dev", {"deploy"}}};
+	AccessChangedRecorder recorder(*pAAS, "alice"s, "build"s);
 
 	Poco::Data::Session reader("SQLite", _dbPath);
 	reader.begin();
@@ -3783,6 +4144,7 @@ void AuthAdminServiceTest::testFailedLDAPLoginCommitKeepsStoredPermissions()
 	assertEqual (1, users);
 	assertTrue (pAAS->authorize("alice", "build"));
 	assertFalse (pAAS->authorize("alice", "deploy"));
+	assertTrue (recorder.names().empty());
 }
 
 
@@ -4831,6 +5193,7 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRoles);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAssignmentOfUnknownRoleThrows);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRemoveRoleRevokesItsPermissions);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAccessChanged);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRemoveRoleRemovesWhatRefersToIt);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRemoveRoleWithForeignKeysWithoutCascade);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRemoveUserWithForeignKeysWithoutCascade);
@@ -4895,6 +5258,9 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPoolRoutesUserNamesIgnoringCase);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPoolAuthenticatesAccountWithBackendOfUser);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPoolForwardsValidateUserWithSender);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPoolForwardsAccessChanged);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPoolClearsCachesBeforeAccessChanged);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPoolClearsCachesWhenAccessChangedHandlerThrows);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testReset);
 #if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testExternalRole);
@@ -4931,6 +5297,11 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAuthorizeProceedsWhileLDAPLoginChecksPassword);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPasswordChangedDuringLDAPLoginCheckRefusesLogin);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLDAPLoginUpdatesRolePermissionsOfOtherUsers);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLDAPLoginFiresAccessChangedForUser);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLDAPLoginWithRolePermissionsFiresAccessChangedForEveryUser);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRolledBackLDAPLoginFiresNoAccessChanged);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testThrowingAccessChangedHandlerDoesNotFailLDAPLogin);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLDAPLoginRefusedByValidationFiresAccessChanged);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testFailedLDAPLoginCommitKeepsStoredPermissions);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLoginNamesOfDirectoryUserShareOneAccount);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testFailedLoginsThroughEveryNameLockOutAccount);

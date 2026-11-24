@@ -219,7 +219,11 @@ bool AuthAdminServiceImpl::verifyCredentials(const std::string& username, const 
 	std::string storedUsername(username);
 	bool isLDAPUser = false;
 	bool remembered = false;
-	if (!authenticateImpl(storedUsername, credentials, CheckKind::VERIFY, isLDAPUser, remembered))
+	std::optional<std::string> changedAccess;
+	const bool authenticated = authenticateImpl(storedUsername, credentials, CheckKind::VERIFY, isLDAPUser,
+		remembered, changedAccess);
+	fireAccessChangedAfterLogin(changedAccess);
+	if (!authenticated)
 	{
 		return false;
 	}
@@ -332,64 +336,77 @@ void AuthAdminServiceImpl::effectivePermissionsForUser(const std::string& userna
 
 void AuthAdminServiceImpl::grantPermissionsToUser(const std::string& username, const std::set<std::string>& permissions)
 {
-	Poco::FastMutex::ScopedLock lock(_mutex);
-
-	Poco::Data::Session& sess = session();
-	Poco::Data::Transaction xa(sess, &_logger);
 	{
-		if (!userExistsImpl(sess, username)) throw Poco::NotFoundException(username);
+		Poco::FastMutex::ScopedLock lock(_mutex);
 
-		std::string perm;
-		Poco::Data::Statement statement = (sess << sqlFor("grantPermissionToUser"s), useRef(username), use(perm));
-		for (std::set<std::string>::const_iterator it = permissions.begin(); it != permissions.end(); ++it)
+		Poco::Data::Session& sess = session();
+		Poco::Data::Transaction xa(sess, &_logger);
 		{
-			perm = *it;
-			statement.execute();
-		}
-	}
-	xa.commit();
+			if (!userExistsImpl(sess, username)) throw Poco::NotFoundException(username);
 
-	_permissionsCache.remove(username);
+			std::string perm;
+			Poco::Data::Statement statement = (sess << sqlFor("grantPermissionToUser"s), useRef(username), use(perm));
+			for (std::set<std::string>::const_iterator it = permissions.begin(); it != permissions.end(); ++it)
+			{
+				perm = *it;
+				statement.execute();
+			}
+		}
+		xa.commit();
+
+		_permissionsCache.remove(username);
+	}
+
+	accessChanged(username);
 }
 
 
 void AuthAdminServiceImpl::revokePermissionsFromUser(const std::string& username, const std::set<std::string>& permissions)
 {
-	Poco::FastMutex::ScopedLock lock(_mutex);
-
-	Poco::Data::Session& sess = session();
-	Poco::Data::Transaction xa(sess, &_logger);
 	{
-		if (!userExistsImpl(sess, username)) throw Poco::NotFoundException(username);
+		Poco::FastMutex::ScopedLock lock(_mutex);
 
-		std::string perm;
-		Poco::Data::Statement statement = (sess << sqlFor("revokePermissionFromUser"s), useRef(username), use(perm));
-		for (std::set<std::string>::const_iterator it = permissions.begin(); it != permissions.end(); ++it)
+		Poco::Data::Session& sess = session();
+		Poco::Data::Transaction xa(sess, &_logger);
 		{
-			perm = *it;
-			statement.execute();
-		}
-	}
-	xa.commit();
+			if (!userExistsImpl(sess, username)) throw Poco::NotFoundException(username);
 
-	_permissionsCache.remove(username);
+			std::string perm;
+			Poco::Data::Statement statement = (sess << sqlFor("revokePermissionFromUser"s), useRef(username),
+				use(perm));
+			for (std::set<std::string>::const_iterator it = permissions.begin(); it != permissions.end(); ++it)
+			{
+				perm = *it;
+				statement.execute();
+			}
+		}
+		xa.commit();
+
+		_permissionsCache.remove(username);
+	}
+
+	accessChanged(username);
 }
 
 
 void AuthAdminServiceImpl::replacePermissionsForUser(const std::string& username, const std::set<std::string>& permissions)
 {
-	Poco::FastMutex::ScopedLock lock(_mutex);
-
-	Poco::Data::Session& sess = session();
-	Poco::Data::Transaction xa(sess, &_logger);
 	{
-		if (!userExistsImpl(sess, username)) throw Poco::NotFoundException(username);
+		Poco::FastMutex::ScopedLock lock(_mutex);
 
-		replacePermissionsForUserImpl(sess, username, permissions);
+		Poco::Data::Session& sess = session();
+		Poco::Data::Transaction xa(sess, &_logger);
+		{
+			if (!userExistsImpl(sess, username)) throw Poco::NotFoundException(username);
+
+			replacePermissionsForUserImpl(sess, username, permissions);
+		}
+		xa.commit();
+
+		_permissionsCache.remove(username);
 	}
-	xa.commit();
 
-	_permissionsCache.remove(username);
+	accessChanged(username);
 }
 
 
@@ -674,64 +691,77 @@ void AuthAdminServiceImpl::permissionsForRole(const std::string& rolename, std::
 
 void AuthAdminServiceImpl::grantPermissionsToRole(const std::string& rolename, const std::set<std::string>& permissions)
 {
-	Poco::FastMutex::ScopedLock lock(_mutex);
-
-	Poco::Data::Session& sess = session();
-	Poco::Data::Transaction xa(sess, &_logger);
 	{
-		if (!roleExistsImpl(sess, rolename)) throw Poco::NotFoundException(rolename);
+		Poco::FastMutex::ScopedLock lock(_mutex);
 
-		std::string perm;
-		Poco::Data::Statement statement = (sess << sqlFor("grantPermissionToRole"s), useRef(rolename), use(perm));
-		for (std::set<std::string>::const_iterator it = permissions.begin(); it != permissions.end(); ++it)
+		Poco::Data::Session& sess = session();
+		Poco::Data::Transaction xa(sess, &_logger);
 		{
-			perm = *it;
-			statement.execute();
-		}
-	}
-	xa.commit();
+			if (!roleExistsImpl(sess, rolename)) throw Poco::NotFoundException(rolename);
 
-	_permissionsCache.clear();
+			std::string perm;
+			Poco::Data::Statement statement = (sess << sqlFor("grantPermissionToRole"s), useRef(rolename), use(perm));
+			for (std::set<std::string>::const_iterator it = permissions.begin(); it != permissions.end(); ++it)
+			{
+				perm = *it;
+				statement.execute();
+			}
+		}
+		xa.commit();
+
+		_permissionsCache.clear();
+	}
+
+	accessChanged(std::string());
 }
 
 
 void AuthAdminServiceImpl::revokePermissionsFromRole(const std::string& rolename, const std::set<std::string>& permissions)
 {
-	Poco::FastMutex::ScopedLock lock(_mutex);
-
-	Poco::Data::Session& sess = session();
-	Poco::Data::Transaction xa(sess, &_logger);
 	{
-		if (!roleExistsImpl(sess, rolename)) throw Poco::NotFoundException(rolename);
+		Poco::FastMutex::ScopedLock lock(_mutex);
 
-		std::string perm;
-		Poco::Data::Statement statement = (sess << sqlFor("revokePermissionFromRole"s), useRef(rolename), use(perm));
-		for (std::set<std::string>::const_iterator it = permissions.begin(); it != permissions.end(); ++it)
+		Poco::Data::Session& sess = session();
+		Poco::Data::Transaction xa(sess, &_logger);
 		{
-			perm = *it;
-			statement.execute();
-		}
-	}
-	xa.commit();
+			if (!roleExistsImpl(sess, rolename)) throw Poco::NotFoundException(rolename);
 
-	_permissionsCache.clear();
+			std::string perm;
+			Poco::Data::Statement statement = (sess << sqlFor("revokePermissionFromRole"s), useRef(rolename),
+				use(perm));
+			for (std::set<std::string>::const_iterator it = permissions.begin(); it != permissions.end(); ++it)
+			{
+				perm = *it;
+				statement.execute();
+			}
+		}
+		xa.commit();
+
+		_permissionsCache.clear();
+	}
+
+	accessChanged(std::string());
 }
 
 
 void AuthAdminServiceImpl::replacePermissionsForRole(const std::string& rolename, const std::set<std::string>& permissions)
 {
-	Poco::FastMutex::ScopedLock lock(_mutex);
-
-	Poco::Data::Session& sess = session();
-	Poco::Data::Transaction xa(sess, &_logger);
 	{
-		if (!roleExistsImpl(sess, rolename)) throw Poco::NotFoundException(rolename);
+		Poco::FastMutex::ScopedLock lock(_mutex);
 
-		replacePermissionsForRoleImpl(sess, rolename, permissions);
+		Poco::Data::Session& sess = session();
+		Poco::Data::Transaction xa(sess, &_logger);
+		{
+			if (!roleExistsImpl(sess, rolename)) throw Poco::NotFoundException(rolename);
+
+			replacePermissionsForRoleImpl(sess, rolename, permissions);
+		}
+		xa.commit();
+
+		_permissionsCache.clear();
 	}
-	xa.commit();
 
-	_permissionsCache.clear();
+	accessChanged(std::string());
 }
 
 
@@ -819,6 +849,7 @@ void AuthAdminServiceImpl::removeRole(const std::string& rolename)
 	}
 
 	roleRemoved(rolename);
+	accessChanged(std::string());
 }
 
 
@@ -870,57 +901,69 @@ void AuthAdminServiceImpl::rolesForUser(const std::string& username, std::set<st
 
 void AuthAdminServiceImpl::assignRoleToUser(const std::string& username, const std::string& rolename)
 {
-	Poco::FastMutex::ScopedLock lock(_mutex);
-
-	Poco::Data::Session& sess = session();
-	Poco::Data::Transaction xa(sess, &_logger);
 	{
-		if (!userExistsImpl(sess, username)) throw Poco::NotFoundException(username);
-		if (!roleExistsImpl(sess, rolename)) throw Poco::InvalidArgumentException("Non-existing role", rolename);
+		Poco::FastMutex::ScopedLock lock(_mutex);
 
-		sess << sqlFor("assignRoleToUser"s), useRef(username), useRef(rolename), now;
+		Poco::Data::Session& sess = session();
+		Poco::Data::Transaction xa(sess, &_logger);
+		{
+			if (!userExistsImpl(sess, username)) throw Poco::NotFoundException(username);
+			if (!roleExistsImpl(sess, rolename)) throw Poco::InvalidArgumentException("Non-existing role", rolename);
+
+			sess << sqlFor("assignRoleToUser"s), useRef(username), useRef(rolename), now;
+		}
+		xa.commit();
+
+		_permissionsCache.clear();
 	}
-	xa.commit();
 
-	_permissionsCache.clear();
+	accessChanged(username);
 }
 
 
 void AuthAdminServiceImpl::removeRoleFromUser(const std::string& username, const std::string& rolename)
 {
-	Poco::FastMutex::ScopedLock lock(_mutex);
-
-	Poco::Data::Session& sess = session();
-	Poco::Data::Transaction xa(sess, &_logger);
 	{
-		if (!userExistsImpl(sess, username)) throw Poco::NotFoundException(username);
+		Poco::FastMutex::ScopedLock lock(_mutex);
 
-		sess << sqlFor("removeRoleFromUser"s), useRef(username), useRef(rolename), now;
+		Poco::Data::Session& sess = session();
+		Poco::Data::Transaction xa(sess, &_logger);
+		{
+			if (!userExistsImpl(sess, username)) throw Poco::NotFoundException(username);
+
+			sess << sqlFor("removeRoleFromUser"s), useRef(username), useRef(rolename), now;
+		}
+		xa.commit();
+
+		_permissionsCache.clear();
 	}
-	xa.commit();
 
-	_permissionsCache.clear();
+	accessChanged(username);
 }
 
 
 void AuthAdminServiceImpl::replaceRolesForUser(const std::string& username, const std::set<std::string>& roles)
 {
-	Poco::FastMutex::ScopedLock lock(_mutex);
-
-	Poco::Data::Session& sess = session();
-	Poco::Data::Transaction xa(sess, &_logger);
 	{
-		if (!userExistsImpl(sess, username)) throw Poco::NotFoundException(username);
-		for (std::set<std::string>::const_iterator it = roles.begin(); it != roles.end(); ++it)
+		Poco::FastMutex::ScopedLock lock(_mutex);
+
+		Poco::Data::Session& sess = session();
+		Poco::Data::Transaction xa(sess, &_logger);
 		{
-			if (!roleExistsImpl(sess, *it)) throw Poco::InvalidArgumentException("Non-existing role"s, *it);
+			if (!userExistsImpl(sess, username)) throw Poco::NotFoundException(username);
+			for (std::set<std::string>::const_iterator it = roles.begin(); it != roles.end(); ++it)
+			{
+				if (!roleExistsImpl(sess, *it)) throw Poco::InvalidArgumentException("Non-existing role"s, *it);
+			}
+
+			replaceRolesForUserImpl(sess, username, roles);
 		}
+		xa.commit();
 
-		replaceRolesForUserImpl(sess, username, roles);
+		_permissionsCache.clear();
 	}
-	xa.commit();
 
-	_permissionsCache.clear();
+	accessChanged(username);
 }
 
 
@@ -949,7 +992,11 @@ bool AuthAdminServiceImpl::authenticate(const std::string& usernameInput, const 
 	auto username { usernameInput };
 	bool isLDAPUser = false;
 	bool remembered = false;
-	if (!authenticateImpl(username, credentials, CheckKind::LOGIN, isLDAPUser, remembered))
+	std::optional<std::string> changedAccess;
+	const bool authenticated = authenticateImpl(username, credentials, CheckKind::LOGIN, isLDAPUser, remembered,
+		changedAccess);
+	fireAccessChangedAfterLogin(changedAccess);
+	if (!authenticated)
 	{
 		return false;
 	}
@@ -974,7 +1021,11 @@ bool AuthAdminServiceImpl::authenticateAccount(const std::string& username, cons
 	auto storedName { username };
 	bool isLDAPUser = false;
 	bool remembered = false;
-	if (!authenticateImpl(storedName, credentials, CheckKind::ACCOUNT_LOGIN, isLDAPUser, remembered))
+	std::optional<std::string> changedAccess;
+	const bool authenticated = authenticateImpl(storedName, credentials, CheckKind::ACCOUNT_LOGIN, isLDAPUser,
+		remembered, changedAccess);
+	fireAccessChangedAfterLogin(changedAccess);
+	if (!authenticated)
 	{
 		return false;
 	}
@@ -1023,7 +1074,7 @@ void AuthAdminServiceImpl::postLoginNotification(const std::string& username, bo
 
 
 bool AuthAdminServiceImpl::authenticateImpl(std::string& username, const std::string& credentials, CheckKind kind,
-	bool& isLDAPUser, bool& remembered) const
+	bool& isLDAPUser, bool& remembered, std::optional<std::string>& changedAccess) const
 {
 	const bool validate = kind != CheckKind::VERIFY;
 	const std::string requestedName(username);
@@ -1171,7 +1222,7 @@ bool AuthAdminServiceImpl::authenticateImpl(std::string& username, const std::st
 			{
 				const LoginSessionScope loginSession(*this, sess);
 				const bool credentialsAccepted = applyLDAPResultImpl(sess, username, credentials, ldapResult,
-					ldapUser, check.value_or(PasswordCheck()));
+					ldapUser, check.value_or(PasswordCheck()), changedAccess);
 				bool authenticated = credentialsAccepted;
 				if (validate)
 				{
@@ -1353,7 +1404,7 @@ std::optional<bool> AuthAdminServiceImpl::authenticateCachedImpl(Poco::Data::Ses
 
 bool AuthAdminServiceImpl::applyLDAPResultImpl(Poco::Data::Session& sess, const std::string& username,
 	const std::string& credentials, std::optional<LDAPResult> ldapResult, const LDAPUser& ldapUser,
-	const PasswordCheck& check) const
+	const PasswordCheck& check, std::optional<std::string>& changedAccess) const
 {
 	if (ldapResult.has_value() && *ldapResult == LDAPResult::ACCEPTED)
 	{
@@ -1406,8 +1457,9 @@ bool AuthAdminServiceImpl::applyLDAPResultImpl(Poco::Data::Session& sess, const 
 	switch (*ldapResult)
 	{
 	case LDAPResult::ACCEPTED:
-		if (std::any_of(ldapUser.roles.begin(), ldapUser.roles.end(),
-			[](const auto& role) { return role.second.has_value(); }))
+	{
+		const bool otherUsersConcerned = hasRolePermissions(ldapUser);
+		if (otherUsersConcerned)
 		{
 			// storeLDAPUser() may have replaced the permissions of roles
 			// that other users have as well.
@@ -1421,7 +1473,9 @@ bool AuthAdminServiceImpl::applyLDAPResultImpl(Poco::Data::Session& sess, const 
 			replaceUserAttributeImpl(sess, username, USER_ATTR_LDAP, "true"s);
 		}
 		replaceUserAttributeImpl(sess, username, USER_ATTR_SUCCESS_TIME, std::to_string(Poco::Timestamp().epochTime()));
+		changedAccess = otherUsersConcerned ? std::string() : username;
 		return true;
+	}
 
 	case LDAPResult::INACCESSIBLE:
 		if (canUseLocalCredentials(username))
@@ -1621,6 +1675,8 @@ void AuthAdminServiceImpl::setRoleMapping(const std::string& externalRole, const
 
 		_permissionsCache.clear();
 	}
+
+	accessChanged(std::string());
 }
 
 
@@ -1638,22 +1694,28 @@ void AuthAdminServiceImpl::removeRoleMapping(const std::string& externalRole)
 
 		_permissionsCache.clear();
 	}
+
+	accessChanged(std::string());
 }
 
 
 void AuthAdminServiceImpl::revokePermission(const std::string& permission)
 {
-	Poco::FastMutex::ScopedLock lock(_mutex);
-
-	Poco::Data::Session& sess = session();
-	Poco::Data::Transaction xa(sess, &_logger);
 	{
-		sess << sqlFor("revokePermissionFromUsers"s), useRef(permission), now;
-		sess << sqlFor("revokePermissionFromRoles"s), useRef(permission), now;
-	}
-	xa.commit();
+		Poco::FastMutex::ScopedLock lock(_mutex);
 
-	_permissionsCache.clear();
+		Poco::Data::Session& sess = session();
+		Poco::Data::Transaction xa(sess, &_logger);
+		{
+			sess << sqlFor("revokePermissionFromUsers"s), useRef(permission), now;
+			sess << sqlFor("revokePermissionFromRoles"s), useRef(permission), now;
+		}
+		xa.commit();
+
+		_permissionsCache.clear();
+	}
+
+	accessChanged(std::string());
 }
 
 

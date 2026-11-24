@@ -90,6 +90,25 @@ public:
 		/// The user's attributes and flags are given in the
 		/// event (attributes, flags).
 
+	Poco::BasicEvent<const std::string> accessChanged;
+		/// Fired when what a user may do has changed: a role was given to or
+		/// taken from a user, a permission was granted to or revoked from a user
+		/// or a role, a role was removed, a mapping of an external role changed,
+		/// or a login through LDAP stored the roles and permissions that the
+		/// directory gives the user. The argument is the name of the user, or
+		/// empty when the change may concern several users (those of a role, or
+		/// every user). Fired after the change is stored and outside the locks
+		/// of the service, so that a handler may call the service. A refused
+		/// change does not fire it.
+		///
+		/// An exception of a handler is passed on to the caller of the change,
+		/// which is stored by then; after a login, it is logged instead, so that
+		/// the result of the login does not depend on the handlers.
+		///
+		/// An implementation of this interface fires it; PooledAuthAdminService
+		/// passes on the events of its backends. Removing a user fires
+		/// userRemoved, not accessChanged.
+
 	static constexpr int INVALIDATE_CACHED_PASSWORDS = 1;
 	static constexpr int INVALIDATE_CACHED_PERMISSIONS = 2;
 	static constexpr int INVALIDATE_ALL = INVALIDATE_CACHED_PASSWORDS | INVALIDATE_CACHED_PERMISSIONS;

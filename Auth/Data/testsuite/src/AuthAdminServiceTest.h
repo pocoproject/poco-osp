@@ -39,6 +39,7 @@ public:
 	void testRoles();
 	void testAssignmentOfUnknownRoleThrows();
 	void testRemoveRoleRevokesItsPermissions();
+	void testAccessChanged();
 	void testRemoveRoleRemovesWhatRefersToIt();
 	void testRemoveRoleWithForeignKeysWithoutCascade();
 	void testRemoveUserWithForeignKeysWithoutCascade();
@@ -103,6 +104,9 @@ public:
 	void testPoolRoutesUserNamesIgnoringCase();
 	void testPoolAuthenticatesAccountWithBackendOfUser();
 	void testPoolForwardsValidateUserWithSender();
+	void testPoolForwardsAccessChanged();
+	void testPoolClearsCachesBeforeAccessChanged();
+	void testPoolClearsCachesWhenAccessChangedHandlerThrows();
 	void testReset();
 #if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 	void testExternalRole();
@@ -139,6 +143,11 @@ public:
 	void testAuthorizeProceedsWhileLDAPLoginChecksPassword();
 	void testPasswordChangedDuringLDAPLoginCheckRefusesLogin();
 	void testLDAPLoginUpdatesRolePermissionsOfOtherUsers();
+	void testLDAPLoginFiresAccessChangedForUser();
+	void testLDAPLoginWithRolePermissionsFiresAccessChangedForEveryUser();
+	void testRolledBackLDAPLoginFiresNoAccessChanged();
+	void testThrowingAccessChangedHandlerDoesNotFailLDAPLogin();
+	void testLDAPLoginRefusedByValidationFiresAccessChanged();
 	void testFailedLDAPLoginCommitKeepsStoredPermissions();
 	void testLoginNamesOfDirectoryUserShareOneAccount();
 	void testFailedLoginsThroughEveryNameLockOutAccount();

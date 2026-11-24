@@ -35,6 +35,7 @@ PooledAuthAdminService::PooledAuthAdminService(const std::vector<AuthAdminServic
 		pBackend->userRemoved += Poco::delegate(this, &PooledAuthAdminService::onUserRemoved);
 		pBackend->roleAdded += Poco::delegate(this, &PooledAuthAdminService::onRoleAdded);
 		pBackend->roleRemoved += Poco::delegate(this, &PooledAuthAdminService::onRoleRemoved);
+		pBackend->accessChanged += Poco::delegate(this, &PooledAuthAdminService::onAccessChanged);
 		pBackend->validateUser += Poco::delegate(this, &PooledAuthAdminService::onValidateUser);
 	}
 }
@@ -50,6 +51,7 @@ PooledAuthAdminService::~PooledAuthAdminService()
 			pBackend->userRemoved -= Poco::delegate(this, &PooledAuthAdminService::onUserRemoved);
 			pBackend->roleAdded -= Poco::delegate(this, &PooledAuthAdminService::onRoleAdded);
 			pBackend->roleRemoved -= Poco::delegate(this, &PooledAuthAdminService::onRoleRemoved);
+			pBackend->accessChanged -= Poco::delegate(this, &PooledAuthAdminService::onAccessChanged);
 			pBackend->validateUser -= Poco::delegate(this, &PooledAuthAdminService::onValidateUser);
 		}
 	}
@@ -462,6 +464,13 @@ void PooledAuthAdminService::onRoleAdded(const std::string& rolename)
 void PooledAuthAdminService::onRoleRemoved(const std::string& rolename)
 {
 	roleRemoved(rolename);
+}
+
+
+void PooledAuthAdminService::onAccessChanged(const std::string& username)
+{
+	invalidateCaches(INVALIDATE_CACHED_PERMISSIONS);
+	accessChanged(username);
 }
 
 

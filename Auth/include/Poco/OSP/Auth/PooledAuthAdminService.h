@@ -152,6 +152,12 @@ protected:
 	void onRoleRemoved(const std::string& rolename);
 		/// Fires roleRemoved for the roleRemoved event of a backend.
 
+	void onAccessChanged(const std::string& username);
+		/// Invalidates the cached permissions of all backends and then fires
+		/// accessChanged, for the accessChanged event of a backend: the backend
+		/// has cleared only its own cache, and a handler may ask the pool about
+		/// a user that another backend serves.
+
 	void onValidateUser(ValidateUserEvent& event);
 		/// Fires validateUser, with this service as the sender, for the
 		/// validateUser event of a backend.

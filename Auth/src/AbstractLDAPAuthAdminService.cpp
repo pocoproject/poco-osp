@@ -28,7 +28,9 @@
 	#include "Poco/OSP/Auth/LDAPClient.h"
 #endif
 
+#include <algorithm>
 #include <ctime>
+#include <exception>
 #include <map>
 #include <memory>
 #include <optional>
@@ -145,15 +147,19 @@ AbstractLDAPAuthAdminService::~AbstractLDAPAuthAdminService() = default;
 
 
 bool AbstractLDAPAuthAdminService::authenticateLDAP(const std::string& username, const std::string& credentials,
-	bool& fallbackLocal) const
+	bool& fallbackLocal, std::optional<std::string>& changedAccess) const
 {
 	fallbackLocal = false;
 	LDAPUser user;
 	switch (verifyLDAP(username, credentials, user))
 	{
 	case LDAPResult::ACCEPTED:
-		storeLDAPUser(user.accountName.empty() ? username : Poco::toLower(user.accountName), credentials, user);
+	{
+		const std::string name = user.accountName.empty() ? username : Poco::toLower(user.accountName);
+		storeLDAPUser(name, credentials, user);
+		changedAccess = hasRolePermissions(user) ? std::string() : name;
 		return true;
+	}
 	case LDAPResult::INACCESSIBLE:
 		fallbackLocal = canUseLocalCredentials(username);
 		return false;
@@ -463,6 +469,43 @@ void AbstractLDAPAuthAdminService::storeLDAPUser(const std::string& username, co
 			roles.insert(role);
 		}
 		replaceRolesForUserImpl(username, roles);
+	}
+}
+
+
+bool AbstractLDAPAuthAdminService::hasRolePermissions(const LDAPUser& user)
+{
+	return std::ranges::any_of(user.roles, [](const auto& role) { return role.second.has_value(); });
+}
+
+
+void AbstractLDAPAuthAdminService::fireAccessChangedAfterLogin(const std::optional<std::string>& changedAccess) const
+{
+	if (!changedAccess.has_value()) return;
+
+	std::string reason;
+	try
+	{
+		const_cast<AbstractLDAPAuthAdminService*>(this)->accessChanged(*changedAccess);
+		return;
+	}
+	catch (Poco::Exception& exc)
+	{
+		reason = exc.displayText();
+	}
+	catch (std::exception& exc)
+	{
+		reason = exc.what();
+	}
+	if (changedAccess->empty())
+	{
+		_logger.error("A handler of the accessChanged event failed after a login stored role permissions that may "
+			"concern several users, so the handlers after it were not called; the login is not affected: %s"s, reason);
+	}
+	else
+	{
+		_logger.error("A handler of the accessChanged event failed after the login of user %s stored the user, so the "
+			"handlers after it were not called; the login is not affected: %s"s, *changedAccess, reason);
 	}
 }
 

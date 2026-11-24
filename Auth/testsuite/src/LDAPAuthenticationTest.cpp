@@ -33,6 +33,7 @@
 #include "Poco/Timestamp.h"
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -183,7 +184,10 @@ namespace
 
 		bool authenticate(const std::string& username, const std::string& credentials, bool& fallbackLocal) const
 		{
-			return authenticateLDAP(username, credentials, fallbackLocal);
+			std::optional<std::string> changedAccess;
+			const bool authenticated = authenticateLDAP(username, credentials, fallbackLocal, changedAccess);
+			fireAccessChangedAfterLogin(changedAccess);
+			return authenticated;
 		}
 
 		[[nodiscard]] LDAPResult verify(const std::string& username, const std::string& credentials,
@@ -500,6 +504,50 @@ namespace
 		int _previousLevel;
 		Poco::EventChannel::Ptr _pChannel = new Poco::EventChannel;
 		std::vector<Poco::Message> _messages;
+	};
+
+
+	class AccessChangedRecorder
+		/// Records the user names that the accessChanged event of a service passes.
+	{
+	public:
+		explicit AccessChangedRecorder(AbstractLDAPAuthAdminService& service):
+			_service(service)
+		{
+			_service.accessChanged += Poco::delegate(this, &AccessChangedRecorder::onAccessChanged);
+		}
+
+		AccessChangedRecorder() = delete;
+		AccessChangedRecorder(const AccessChangedRecorder&) = delete;
+		AccessChangedRecorder(AccessChangedRecorder&&) = delete;
+		AccessChangedRecorder& operator = (const AccessChangedRecorder&) = delete;
+		AccessChangedRecorder& operator = (AccessChangedRecorder&&) = delete;
+
+		~AccessChangedRecorder()
+		{
+			try
+			{
+				_service.accessChanged -= Poco::delegate(this, &AccessChangedRecorder::onAccessChanged);
+			}
+			catch (...)
+			{
+				poco_unexpected();
+			}
+		}
+
+		[[nodiscard]] const std::vector<std::string>& names() const
+		{
+			return _names;
+		}
+
+	private:
+		void onAccessChanged(const std::string& username)
+		{
+			_names.push_back(username);
+		}
+
+		AbstractLDAPAuthAdminService& _service;
+		std::vector<std::string> _names;
 	};
 
 
@@ -932,6 +980,34 @@ void LDAPAuthenticationTest::testAcceptedUserIsStoredUnderAccountName()
 }
 
 
+void LDAPAuthenticationTest::testAcceptedLoginFiresAccessChanged()
+{
+	Directory directory;
+	directory.accountName = "Alice"s;
+	auto params = dnParams();
+	params.authMode = "ACCOUNT"s;
+	params.bindUser = "cn=service,dc=example,dc=com"s;
+	params.bindPassword = "service secret"s;
+	TestLDAPAuthAdminService service(params, &directory);
+	AccessChangedRecorder recorder(service);
+
+	bool fallbackLocal = false;
+	assertTrue (service.authenticate("Alice@Example.com"s, "secret"s, fallbackLocal));
+	assertTrue (recorder.names() == std::vector<std::string>({"alice"s}));
+
+	directory.findUserSucceeds = false;
+	assertFalse (service.authenticate("carol"s, "secret"s, fallbackLocal));
+	assertTrue (recorder.names() == std::vector<std::string>({"alice"s}));
+
+	directory.findUserSucceeds = true;
+	directory.accountName.clear();
+	directory.roles = {"dev"s};
+	directory.groupPermissions = {{"dev"s, {"build"s}}};
+	assertTrue (service.authenticate("bob"s, "secret"s, fallbackLocal));
+	assertTrue (recorder.names() == std::vector<std::string>({"alice"s, ""s}));
+}
+
+
 void LDAPAuthenticationTest::testRoleFilterSelectsImportedRoles()
 {
 	Directory directory;
@@ -1353,6 +1429,7 @@ CppUnit::Test* LDAPAuthenticationTest::suite()
 	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testLockedOutAccountIsRefusedAfterBindInUserBindMode);
 	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testAccountWithoutAccountNameIsCheckedUnderGivenName);
 	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testAcceptedUserIsStoredUnderAccountName);
+	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testAcceptedLoginFiresAccessChanged);
 	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testRoleFilterSelectsImportedRoles);
 	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testLocalRolesAreNotImported);
 	CppUnit_addTest(pSuite, LDAPAuthenticationTest, testLocalRoleIsNotOverwritten);

@@ -455,7 +455,7 @@ private:
 	};
 
 	[[nodiscard]] bool authenticateImpl(std::string& username, const std::string& credentials, CheckKind kind,
-		bool& isLDAPUser, bool& remembered) const;
+		bool& isLDAPUser, bool& remembered, std::optional<std::string>& changedAccess) const;
 		/// Verifies the credentials and, unless kind is CheckKind::VERIFY, fires validateUser
 		/// for an authenticated user. Holds the lock of the service except
 		/// during the conversation with the LDAP server, while it waits for another login of
@@ -465,6 +465,10 @@ private:
 		/// which is the account name with its ASCII letters in lower case for
 		/// an LDAP user, and remembered is true if the remembered check of the
 		/// credentials has accepted them.
+		///
+		/// The caller fires accessChanged with changedAccess (see applyLDAPResultImpl() and
+		/// fireAccessChangedAfterLogin()) after authenticateImpl() has returned, also when it
+		/// returns false.
 	void postLoginNotification(const std::string& username, bool isLDAPUser) const;
 		/// Posts the AuthNotification of a successful login of the user
 		/// stored under username, if the notification center has observers.
@@ -491,7 +495,7 @@ private:
 		/// logs that the login is refused, if the deadline has passed.
 	[[nodiscard]] bool applyLDAPResultImpl(Poco::Data::Session& sess, const std::string& username,
 		const std::string& credentials, std::optional<LDAPResult> ldapResult, const LDAPUser& ldapUser,
-		const PasswordCheck& check) const;
+		const PasswordCheck& check, std::optional<std::string>& changedAccess) const;
 		/// Stores the result of verifyLDAP(), other than LDAPResult::LOCKED_OUT,
 		/// and returns whether the user is authenticated. No result means a
 		/// directory error: the stored credentials decide only where
@@ -502,6 +506,10 @@ private:
 		/// check is the result of checkPassword() for every result other than
 		/// LDAPResult::REJECTED and LDAPResult::REFUSED, with replace set if the LDAP server
 		/// has accepted the credentials.
+		///
+		/// When it has stored the user from the directory, it sets changedAccess to the user
+		/// name, or to an empty string if one of the user's roles comes with permissions
+		/// (see hasRolePermissions()).
 		///
 		/// Throws a Poco::Data::DataException if the user that the LDAP
 		/// server has accepted cannot be stored in the database.

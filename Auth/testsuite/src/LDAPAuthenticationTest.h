@@ -48,6 +48,7 @@ public:
 	void testLockedOutAccountIsRefusedAfterBindInUserBindMode();
 	void testAccountWithoutAccountNameIsCheckedUnderGivenName();
 	void testAcceptedUserIsStoredUnderAccountName();
+	void testAcceptedLoginFiresAccessChanged();
 	void testRoleFilterSelectsImportedRoles();
 	void testLocalRolesAreNotImported();
 	void testLocalRoleIsNotOverwritten();

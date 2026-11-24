@@ -50,6 +50,9 @@ entries.
   `AuthAdminService::attributesForUser()` with a map returns `int`, and `escapeLDAP()` moved to `LDAPClient`.
 - Auth: in the `ACCOUNT` mode with the `USER` bind mode, a login is refused when the LDAP entry found for the name does
   not have that name as its `sAMAccountName`, `DOMAIN\name` or `userPrincipalName`.
+- Auth: `AbstractLDAPAuthAdminService::authenticateLDAP()` takes the out-parameter `changedAccess`; a subclass fires
+  `accessChanged` with it through `fireAccessChangedAfterLogin()` after it has committed the login and released its
+  locks.
 - Auth/Data: for subclasses of `AuthAdminServiceImpl`, `addUserImpl()` takes the password hash, and `authenticateDB()`
   is replaced by `checkPassword()`.
 - Auth/Data: `setUserAttribute()` and `removeUserAttribute()` refuse attributes whose name starts with `auth_`;
@@ -218,6 +221,12 @@ entries.
   client address (an IPv4 address, or the /64 prefix of an IPv6 address), the matching of exempt addresses, and
   `loginThrottleSettings()`, which reads the settings `maxAttempts`, `cooldownSeconds` and `exemptAddresses` under a
   prefix.
+- Auth: the event `AuthAdminService::accessChanged` reports that what a user may do has changed: a role given to or
+  taken from a user, a permission granted to or revoked from a user or a role, a role removed, a role mapping changed,
+  or an LDAP login that stored the user's roles and permissions. Its argument is the user name, or empty for a change
+  that may concern several users. It is fired after the change is stored and outside the locks of the service; after a
+  login, an exception of a handler is logged. `PooledAuthAdminService` passes it on after invalidating the cached
+  permissions of all backends.
 - Web: in the attributes of a web server extension that accept property references (see the Web manual), a reference
   to a property whose name starts with `osp.` is resolved in the application configuration, then in the bundle properties;
   other references are resolved in the bundle properties only.

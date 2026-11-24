@@ -229,13 +229,20 @@ protected:
 	};
 
 	[[nodiscard]] bool authenticateLDAP(const std::string& username, const std::string& credentials,
-		bool& fallbackLocal) const;
+		bool& fallbackLocal, std::optional<std::string>& changedAccess) const;
 		/// Authenticates the user with the LDAP server and stores the user's
 		/// password, roles, permissions and attributes obtained from the server,
 		/// with verifyLDAP(), storeLDAPUser() and canUseLocalCredentials().
 		/// The user is stored under the account name in lower case if
 		/// verifyLDAP() has read it (see LDAPUser::accountName), otherwise
 		/// under username as given.
+		///
+		/// When the user is stored, changedAccess is set to the name the user is
+		/// stored under, or to an empty string if one of the user's roles comes
+		/// with permissions (see hasRolePermissions()); otherwise it is left as
+		/// it is. authenticateLDAP() does not fire accessChanged: the caller
+		/// fires it with changedAccess (see fireAccessChangedAfterLogin()) after
+		/// it has committed the login and released its locks.
 		///
 		/// Returns false if the server rejects or refuses the credentials,
 		/// finds no entry for the user, or cannot be reached, or if
@@ -334,6 +341,17 @@ protected:
 		/// Poco::Data::DataException, is passed on after a part of the user
 		/// may have been stored. A subclass that stores the user in a
 		/// transaction rolls it back then, as AuthAdminServiceImpl does.
+
+	[[nodiscard]] static bool hasRolePermissions(const LDAPUser& user);
+		/// Returns true if one of the user's roles comes with permissions.
+		/// storeLDAPUser() stores them for the role, unless a local role has its
+		/// name, so the login may change what the other users of the role may do.
+
+	void fireAccessChangedAfterLogin(const std::optional<std::string>& changedAccess) const;
+		/// Fires accessChanged with the value of changedAccess, if it has one,
+		/// after a login has stored the user (see authenticateLDAP()). An
+		/// exception of a handler is logged as an error and not passed on, so
+		/// that the result of the login does not depend on the handlers.
 
 	[[nodiscard]] bool canUseLocalCredentials(const std::string& username) const;
 		/// Returns true if the locally stored credentials of the user may be
