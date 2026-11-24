@@ -463,6 +463,7 @@ void PooledAuthAdminService::onRoleAdded(const std::string& rolename)
 
 void PooledAuthAdminService::onRoleRemoved(const std::string& rolename)
 {
+	invalidateCaches(INVALIDATE_CACHED_PERMISSIONS);
 	roleRemoved(rolename);
 }
 

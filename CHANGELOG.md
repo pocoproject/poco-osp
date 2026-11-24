@@ -225,8 +225,8 @@ entries.
   taken from a user, a permission granted to or revoked from a user or a role, a role removed, a role mapping changed,
   or an LDAP login that stored the user's roles and permissions. Its argument is the user name, or empty for a change
   that may concern several users. It is fired after the change is stored and outside the locks of the service; after a
-  login, an exception of a handler is logged. `PooledAuthAdminService` passes it on after invalidating the cached
-  permissions of all backends.
+  login, an exception of a handler is logged. `PooledAuthAdminService` passes it and `roleRemoved` on after invalidating
+  the cached permissions of all backends.
 - Web: in the attributes of a web server extension that accept property references (see the Web manual), a reference
   to a property whose name starts with `osp.` is resolved in the application configuration, then in the bundle properties;
   other references are resolved in the bundle properties only.

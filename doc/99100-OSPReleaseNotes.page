@@ -346,8 +346,8 @@ The release also contains bug fixes and other changes that are not listed here.
     argument is the user name, or empty for a change that may concern several
     users. It is fired after the change is stored and outside the locks of the
     service; after a login, an exception of a handler is logged.
-    <[PooledAuthAdminService]> passes it on after invalidating the cached
-    permissions of all backends.
+    <[PooledAuthAdminService]> passes it and <[roleRemoved]> on after
+    invalidating the cached permissions of all backends.
   - Web: in the attributes of a web server extension that accept property
     references (see the Web manual), a reference to a property whose name starts
     with <[osp.]> is resolved in the application configuration, then in the

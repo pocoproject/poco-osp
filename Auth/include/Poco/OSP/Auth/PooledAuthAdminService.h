@@ -150,7 +150,9 @@ protected:
 		/// Fires roleAdded for the roleAdded event of a backend.
 
 	void onRoleRemoved(const std::string& rolename);
-		/// Fires roleRemoved for the roleRemoved event of a backend.
+		/// Invalidates the cached permissions of all backends, for the reason
+		/// given at onAccessChanged(), and then fires roleRemoved for the
+		/// roleRemoved event of a backend.
 
 	void onAccessChanged(const std::string& username);
 		/// Invalidates the cached permissions of all backends and then fires

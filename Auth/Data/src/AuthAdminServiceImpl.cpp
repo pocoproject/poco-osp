@@ -848,7 +848,16 @@ void AuthAdminServiceImpl::removeRole(const std::string& rolename)
 		_permissionsCache.clear();
 	}
 
-	roleRemoved(rolename);
+	try
+	{
+		roleRemoved(rolename);
+	}
+	catch (...)
+	{
+		// The role is removed, so accessChanged is fired also when a handler of roleRemoved fails.
+		accessChanged(std::string());
+		throw;
+	}
 	accessChanged(std::string());
 }
 

@@ -28,6 +28,7 @@
 #include <memory>
 #endif
 #include "Poco/AutoPtr.h"
+#include "Poco/BasicEvent.h"
 #include "Poco/Bugcheck.h"
 #include "Poco/Event.h"
 #include "Poco/NotificationCenter.h"
@@ -288,31 +289,33 @@ namespace
 	};
 
 
-	class AccessChangedRecorder
-		/// Records the user names that the accessChanged event of a service passes
-		/// and, for each, whether the service then authorizes a user for a
-		/// permission, which the handler asks the service.
+	class EventRecorder
+		/// Records the names that an event of a service passes and, for each,
+		/// whether the service then authorizes a user for a permission, which
+		/// the handler asks the service.
 	{
 	public:
-		AccessChangedRecorder(AuthAdminService& service, const std::string& username, const std::string& permission):
+		EventRecorder(AuthAdminService& service, Poco::BasicEvent<const std::string>& event,
+			const std::string& username, const std::string& permission):
 			_service(service),
+			_event(event),
 			_username(username),
 			_permission(permission)
 		{
-			_service.accessChanged += Poco::delegate(this, &AccessChangedRecorder::onAccessChanged);
+			_event += Poco::delegate(this, &EventRecorder::onEvent);
 		}
 
-		AccessChangedRecorder() = delete;
-		AccessChangedRecorder(const AccessChangedRecorder&) = delete;
-		AccessChangedRecorder(AccessChangedRecorder&&) = delete;
-		AccessChangedRecorder& operator = (const AccessChangedRecorder&) = delete;
-		AccessChangedRecorder& operator = (AccessChangedRecorder&&) = delete;
+		EventRecorder() = delete;
+		EventRecorder(const EventRecorder&) = delete;
+		EventRecorder(EventRecorder&&) = delete;
+		EventRecorder& operator = (const EventRecorder&) = delete;
+		EventRecorder& operator = (EventRecorder&&) = delete;
 
-		~AccessChangedRecorder()
+		~EventRecorder()
 		{
 			try
 			{
-				_service.accessChanged -= Poco::delegate(this, &AccessChangedRecorder::onAccessChanged);
+				_event -= Poco::delegate(this, &EventRecorder::onEvent);
 			}
 			catch (...)
 			{
@@ -331,13 +334,14 @@ namespace
 		}
 
 	private:
-		void onAccessChanged(const std::string& username)
+		void onEvent(const std::string& name)
 		{
-			_names.push_back(username);
+			_names.push_back(name);
 			_authorized.push_back(_service.authorize(_username, _permission));
 		}
 
 		AuthAdminService& _service;
+		Poco::BasicEvent<const std::string>& _event;
 		std::string _username;
 		std::string _permission;
 		std::vector<std::string> _names;
@@ -345,27 +349,27 @@ namespace
 	};
 
 
-	class ThrowingAccessChangedHandler
-		/// Throws a Poco::IllegalStateException for each accessChanged event of a service.
+	class ThrowingEventHandler
+		/// Throws a Poco::IllegalStateException for each name that an event passes.
 	{
 	public:
-		explicit ThrowingAccessChangedHandler(AuthAdminService& service):
-			_service(service)
+		explicit ThrowingEventHandler(Poco::BasicEvent<const std::string>& event):
+			_event(event)
 		{
-			_service.accessChanged += Poco::delegate(this, &ThrowingAccessChangedHandler::onAccessChanged);
+			_event += Poco::delegate(this, &ThrowingEventHandler::onEvent);
 		}
 
-		ThrowingAccessChangedHandler() = delete;
-		ThrowingAccessChangedHandler(const ThrowingAccessChangedHandler&) = delete;
-		ThrowingAccessChangedHandler(ThrowingAccessChangedHandler&&) = delete;
-		ThrowingAccessChangedHandler& operator = (const ThrowingAccessChangedHandler&) = delete;
-		ThrowingAccessChangedHandler& operator = (ThrowingAccessChangedHandler&&) = delete;
+		ThrowingEventHandler() = delete;
+		ThrowingEventHandler(const ThrowingEventHandler&) = delete;
+		ThrowingEventHandler(ThrowingEventHandler&&) = delete;
+		ThrowingEventHandler& operator = (const ThrowingEventHandler&) = delete;
+		ThrowingEventHandler& operator = (ThrowingEventHandler&&) = delete;
 
-		~ThrowingAccessChangedHandler()
+		~ThrowingEventHandler()
 		{
 			try
 			{
-				_service.accessChanged -= Poco::delegate(this, &ThrowingAccessChangedHandler::onAccessChanged);
+				_event -= Poco::delegate(this, &ThrowingEventHandler::onEvent);
 			}
 			catch (...)
 			{
@@ -374,12 +378,12 @@ namespace
 		}
 
 	private:
-		[[noreturn]] void onAccessChanged(const std::string& username)
+		[[noreturn]] void onEvent(const std::string& name)
 		{
-			throw Poco::IllegalStateException("The accessChanged handler fails"s, username);
+			throw Poco::IllegalStateException("The event handler fails"s, name);
 		}
 
-		AuthAdminService& _service;
+		Poco::BasicEvent<const std::string>& _event;
 	};
 
 
@@ -1234,8 +1238,8 @@ void AuthAdminServiceTest::testAccessChanged()
 	_pAAS->addUser("user1", "pass1");
 	_pAAS->addRole("role1");
 	_pAAS->addRole("external1");
-	AccessChangedRecorder perm1Recorder(*_pAAS, "user1"s, "perm1"s);
-	AccessChangedRecorder perm2Recorder(*_pAAS, "user1"s, "perm2"s);
+	EventRecorder perm1Recorder(*_pAAS, _pAAS->accessChanged, "user1"s, "perm1"s);
+	EventRecorder perm2Recorder(*_pAAS, _pAAS->accessChanged, "user1"s, "perm2"s);
 
 	_pAAS->grantPermissionsToRole("role1", {"perm1"});
 	_pAAS->assignRoleToUser("user1", "role1");
@@ -1287,6 +1291,26 @@ void AuthAdminServiceTest::testAccessChanged()
 	{
 	}
 	assertTrue (perm1Recorder.names() == expectedNames);
+}
+
+
+void AuthAdminServiceTest::testRemoveRoleFiresAccessChangedWhenRoleRemovedHandlerThrows()
+{
+	_pAAS->addRole("role1");
+	const ThrowingEventHandler handler(_pAAS->roleRemoved);
+	EventRecorder recorder(*_pAAS, _pAAS->accessChanged, "user1"s, "perm1"s);
+
+	try
+	{
+		_pAAS->removeRole("role1");
+		fail("the exception of the roleRemoved handler must be passed on");
+	}
+	catch (Poco::IllegalStateException&)
+	{
+	}
+
+	assertTrue (recorder.names() == std::vector<std::string>{""s});
+	assertFalse (_pAAS->roleExists("role1"));
 }
 
 
@@ -3039,7 +3063,7 @@ void AuthAdminServiceTest::testPoolForwardsAccessChanged()
 	PooledAuthAdminService::Ptr pPool = new PooledAuthAdminService(createBackends(*_pProperties, _dbPath, 2));
 	pPool->addUser("user1", "pass1");
 	pPool->addRole("role1");
-	AccessChangedRecorder recorder(*pPool, "user1"s, "perm1"s);
+	EventRecorder recorder(*pPool, pPool->accessChanged, "user1"s, "perm1"s);
 
 	pPool->assignRoleToUser("user1", "role1");
 
@@ -3052,8 +3076,8 @@ void AuthAdminServiceTest::testPoolClearsCachesBeforeAccessChanged()
 	auto [pPool, user1, user2] = poolWithRoleOnTwoBackends(*_pProperties, _dbPath);
 	assertTrue (pPool->authorize(user1, "perm1"));
 	assertTrue (pPool->authorize(user2, "perm1"));
-	AccessChangedRecorder recorder1(*pPool, user1, "perm1"s);
-	AccessChangedRecorder recorder2(*pPool, user2, "perm1"s);
+	EventRecorder recorder1(*pPool, pPool->accessChanged, user1, "perm1"s);
+	EventRecorder recorder2(*pPool, pPool->accessChanged, user2, "perm1"s);
 
 	pPool->revokePermissionsFromRole("role1", {"perm1"});
 
@@ -3069,11 +3093,49 @@ void AuthAdminServiceTest::testPoolClearsCachesWhenAccessChangedHandlerThrows()
 	assertTrue (pPool->authorize(user1, "perm1"));
 	assertTrue (pPool->authorize(user2, "perm1"));
 	{
-		const ThrowingAccessChangedHandler handler(*pPool);
+		const ThrowingEventHandler handler(pPool->accessChanged);
 		try
 		{
 			pPool->revokePermissionsFromRole("role1", {"perm1"});
 			fail("the exception of the accessChanged handler must be passed on");
+		}
+		catch (Poco::IllegalStateException&)
+		{
+		}
+	}
+
+	assertFalse (pPool->authorize(user1, "perm1"));
+	assertFalse (pPool->authorize(user2, "perm1"));
+}
+
+
+void AuthAdminServiceTest::testPoolClearsCachesBeforeRoleRemoved()
+{
+	auto [pPool, user1, user2] = poolWithRoleOnTwoBackends(*_pProperties, _dbPath);
+	assertTrue (pPool->authorize(user1, "perm1"));
+	assertTrue (pPool->authorize(user2, "perm1"));
+	EventRecorder recorder1(*pPool, pPool->roleRemoved, user1, "perm1"s);
+	EventRecorder recorder2(*pPool, pPool->roleRemoved, user2, "perm1"s);
+
+	pPool->removeRole("role1");
+
+	assertTrue (recorder1.names() == std::vector<std::string>{"role1"s});
+	assertTrue (recorder1.authorized() == std::vector<bool>{false});
+	assertTrue (recorder2.authorized() == std::vector<bool>{false});
+}
+
+
+void AuthAdminServiceTest::testPoolClearsCachesWhenRoleRemovedHandlerThrows()
+{
+	auto [pPool, user1, user2] = poolWithRoleOnTwoBackends(*_pProperties, _dbPath);
+	assertTrue (pPool->authorize(user1, "perm1"));
+	assertTrue (pPool->authorize(user2, "perm1"));
+	{
+		const ThrowingEventHandler handler(pPool->roleRemoved);
+		try
+		{
+			pPool->removeRole("role1");
+			fail("the exception of the roleRemoved handler must be passed on");
 		}
 		catch (Poco::IllegalStateException&)
 		{
@@ -4004,7 +4066,7 @@ void AuthAdminServiceTest::testLDAPLoginFiresAccessChangedForUser()
 	params.rolePermissionAttribute.clear();
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath), params,
 		directory);
-	AccessChangedRecorder recorder(*pAAS, "alice"s, "read"s);
+	EventRecorder recorder(*pAAS, pAAS->accessChanged, "alice"s, "read"s);
 
 	assertTrue (pAAS->verifyCredentials("alice", "A"));
 	assertTrue (pAAS->authenticate("alice", "A"));
@@ -4031,7 +4093,7 @@ void AuthAdminServiceTest::testLDAPLoginWithRolePermissionsFiresAccessChangedFor
 		ldapTestParams(), directory);
 	assertTrue (pAAS->authenticate("bob", "B"));
 	assertFalse (pAAS->authorize("bob", "deploy"));
-	AccessChangedRecorder recorder(*pAAS, "bob"s, "deploy"s);
+	EventRecorder recorder(*pAAS, pAAS->accessChanged, "bob"s, "deploy"s);
 
 	directory.groupPermissions = {{"dev", {"deploy"}}};
 	assertTrue (pAAS->authenticate("alice", "A"));
@@ -4047,7 +4109,7 @@ void AuthAdminServiceTest::testRolledBackLDAPLoginFiresNoAccessChanged()
 	directory.passwords[userDN("alice")] = "A";
 	UnstorableLDAPAuthAdminService::Ptr pAAS = new UnstorableLDAPAuthAdminService(*_pProperties,
 		backendAuthParams(_dbPath), ldapTestParams(), directory);
-	AccessChangedRecorder recorder(*pAAS, "alice"s, "read"s);
+	EventRecorder recorder(*pAAS, pAAS->accessChanged, "alice"s, "read"s);
 
 	try
 	{
@@ -4069,7 +4131,7 @@ void AuthAdminServiceTest::testThrowingAccessChangedHandlerDoesNotFailLDAPLogin(
 	directory.passwords[userDN("alice")] = "A";
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
 		ldapTestParams(), directory);
-	const ThrowingAccessChangedHandler handler(*pAAS);
+	const ThrowingEventHandler handler(pAAS->accessChanged);
 	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
 		&AuthAdminServiceTest::handleNotification);
 	Poco::NotificationCenter::defaultCenter().addObserver(observer);
@@ -4089,7 +4151,7 @@ void AuthAdminServiceTest::testLDAPLoginRefusedByValidationFiresAccessChanged()
 	directory.passwords[userDN("bob")] = "B";
 	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
 		ldapTestParams(), directory);
-	AccessChangedRecorder recorder(*pAAS, "alice"s, "read"s);
+	EventRecorder recorder(*pAAS, pAAS->accessChanged, "alice"s, "read"s);
 	void (*disableUser)(const void*, AuthAdminService::ValidateUserEvent&) =
 		[](const void*, AuthAdminService::ValidateUserEvent& ev)
 	{
@@ -4125,7 +4187,7 @@ void AuthAdminServiceTest::testFailedLDAPLoginCommitKeepsStoredPermissions()
 	// A new password, so that the login asks the LDAP server and stores the new permissions of the role.
 	directory.passwords[userDN("alice")] = "A2";
 	directory.groupPermissions = {{"dev", {"deploy"}}};
-	AccessChangedRecorder recorder(*pAAS, "alice"s, "build"s);
+	EventRecorder recorder(*pAAS, pAAS->accessChanged, "alice"s, "build"s);
 
 	Poco::Data::Session reader("SQLite", _dbPath);
 	reader.begin();
@@ -5194,6 +5256,7 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAssignmentOfUnknownRoleThrows);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRemoveRoleRevokesItsPermissions);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAccessChanged);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRemoveRoleFiresAccessChangedWhenRoleRemovedHandlerThrows);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRemoveRoleRemovesWhatRefersToIt);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRemoveRoleWithForeignKeysWithoutCascade);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRemoveUserWithForeignKeysWithoutCascade);
@@ -5261,6 +5324,8 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPoolForwardsAccessChanged);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPoolClearsCachesBeforeAccessChanged);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPoolClearsCachesWhenAccessChangedHandlerThrows);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPoolClearsCachesBeforeRoleRemoved);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testPoolClearsCachesWhenRoleRemovedHandlerThrows);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testReset);
 #if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testExternalRole);

@@ -40,6 +40,7 @@ public:
 	void testAssignmentOfUnknownRoleThrows();
 	void testRemoveRoleRevokesItsPermissions();
 	void testAccessChanged();
+	void testRemoveRoleFiresAccessChangedWhenRoleRemovedHandlerThrows();
 	void testRemoveRoleRemovesWhatRefersToIt();
 	void testRemoveRoleWithForeignKeysWithoutCascade();
 	void testRemoveUserWithForeignKeysWithoutCascade();
@@ -107,6 +108,8 @@ public:
 	void testPoolForwardsAccessChanged();
 	void testPoolClearsCachesBeforeAccessChanged();
 	void testPoolClearsCachesWhenAccessChangedHandlerThrows();
+	void testPoolClearsCachesBeforeRoleRemoved();
+	void testPoolClearsCachesWhenRoleRemovedHandlerThrows();
 	void testReset();
 #if defined(POCO_OSP_AUTH_ENABLE_LDAP)
 	void testExternalRole();
