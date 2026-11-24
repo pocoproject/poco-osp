@@ -232,7 +232,7 @@ void ShellConnection::onBundleStopping(const void* /*pSender*/, Poco::OSP::Bundl
 	if (ev.bundle() == _config.commandProcessor.context()->thisBundle())
 	{
 		_bundleStopping = true;
-		this->socket().shutdown();
+		shutdownSocket(this->socket());
 	}
 }
 

@@ -272,6 +272,24 @@ void ShellConnectionTest::testBundleStopEndsSessionWithoutError()
 }
 
 
+void ShellConnectionTest::testBundleStopAfterClientResetIsNoError()
+{
+	Poco::Net::ServerSocket serverSocket(Poco::Net::SocketAddress("127.0.0.1"s, 0));
+	Poco::Net::StreamSocket client(serverSocket.address());
+	Poco::Net::StreamSocket accepted = serverSocket.acceptConnection();
+	Poco::OSP::Shell::SessionTracker sessions;
+	// The connection does not run, so it stays registered for the stop of the shell bundle.
+	const ShellConnection connection(accepted, _pFixture->connectionConfig(ShellFixture::DEFAULT_SESSION_TIMEOUT),
+		sessions);
+	// With a linger time of zero, closing the socket resets the connection.
+	client.setLinger(true, 0);
+	client.close();
+	assertTrue (accepted.poll(Poco::Timespan(MAX_WAIT), Poco::Net::Socket::SELECT_READ));
+
+	_pFixture->bundle(ShellFixture::SHELL_BUNDLE)->stop();
+}
+
+
 void ShellConnectionTest::testClientResetBeforeSessionStartIsNoError()
 {
 	CountingErrorHandler errorHandler;
@@ -483,6 +501,7 @@ CppUnit::Test* ShellConnectionTest::suite()
 	CppUnit_addTest(pSuite, ShellConnectionTest, testLoginGrantsPermission);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testLoginTakesCredentialsStartingWithDash);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testBundleStopEndsSessionWithoutError);
+	CppUnit_addTest(pSuite, ShellConnectionTest, testBundleStopAfterClientResetIsNoError);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testClientResetBeforeSessionStartIsNoError);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testRejectedLoginsAreDelayedAndCloseConnection);
 	CppUnit_addTest(pSuite, ShellConnectionTest, testLoginsFailedByAuthServiceAreDelayedAndCloseConnection);

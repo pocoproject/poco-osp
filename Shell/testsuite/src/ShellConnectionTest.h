@@ -42,6 +42,7 @@ public:
 	void testLoginGrantsPermission();
 	void testLoginTakesCredentialsStartingWithDash();
 	void testBundleStopEndsSessionWithoutError();
+	void testBundleStopAfterClientResetIsNoError();
 	void testClientResetBeforeSessionStartIsNoError();
 	void testRejectedLoginsAreDelayedAndCloseConnection();
 	void testLoginsFailedByAuthServiceAreDelayedAndCloseConnection();
