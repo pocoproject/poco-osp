@@ -496,7 +496,8 @@ The following settings can be customized:
   - <[login.exemptAddresses]>: The client addresses whose password checks are not limited,
     separated by commas or spaces: IPv4 addresses, IPv6 addresses, link-local IPv6
     addresses with a scope id (<[fe80::1%eth0]>), which match only on that interface, and
-    IPv6 /64 prefixes (<[2001:db8:1:2::/64]>). Empty by default.
+    IPv6 /64 prefixes (<[2001:db8:1:2::/64]>). An interface whose name contains a space,
+    as on Windows, is written by its index (<[fe80::1%3]>). Empty by default.
 
 The settings stored in the bundle can be overridden by specifying the following settings
 in the OSP application's global configuration file:

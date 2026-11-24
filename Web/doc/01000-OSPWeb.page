@@ -589,6 +589,7 @@ The web server can be configured by setting the following properties in the glob
   - <[osp.web.login.exemptAddresses]>: The client addresses whose password checks are not limited, separated by
     commas or spaces: IPv4 addresses in dotted-decimal form, IPv6 addresses, link-local IPv6 addresses with a scope
     id (<[fe80::1%eth0]>, which then match only on that interface), and IPv6 /64 prefixes (<[2001:db8:1:2::/64]>).
+    An interface whose name contains a space, as on Windows, is written by its index (<[fe80::1%3]>).
     Defaults to none.
   - <[osp.web.redirectOn401]>: The location of the <[redirectOn401]> attribute for the mappings that do not
     specify one. Defaults to empty (no redirect).

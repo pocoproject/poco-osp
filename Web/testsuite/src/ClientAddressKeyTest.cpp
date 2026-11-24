@@ -49,6 +49,13 @@ namespace
 		return *it;
 	}
 
+	[[nodiscard]] bool isSingleEntry(const std::string& text)
+		/// Returns true if the text contains no separator of the setting exemptAddresses. On Windows, the
+		/// name of a network interface is the friendly name of the adapter, such as "Loopback Pseudo-Interface 1".
+	{
+		return text.find_first_of(", \t\r\n") == std::string::npos;
+	}
+
 	[[nodiscard]] IPAddress scoped(const std::string& address, Poco::UInt32 scope)
 	{
 		const IPAddress unscoped(address);
@@ -176,10 +183,9 @@ void ClientAddressKeyTest::testExemptAddressWithoutScopeIdMatchesAnyInterface()
 void ClientAddressKeyTest::testExemptAddressWithScopeIdMatchesOnlyThatInterface()
 {
 	const NetworkInterface loopback = loopbackInterface();
-	const std::vector<std::string> entries = {
-		"fe80::1%" + loopback.name(),
-		"fe80::1%" + std::to_string(loopback.index())
-	};
+	std::vector<std::string> entries = {"fe80::1%" + std::to_string(loopback.index())};
+	if (isSingleEntry(loopback.name())) entries.push_back("fe80::1%" + loopback.name());
+	else warnmsg("The name of the loopback interface contains a separator, scope id by name case skipped.");
 	for (const auto& entry: entries)
 	{
 		const auto exempt = parseExemptAddresses(entry, "test.exemptAddresses");
@@ -212,6 +218,10 @@ void ClientAddressKeyTest::testExemptAddressesAreSeparatedByCommasOrWhiteSpace()
 void ClientAddressKeyTest::testInvalidExemptAddressesAreRejected()
 {
 	const NetworkInterface loopback = loopbackInterface();
+	const std::string index = std::to_string(loopback.index());
+	// The entries with scope are rejected before the interface is looked up, so the index can stand in for a
+	// name that cannot be written in the list.
+	const std::string scope = isSingleEntry(loopback.name()) ? loopback.name() : index;
 	const std::vector<std::string> entries = {
 		"localhost",
 		"192.0.2.256",
@@ -223,14 +233,14 @@ void ClientAddressKeyTest::testInvalidExemptAddressesAreRejected()
 		"192.0.2",
 		"1",
 		"0x7f000001",
-		"192.0.2.1%" + std::to_string(loopback.index()),
-		"::ffff:192.0.2.1%" + std::to_string(loopback.index()),
-		"169.254.0.1%" + std::to_string(loopback.index()),
-		"::ffff:169.254.0.1%" + std::to_string(loopback.index()),
-		"2001:db8::1%" + std::to_string(loopback.index()),
-		"2001:db8::1%" + loopback.name(),
-		"ff02::1%" + loopback.name(),
-		"fe80::%" + loopback.name() + "/64",
+		"192.0.2.1%" + index,
+		"::ffff:192.0.2.1%" + index,
+		"169.254.0.1%" + index,
+		"::ffff:169.254.0.1%" + index,
+		"2001:db8::1%" + index,
+		"2001:db8::1%" + scope,
+		"ff02::1%" + scope,
+		"fe80::%" + scope + "/64",
 		"fe80::1%no-such-interface",
 		"fe80::1%4294967295",
 		"fe80::1%"

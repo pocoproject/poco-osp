@@ -106,7 +106,8 @@ than 0.
 The client addresses whose password checks are not limited, separated by
 commas or spaces: IPv4 addresses, IPv6 addresses, link-local IPv6 addresses
 with a scope id (fe80::1%eth0, which matches only a client on that interface)
-and IPv6 /64 prefixes (2001:db8:1:2::/64). Default is empty.
+and IPv6 /64 prefixes (2001:db8:1:2::/64). An interface whose name contains
+a space, as on Windows, is written by its index (fe80::1%3). Default is empty.
 
 
 !! prometheus.server.maxQueued

@@ -203,7 +203,8 @@ inline constexpr unsigned PREFIX_BYTES = PREFIX_LENGTH / 8;
 	/// commas or white space: an IPv4 address in dotted-decimal form, an IPv6 address, a link-local IPv6
 	/// address with a scope id (%name or %index), or an IPv6 /64 prefix without a scope id. An IPv4-mapped
 	/// IPv6 address is taken as its IPv4 address. The scope id is resolved to the interface index when the
-	/// list is parsed.
+	/// list is parsed. An interface whose name contains a separator, such as the Windows interface name
+	/// "Loopback Pseudo-Interface 1", is written by its index.
 	///
 	/// Throws a Poco::InvalidArgumentException naming the key and the entry for an entry that is not
 	/// an address or a prefix, a prefix length other than 64, a scope id on an IPv4 address, on a prefix
