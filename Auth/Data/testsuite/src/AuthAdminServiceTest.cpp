@@ -566,6 +566,7 @@ namespace
 		std::string fullName;
 		Poco::OSP::Auth::Permissions permissions;
 		Poco::OSP::Auth::Roles roles;
+		Poco::OSP::Auth::Attributes attributes;
 		std::map<std::string, Poco::OSP::Auth::Permissions> groupPermissions;
 		bool holdBinds = false;
 			/// A bind signals bindStarted and waits for bindReleased.
@@ -674,7 +675,7 @@ namespace
 			Poco::FastMutex::ScopedLock lock(_directory.mutex);
 			if (_directory.readFails) return false;
 			readAccountName(userDN);
-			setOwnProperties(_directory.fullName, _directory.roles, _directory.permissions, {});
+			setOwnProperties(_directory.fullName, _directory.roles, _directory.permissions, _directory.attributes);
 			return true;
 		}
 
@@ -3302,6 +3303,37 @@ void AuthAdminServiceTest::testRememberedLDAPLoginPostsNoNotification()
 }
 
 
+void AuthAdminServiceTest::testLDAPLoginNotificationDescribesUser()
+{
+	Directory directory;
+	directory.passwords[userDN("alice")] = "A";
+	directory.fullName = "Alice Example";
+	directory.permissions = {"read"};
+	directory.roles = {"dev"};
+	directory.groupPermissions = {{"dev", {"build"}}};
+	directory.attributes = {{"department", "engineering"}};
+	LDAPAuthAdminService::Ptr pAAS = new LDAPAuthAdminService(*_pProperties, backendAuthParams(_dbPath),
+		ldapTestParams(), directory);
+	const Poco::NObserver<AuthAdminServiceTest, AuthNotification> observer(*this,
+		&AuthAdminServiceTest::handleNotification);
+	Poco::NotificationCenter::defaultCenter().addObserver(observer);
+
+	const bool authenticated = pAAS->authenticate("Alice", "A");
+	Poco::NotificationCenter::defaultCenter().removeObserver(observer);
+
+	assertTrue (authenticated);
+	assertEqual (1, _notificationCounter);
+	assertTrue (_pLastNotification != nullptr);
+	assertTrue (_pLastNotification->isExternal());
+	// An LDAP user is stored under the name in lower case.
+	assertEqual ("alice", _pLastNotification->userName());
+	assertEqual ("Alice Example", _pLastNotification->fullName());
+	assertTrue (_pLastNotification->roles() == Poco::OSP::Auth::Roles{"dev"});
+	assertTrue (_pLastNotification->permissions() == Poco::OSP::Auth::Permissions{"read"});
+	assertTrue (_pLastNotification->attributes() == Poco::OSP::Auth::Attributes({{"department", "engineering"}}));
+}
+
+
 void AuthAdminServiceTest::testLDAPLoginAfterVerifyCredentialsPostsNotification()
 {
 	Directory directory;
@@ -5108,6 +5140,7 @@ void AuthAdminServiceTest::handleNotification(const Poco::AutoPtr<Poco::OSP::Aut
 	if (n != nullptr)
 	{
 		++_notificationCounter;
+		_pLastNotification = n;
 	}
 }
 
@@ -5332,6 +5365,7 @@ CppUnit::Test* AuthAdminServiceTest::suite()
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testAdminOfShippedDatabaseIsLocalUserWithLDAP);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLDAPPasswordChangeUpdatesStoredHash);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testRememberedLDAPLoginPostsNoNotification);
+	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLDAPLoginNotificationDescribesUser);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLDAPLoginAfterVerifyCredentialsPostsNotification);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLDAPLoginAfterLoginUnderOtherNamePostsNotification);
 	CppUnit_addTest(pSuite, AuthAdminServiceTest, testLDAPLoginUnderOtherCaseIsRemembered);

@@ -116,6 +116,7 @@ public:
 	void testAdminOfShippedDatabaseIsLocalUserWithLDAP();
 	void testLDAPPasswordChangeUpdatesStoredHash();
 	void testRememberedLDAPLoginPostsNoNotification();
+	void testLDAPLoginNotificationDescribesUser();
 	void testLDAPLoginAfterVerifyCredentialsPostsNotification();
 	void testLDAPLoginAfterLoginUnderOtherNamePostsNotification();
 	void testLDAPLoginUnderOtherCaseIsRemembered();
@@ -191,6 +192,8 @@ private:
 	bool _testInlineAttributes;
 	static bool _firstRun;
 	int _notificationCounter {0};
+	Poco::OSP::Auth::AuthNotification::Ptr _pLastNotification;
+		/// The notification that handleNotification() has received last.
 };
 
 
