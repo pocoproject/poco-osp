@@ -1,0 +1,283 @@
+//
+// OSPSubsystem.cpp
+//
+// Library: OSP
+// Package: Util
+// Module:  OSPSubsystem
+//
+// Copyright (c) 2007-2014, Applied Informatics Software Engineering GmbH.
+// All rights reserved.
+//
+// SPDX-License-Identifier:	BSL-1.0
+//
+
+
+#include "Poco/OSP/OSPSubsystem.h"
+#include "Poco/OSP/CodeCache.h"
+#include "Poco/OSP/ServiceRegistry.h"
+#include "Poco/OSP/BundleFactory.h"
+#include "Poco/OSP/BundleContextFactory.h"
+#include "Poco/OSP/BundleLoader.h"
+#include "Poco/OSP/BundleRepository.h"
+#include "Poco/OSP/LanguageTag.h"
+#include "Poco/OSP/BundleStreamFactory.h"
+#include "Poco/OSP/ExtensionPointService.h"
+#include "Poco/OSP/PreferencesService.h"
+#include "Poco/OSP/BundleInstallerService.h"
+#include "Poco/OSP/Properties.h"
+#include "Poco/Util/Application.h"
+#include "Poco/StringTokenizer.h"
+#include "Poco/Glob.h"
+#include "Poco/Exception.h"
+#include <memory>
+#include <vector>
+
+
+namespace Poco::OSP {
+
+
+namespace {
+
+
+class GlobBundleFilter: public BundleFilter
+{
+public:
+	GlobBundleFilter(const std::string& patterns)
+	{
+		Poco::StringTokenizer tok(patterns, ",;",
+			Poco::StringTokenizer::TOK_TRIM |
+			Poco::StringTokenizer::TOK_IGNORE_EMPTY);
+		for (const auto& p : tok)
+			_patterns.push_back(p);
+	}
+
+	bool accept(Bundle::Ptr pBundle) override
+	{
+		for (const auto& pattern : _patterns)
+		{
+			Poco::Glob glob(pattern);
+			if (glob.match(pBundle->symbolicName()))
+				return false;
+		}
+		return true;
+	}
+
+private:
+	std::vector<std::string> _patterns;
+};
+
+
+} // anonymous namespace
+
+
+OSPSubsystem::OSPSubsystem() = default;
+
+
+OSPSubsystem::~OSPSubsystem()
+{
+	// In reverse order of creation, and before _systemEvents, which the
+	// bundle contexts refer to: the repository uses the loader, the loader
+	// the registry and the code cache.
+	_pBundleRepository.reset();
+	_pBundleLoader.reset();
+	_pServiceRegistry.reset();
+	_pCodeCache.reset();
+}
+
+
+void OSPSubsystem::cancelInit()
+{
+	_cancelInit = true;
+}
+
+
+void OSPSubsystem::setBundleFilter(BundleFilter::Ptr pFilter)
+{
+	_pBundleFilter = pFilter;
+}
+
+	
+BundleFilter::Ptr OSPSubsystem::getBundleFilter() const
+{
+	return _pBundleFilter;
+}
+
+
+void OSPSubsystem::initialize(Poco::Util::Application& app)
+{
+	if (_cancelInit) return;
+
+	std::string codeCache        = app.config().getString("osp.codeCache", app.config().expand("${application.dir}codeCache"));
+	std::string bundleRepository = app.config().getString("osp.bundleRepository", app.config().expand("${application.dir}bundles"));
+	std::string dataPath         = app.config().getString("osp.data", app.config().expand("${application.dir}data"));
+	bool autoUpdateCodeCache     = app.config().getBool("osp.autoUpdateCodeCache", true);
+	bool sharedCodeCache         = app.config().getBool("osp.sharedCodeCache", false);
+
+	if (!_bundles.empty())
+	{
+		bundleRepository += ";";
+		bundleRepository += _bundles;
+	}
+
+	LanguageTag languageTag;
+	if (app.config().hasProperty("osp.language"))
+	{
+		languageTag = LanguageTag(app.config().getString("osp.language"));
+	}
+	
+	_pCodeCache = std::make_unique<CodeCache>(codeCache, sharedCodeCache);
+	if (_clearCache)
+	{
+		try
+		{
+			app.logger().information("Clearing code cache");
+
+			CodeCache::Lock ccLock(*_pCodeCache);
+			_pCodeCache->clear();
+		}
+		catch (Poco::Exception& exc)
+		{
+			app.logger().warning(std::string("Cannot clear code cache: ") + exc.displayText());
+		}
+	}
+	
+	_pServiceRegistry  = std::make_unique<ServiceRegistry>();
+	BundleFactory::Ptr pBundleFactory(new BundleFactory(languageTag));
+	BundleContextFactory::Ptr pBundleContextFactory(new BundleContextFactory(*_pServiceRegistry, _systemEvents, dataPath));
+	_pBundleLoader     = std::make_unique<BundleLoader>(*_pCodeCache, pBundleFactory, pBundleContextFactory, autoUpdateCodeCache);
+
+	if (_pBundleFilter == nullptr)
+	{
+		std::string skipBundles = app.config().getString("osp.skipBundles", "");
+		if (!skipBundles.empty())
+			_pBundleFilter = new GlobBundleFilter(skipBundles);
+	}
+	_pBundleRepository = std::make_unique<BundleRepository>(bundleRepository, *_pBundleLoader, _pBundleFilter);
+	
+	BundleStreamFactory::registerFactory(*_pBundleLoader);
+	try
+	{
+		Service::Ptr pExtensionPointService(new ExtensionPointService(_pBundleLoader->events()));
+		Service::Ptr pPreferencesService(new PreferencesService(dataPath, &app.config()));
+		Service::Ptr pBundleInstallerService(new BundleInstallerService(*_pBundleRepository));
+		_pServiceRegistry->registerService(ExtensionPointService::SERVICE_NAME, pExtensionPointService, Properties());
+		_pServiceRegistry->registerService(PreferencesService::SERVICE_NAME, pPreferencesService, Properties());
+		_pServiceRegistry->registerService(BundleInstallerService::SERVICE_NAME, pBundleInstallerService, Properties());
+
+		loadBundles(app);
+		startBundles(app);
+	}
+	catch (...)
+	{
+		// uninitialize() is not called after a failed initialize(). The factory
+		// would refer to the loader after the subsystem is destroyed, and the
+		// services are destroyed before the loader whose events they use.
+		BundleStreamFactory::unregisterFactory();
+		unregisterServices();
+		throw;
+	}
+
+	app.logger().information("Startup complete.");
+}
+
+
+void OSPSubsystem::loadBundles(Poco::Util::Application& app)
+{
+	app.logger().information("Loading bundles...");
+	_pBundleRepository->loadBundles();
+
+	// Set osp.version if osp.core bundle exists
+	Bundle::Ptr pCoreBundle = _pBundleLoader->findBundle("osp.core");
+	if (pCoreBundle != nullptr)
+	{
+		app.config().setString("osp.version", pCoreBundle->version().toString());
+	}
+	app.config().setString("osp.osname", _pBundleLoader->osName());
+	app.config().setString("osp.osarch", _pBundleLoader->osArchitecture());
+}
+
+
+void OSPSubsystem::startBundles(Poco::Util::Application& app)
+{
+	app.logger().information("Resolving bundles...");
+	_pBundleLoader->resolveAllBundles();
+	
+	app.logger().information("Starting bundles...");
+	_pBundleLoader->startAllBundles();
+	
+	SystemEvents::EventKind systemEvent = SystemEvents::EV_SYSTEM_STARTED;
+	_systemEvents.systemStarted(this, systemEvent);
+}
+
+	
+void OSPSubsystem::uninitialize()
+{
+	if (_pBundleLoader != nullptr)
+	{
+		BundleStreamFactory::unregisterFactory();
+
+		Poco::Util::Application::instance().logger().information("Stopping bundles...");
+
+		SystemEvents::EventKind systemEvent = SystemEvents::EV_SYSTEM_SHUTTING_DOWN;
+		_systemEvents.systemShuttingDown(this, systemEvent);
+
+		_pBundleLoader->stopAllBundles();
+
+		unregisterServices();
+
+		_pBundleLoader->unloadAllBundles(false);
+
+		Poco::Util::Application::instance().logger().information("Shutdown complete.");
+	}
+}
+
+
+void OSPSubsystem::unregisterServices()
+{
+	for (const std::string& name:
+		{ExtensionPointService::SERVICE_NAME, PreferencesService::SERVICE_NAME, BundleInstallerService::SERVICE_NAME})
+	{
+		if (_pServiceRegistry->findByName(name) != nullptr)
+		{
+			_pServiceRegistry->unregisterService(name);
+		}
+	}
+}
+
+
+void OSPSubsystem::defineOptions(Poco::Util::OptionSet& options)
+{
+	options.addOption(
+		Poco::Util::Option("clean", "C", "Start with clean code cache.")
+			.required(false)
+			.repeatable(false)
+			.callback(Poco::Util::OptionCallback<OSPSubsystem>(this, &OSPSubsystem::handleClear)));
+
+	options.addOption(
+		Poco::Util::Option("bundles", "B", "Specify a semicolon-separated list of bundles or bundle repositories.")
+			.required(false)
+			.repeatable(false)
+			.argument("paths")
+			.callback(Poco::Util::OptionCallback<OSPSubsystem>(this, &OSPSubsystem::handleBundles)));
+}
+
+
+const char* OSPSubsystem::name() const
+{
+	return "Open Service Platform";
+}
+
+
+void OSPSubsystem::handleClear(const std::string& /*name*/, const std::string& /*value*/)
+{
+	_clearCache = true;
+}
+
+
+void OSPSubsystem::handleBundles(const std::string& /*name*/, const std::string& value)
+{
+	_bundles = value;
+}
+
+
+} // namespace Poco::OSP

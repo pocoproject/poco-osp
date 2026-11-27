@@ -1,0 +1,79 @@
+OSP JWT Token Validator
+Open Service Platform
+
+!!! Introduction
+
+The <*poco.jwt*> bundle registers the service <[osp.jwt.validator]>, a
+Poco::OSP::Web::TokenValidator for JSON Web Tokens (JWTs). The web server uses
+it for bearer token authentication if <[osp.web.tokenValidatorName]> is set to
+<[osp.jwt.validator]>.
+
+A token is accepted if all of the following hold:
+
+  - It is signed with one of the configured algorithms and the configured key
+    of that algorithm.
+  - Its expiration time (claim "exp") has not passed by more than the leeway.
+    A token without an expiration time is rejected.
+  - Its "not before" time (claim "nbf"), if it has one, is not later than the
+    leeway from now.
+  - It names a subject (claim "sub").
+  - It names the configured issuer (claim "iss") and the configured audience
+    (claim "aud"), if they are configured.
+
+The subject is the name of the user, and the claim "scope", if the token has
+one, is the scope of the request.
+
+NOTE: Without jwt.validator.issuer, the issuer of a token is not checked, and
+without jwt.validator.audience, its audience is not checked: a token that the
+configured key signed for another service is accepted if it meets the other
+conditions. Set both if the key also signs tokens for other services.
+
+
+!!! Configuring the Bundle
+
+The bundle is configured using the global application configuration file.
+The following configuration properties are available:
+
+
+!! jwt.validator.algorithms
+
+The algorithms that a token may be signed with, separated by commas or
+semicolons. Default is HS256. The supported algorithms are HS256, HS384,
+HS512, RS256, RS384, RS512, ES256, ES384 and ES512. An algorithm that is not
+supported, or for which no key is configured, is logged as a warning when the
+bundle starts; tokens signed with it are rejected.
+
+
+!! jwt.validator.hmac.key
+
+The secret key for the algorithms HS256, HS384 and HS512. Default is empty.
+
+
+!! jwt.validator.rsa.publicKey
+
+The public key for the algorithms RS256, RS384 and RS512, in PEM format (the
+text of the key, not a file name). Default is empty.
+
+
+!! jwt.validator.ec.publicKey
+
+The public key for the algorithms ES256, ES384 and ES512, in PEM format (the
+text of the key, not a file name). Default is empty.
+
+
+!! jwt.validator.leeway
+
+The time in seconds by which the expiration time may have passed and the
+"not before" time may lie in the future, to allow for differences between the
+clocks of the issuer and of this process. Default is 5.
+
+
+!! jwt.validator.issuer
+
+The issuer that a token must name. Default is empty: the issuer is not checked.
+
+
+!! jwt.validator.audience
+
+The audience that a token must name, as its only audience or as one of
+several. Default is empty: the audience is not checked.

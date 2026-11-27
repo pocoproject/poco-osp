@@ -1,0 +1,4 @@
+<extensions>
+  <extension point="com.appinf.osp.shell.command" command="auth" class="AuthCommandFactory"/>
+  <extension point="com.appinf.osp.shell.command" command="passwd" class="PasswdCommandFactory"/>
+</extensions>

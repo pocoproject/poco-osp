@@ -1,0 +1,91 @@
+//
+// PasswdCommand.cpp
+//
+// Library: OSP/Auth
+// Package: Shell
+// Module:  PasswdCommand
+//
+// Copyright (c) 2012, Applied Informatics Software Engineering GmbH.
+// All rights reserved.
+//
+// SPDX-License-Identifier:	BSL-1.0
+//
+
+
+#include "PasswdCommand.h"
+#include "Poco/OSP/Shell/Command.h"
+#include "Poco/OSP/Shell/Session.h"
+#include "Poco/OSP/Auth/AuthAdminService.h"
+#include "Poco/OSP/BundleContext.h"
+#include "Poco/OSP/ServiceFinder.h"
+#include <cstddef>
+#include <ostream>
+#include <string>
+#include <vector>
+
+
+PasswdCommand::PasswdCommand(Poco::OSP::BundleContext::Ptr pContext):
+	_pContext(pContext)
+{
+}
+
+
+PasswdCommand::~PasswdCommand() = default;
+
+
+int PasswdCommand::execute(Poco::OSP::Shell::Session& session, const std::vector<std::string>& args, std::ostream& ostr)
+{
+	Poco::OSP::Auth::AuthAdminService::Ptr pAuthAdminSvc =
+		Poco::OSP::ServiceFinder::find<Poco::OSP::Auth::AuthAdminService>(_pContext);
+
+	if (pAuthAdminSvc != nullptr)
+	{
+		if (args.size() == 2 && (args[1] == "--help" || args[1] == "-h"))
+		{
+			help(ostr);
+			return Poco::OSP::Shell::Command::STATUS_OK;
+		}
+		else
+		{
+			return passwd(session, pAuthAdminSvc, args, ostr);
+		}
+	}
+	else return Poco::OSP::Shell::Command::STATUS_ERROR;
+}
+
+
+void PasswdCommand::help(std::ostream& ostr)
+{
+	ostr
+		<< "usage: passwd [--] <username> <password>\n"
+		<< "Change the password of the given user.\n"
+		<< "The user name is the account name of the user, which\n"
+		<< "can differ from the name given at the login.\n"
+		<< "Without the authAdmin permission, only the password\n"
+		<< "of the current user can be changed.\n"
+		<< std::endl;
+}
+
+
+int PasswdCommand::passwd(Poco::OSP::Shell::Session& session, Poco::OSP::Auth::AuthAdminService::Ptr pAuthAdminSvc,
+	const std::vector<std::string>& args, std::ostream& ostr)
+{
+	// The command processor runs the command only after a login; the check is kept for a direct call.
+	if (!session.authenticated()) return Poco::OSP::Shell::Command::STATUS_DENIED;
+
+	std::size_t first = 1;
+	if (args.size() > first && args[first] == "--") ++first;
+	if (args.size() == first + 2)
+	{
+		const std::string& username = args[first];
+		const std::string& password = args[first + 1];
+		if (username == session.user() || session.authorize("authAdmin"))
+		{
+			pAuthAdminSvc->changePassword(username, password);
+			return Poco::OSP::Shell::Command::STATUS_OK;
+		}
+		else return Poco::OSP::Shell::Command::STATUS_DENIED;
+	}
+	ostr << "Bad command syntax." << std::endl;
+	return Poco::OSP::Shell::Command::STATUS_USAGE;
+}

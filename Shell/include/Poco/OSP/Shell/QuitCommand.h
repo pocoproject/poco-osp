@@ -1,0 +1,60 @@
+//
+// QuitCommand.h
+//
+// Library: OSP/Shell
+// Package: Shell
+// Module:  QuitCommand
+//
+// Definition of the QuitCommand class.
+//
+// Copyright (c) 2009, Applied Informatics Software Engineering GmbH.
+// All rights reserved.
+//
+// SPDX-License-Identifier:	BSL-1.0
+//
+
+
+#ifndef OSP_Shell_QuitCommand_INCLUDED
+#define OSP_Shell_QuitCommand_INCLUDED
+
+
+#include "Poco/OSP/Shell/AbstractCommand.h"
+#include "Poco/OSP/BundleContext.h"
+
+
+namespace Poco::OSP::Shell {
+
+
+class OSPShell_API QuitCommand: public AbstractCommand
+	/// QuitCommand implements the "quit" command.
+	///
+	/// Executing the command returns a negative
+	/// return code, which causes the ShellConnection
+	/// object to close the connection.
+	///
+	/// The help text of the quit command can be
+	/// customized by providing the following bundle
+	/// properties:
+	///    - quit.description: The description of the command.
+	///    - quit.usage: The usage string.
+{
+public:
+	QuitCommand(Poco::OSP::BundleContext::Ptr pContext);
+		/// Creates the QuitCommand.
+		
+	~QuitCommand() override;
+		/// Destroys the QuitCommand.
+
+protected:		
+	// AbstractCommand
+	[[nodiscard]] int executeImpl(Session& session, const std::vector<std::string>& args, std::ostream& ostr) override;
+	
+private:
+	Poco::OSP::BundleContext::Ptr _pContext;
+};
+
+
+} // namespace Poco::OSP::Shell
+
+
+#endif // OSP_Shell_QuitCommand_INCLUDED

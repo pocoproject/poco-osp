@@ -1,0 +1,5 @@
+include(CMakeFindDependencyMacro)
+find_dependency(PocoFoundation)
+find_dependency(PocoRemotingNG)
+find_dependency(PocoOSP)
+include("${CMAKE_CURRENT_LIST_DIR}/PocoOSPAuthRemotingTargets.cmake")

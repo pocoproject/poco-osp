@@ -1,0 +1,79 @@
+#! /bin/sh
+#
+# checkdoc
+#
+# Checks the reference documentation that PocoDoc wrote to <output-dir>: it has a
+# page for every .page file of the repository, no two .page files have the same
+# base name, PocoDoc read every public header of the repository (by the PocoDoc
+# output in <log>), and a class page names every public header that defines a
+# class or struct.
+#
+# usage: checkdoc <repository> <output-dir> <log>
+#
+
+set -e
+
+if [ $# -ne 3 ] ; then
+	echo "usage: $0 <repository> <output-dir> <log>" >&2
+	exit 64
+fi
+
+base=$(cd "$1" && pwd)
+output=$2
+log=$3
+
+if ! prefix=$(git -C "$base" rev-parse --show-prefix 2>/dev/null) || [ -n "$prefix" ] ; then
+	echo "$base is not the top directory of a git checkout: checkdoc lists the files of the repository with git." >&2
+	exit 1
+fi
+
+# Tracked files and new files that git does not ignore, so that build directories inside the
+# repository do not count.
+listFiles()
+{
+	git -C "$base" ls-files --cached --others --exclude-standard -- "$@"
+}
+
+missing=0
+
+while IFS= read -r page ; do
+	html=$(basename "$page" .page).html
+	if [ ! -f "$output/$html" ] ; then
+		echo "No $html for $page"
+		missing=$((missing + 1))
+	fi
+done <<EOF
+$(listFiles '*.page')
+EOF
+
+# PocoDoc writes one HTML file per base name: of the pages that share one, only one is in the documentation.
+while IFS= read -r page ; do
+	if [ -n "$page" ] ; then
+		echo "One $(basename "$page" .page).html for $(listFiles "*/$page" "$page" | paste -s -d ' ' -)"
+		missing=$((missing + 1))
+	fi
+done <<EOF
+$(listFiles '*.page' | sed 's|^.*/||' | sort | uniq -d)
+EOF
+
+documented=$(grep -h -o '<b>Header:</b> [^<]*' "$output"/*.html | sed 's|^<b>Header:</b> ||' | sort -u)
+while IFS= read -r header ; do
+	# The line as the logging pattern of cfg/mkdoc-poco-osp.xml writes it.
+	if ! grep -q -x -F "Application: [Information] Preprocessing $base/$header" "$log" ; then
+		echo "PocoDoc did not read $header"
+		missing=$((missing + 1))
+	# A definition starts at the beginning of a line; a declaration ends with a semicolon.
+	elif grep -q -E '^(class|struct) [^;]*$' "$base/$header" &&
+		! printf '%s\n' "$documented" | grep -q -x -F "${header#*include/}" ; then
+		echo "No class page names $header"
+		missing=$((missing + 1))
+	fi
+done <<EOF
+$(listFiles '*/include/*.h' 'include/*.h' | grep -v -E '(^|/)(cmake|samples|testsuite)/')
+EOF
+
+if [ $missing -ne 0 ] ; then
+	echo "$missing pages or headers are missing in the documentation in $output."
+	exit 1
+fi
+echo "Every page and every public header is in the documentation in $output."

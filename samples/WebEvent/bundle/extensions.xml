@@ -1,0 +1,4 @@
+<extensions>
+  <extension point="osp.web.server.directory" path="/webeventsample" resource="html" allowSpecialization="owner" description="WebEvent Sample Page"/>
+  <extension point="osp.web.server.requesthandler" path="/webeventsample/login" class="LoginRequestHandlerFactory" library="com.appinf.osp.samples.webevent" methods="POST" exactMatch="true" hidden="true"/>
+</extensions>

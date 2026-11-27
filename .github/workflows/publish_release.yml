@@ -1,0 +1,158 @@
+# Source archives made with git archive and the documentation built with
+# PocoDoc/mkdoc, published as a GitHub release of this repository;
+# releases-staging creates a draft release. Where releases are published is the
+# repository owners' decision.
+
+name: Publish Release
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Release Channel'
+        required: true
+        default: 'releases'
+        type: choice
+        options:
+          - releases
+          - releases-staging
+
+permissions:
+  contents: read
+
+env:
+  # The POCO the documentation is built with, as in ci.yml.
+  POCO_OSP_CI_POCO_VERSION: latest
+
+jobs:
+  mkdoc:
+    runs-on: ubuntu-24.04
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v5
+      -
+        name: Install packages
+        run: sudo apt -y update && sudo apt -y install cmake ninja-build libssl-dev
+      -
+        name: Build documentation
+        # mkdoc runs PocoDoc/checkdoc, which fails when a page or a public header is missing.
+        run: |
+          read VERSION <VERSION
+          PocoDoc/mkdoc cmake-build-doc releases/poco-osp-$VERSION-doc -G Ninja \
+            -DPOCO_OSP_POCO_VERSION=${{ env.POCO_OSP_CI_POCO_VERSION }}
+          cd releases
+          tar -czf poco-osp-$VERSION-doc.tar.gz poco-osp-$VERSION-doc
+          zip -qr poco-osp-$VERSION-doc.zip poco-osp-$VERSION-doc
+          rm -rf poco-osp-$VERSION-doc poco-osp-$VERSION-doc.log
+      -
+        name: Upload documentation
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-doc
+          path: releases/
+          if-no-files-found: error
+
+  mkrelease_win:
+    runs-on: ubuntu-24.04
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v5
+      -
+        name: Build release package
+        # core.autocrlf=true: the text files get CRLF line endings, as on a Windows checkout.
+        run: |
+          read VERSION <VERSION
+          mkdir -p releases
+          git -c core.autocrlf=true archive --format=zip --prefix=poco-osp-$VERSION/ \
+            -o releases/poco-osp-$VERSION.zip HEAD
+      -
+        name: Upload release package
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-win
+          path: releases/
+          if-no-files-found: error
+
+  mkrelease:
+    runs-on: ubuntu-24.04
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v5
+      -
+        name: Build release package
+        run: |
+          read VERSION <VERSION
+          mkdir -p releases
+          git archive --format=tar.gz --prefix=poco-osp-$VERSION/ -o releases/poco-osp-$VERSION.tar.gz HEAD
+          git archive --format=tar --prefix=poco-osp-$VERSION/ HEAD | bzip2 -9 >releases/poco-osp-$VERSION.tar.bz2
+      -
+        name: Upload release package
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-unix
+          path: releases/
+          if-no-files-found: error
+
+  sign_and_publish:
+    runs-on: ubuntu-24.04
+    needs: ["mkdoc", "mkrelease_win", "mkrelease"]
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v5
+      -
+        name: Download release packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: releases
+          merge-multiple: true
+      -
+        name: Checksums
+        run: |
+          read VERSION <VERSION
+          cd releases
+          sha256sum poco-osp-$VERSION.* poco-osp-$VERSION-doc.* >poco-osp-$VERSION.sha256
+      -
+        name: Attest the release packages
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: releases/poco-osp-*
+      -
+        name: Publish
+        # A tag on another commit stops the run. A draft from releases-staging
+        # gets the assets of this run, and the releases channel publishes it;
+        # a published release is not changed.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRAFT: ${{ inputs.channel == 'releases-staging' }}
+        run: |
+          read VERSION <VERSION
+          TAG=poco-osp-$VERSION-release
+          REFS=$(git ls-remote origin "refs/tags/$TAG" "refs/tags/$TAG^{}")
+          TAG_SHA=$(printf '%s\n' "$REFS" | tail -n 1 | cut -f 1)
+          if [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::The tag $TAG is on commit $TAG_SHA, not on $GITHUB_SHA."
+            exit 1
+          fi
+          GH_ERROR=$RUNNER_TEMP/gh-error.txt
+          if IS_DRAFT=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>"$GH_ERROR"); then
+            if [ "$IS_DRAFT" != true ]; then
+              echo "::error::The release $TAG is already published."
+              exit 1
+            fi
+            gh release upload "$TAG" releases/* --clobber
+            gh release edit "$TAG" --target "$GITHUB_SHA" --draft="$DRAFT"
+          elif grep -qx 'release not found' "$GH_ERROR"; then
+            gh release create "$TAG" releases/* --target "$GITHUB_SHA" \
+              --title "POCO OSP $VERSION" --notes "See CHANGELOG.md." --draft="$DRAFT"
+          else
+            cat "$GH_ERROR" >&2
+            exit 1
+          fi
